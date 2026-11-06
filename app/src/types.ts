@@ -22,9 +22,10 @@ export interface Connection {
 }
 export interface Flow {
   id: string; name: string; status: 'draft' | 'active' | 'paused';
-  trigger: Record<string, unknown>; graph: { nodes: FlowNode[]; edges: FlowEdge[] }; createdAt: string;
+  trigger: Record<string, any>; graph: { nodes: FlowNode[]; edges: FlowEdge[] }; createdAt: string;
+  runs?: number;
 }
-export interface FlowNode { id: string; type: string; x?: number; y?: number; data?: Record<string, unknown>; }
+export interface FlowNode { id: string; type: string; x?: number; y?: number; data?: Record<string, any>; }
 export interface FlowEdge { source: string; target: string; branch?: 'true' | 'false'; }
 export interface Agent {
   id: string; name: string; model: string; enabled: boolean; systemPrompt: string; createdAt: string;

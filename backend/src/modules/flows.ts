@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { asyncHandler, AppError } from '../utils/http';
 
@@ -9,7 +9,11 @@ export const flowsRouter = Router();
 flowsRouter.get('/', asyncHandler(async (req, res) => {
   const rows = await db.select().from(schema.flows)
     .where(eq(schema.flows.accountId, req.accountId!)).orderBy(desc(schema.flows.createdAt));
-  res.json({ flows: rows });
+  const counts = await db.select({ flowId: schema.flowRuns.flowId, runs: sql<number>`count(*)` })
+    .from(schema.flowRuns).where(eq(schema.flowRuns.accountId, req.accountId!))
+    .groupBy(schema.flowRuns.flowId);
+  const byFlow = new Map(counts.map((c) => [c.flowId, Number(c.runs)]));
+  res.json({ flows: rows.map((f) => ({ ...f, runs: byFlow.get(f.id) ?? 0 })) });
 }));
 
 flowsRouter.get('/:id', asyncHandler(async (req, res) => {

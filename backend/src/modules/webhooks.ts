@@ -64,7 +64,7 @@ hooksInRouter.post('/:token', asyncHandler(async (req, res) => {
         accountId: wh.accountId, contactId: contact.id, amount: amount.toFixed(2), status,
       });
     }
-    await triggerFlowsForInbound(wh.accountId, contact.id, String(body.event ?? 'webhook'));
+    await triggerFlowsForInbound(wh.accountId, contact.id, String(body.event ?? 'webhook'), null, 'webhook');
   }
   res.sendStatus(200);
 }));

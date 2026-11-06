@@ -79,7 +79,7 @@ async function processWebhook(payload: any) {
         emitToAccount(accountId, 'message:new', { conversationId: conv.id, message: msg });
 
         // dispara automações cujo gatilho é "mensagem recebida"
-        await triggerFlowsForInbound(accountId, contact.id, body ?? '');
+        await triggerFlowsForInbound(accountId, contact.id, body ?? '', conn.id, 'inbound_message');
         // resposta automática do agente de IA (se houver agente ativo e saldo)
         await runAgentForInbound(accountId, conv.id);
       }

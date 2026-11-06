@@ -19,7 +19,7 @@ import { billingRouter } from './modules/billing';
 import { metaRouter } from './modules/meta';
 import { whatsappWebhookRouter } from './whatsapp/webhook';
 import { initIO } from './realtime/io';
-import { startDispatchWorker } from './queue/worker';
+import { startDispatchWorker, startFlowWorker } from './queue/worker';
 
 const app = express();
 app.use(cors({ origin: config.appOrigin, credentials: true }));
@@ -58,6 +58,7 @@ initIO(server);
 // Em dev, roda o worker no mesmo processo. Em produção, escale com `npm run worker`.
 if (process.env.START_WORKER !== 'false') {
   startDispatchWorker();
+  startFlowWorker();
 }
 
 server.listen(config.port, () => {

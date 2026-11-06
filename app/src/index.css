@@ -122,3 +122,26 @@ tbody tr:hover{background:var(--surface-2)}
 .auth-wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:20px;background:
   radial-gradient(120% 80% at 50% 0%, var(--primary-50), transparent 60%), var(--bg)}
 .auth-card{width:100%;max-width:400px}
+
+/* flow builder */
+.fb-canvas{position:relative;overflow:auto;background:radial-gradient(circle at center, var(--border) 1px, transparent 1px);background-size:22px 22px;user-select:none}
+.fb-inner{position:relative;min-width:2400px;min-height:1600px}
+.fb-node{position:absolute;width:200px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);cursor:grab;transition:box-shadow .12s}
+.fb-node.selected{box-shadow:0 0 0 3px var(--primary-ring), var(--shadow-lg);border-color:var(--primary)}
+.fb-node .hd{display:flex;align-items:center;gap:7px;padding:8px 12px 4px;font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase}
+.fb-node .bd{padding:0 12px 10px;font-size:12.5px;line-height:1.35;color:var(--text);min-height:30px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.handle{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--surface);border:2.5px solid var(--primary);cursor:crosshair;z-index:3;transition:transform .1s}
+.handle:hover{transform:scale(1.3)}
+.handle.in{left:-8px;top:29px;border-color:var(--faint);cursor:default}
+.handle.lbl{font-size:9px;font-weight:800;color:var(--muted);position:absolute;right:20px;pointer-events:none}
+.fb-edge{stroke:var(--border-strong);stroke-width:2.2;fill:none}
+.fb-edge.t{stroke:var(--success)} .fb-edge.f{stroke:var(--danger)}
+.fb-edge-del{cursor:pointer}
+.fb-edge-del circle{fill:var(--surface);stroke:var(--border-strong);stroke-width:1.5}
+.fb-edge-del:hover circle{fill:var(--danger-50);stroke:var(--danger)}
+.fb-edge-del text{font-size:11px;font-weight:800;fill:var(--muted);pointer-events:none}
+.fb-edge-del:hover text{fill:var(--danger)}
+.pal{display:flex;align-items:center;gap:9px;padding:10px 12px;border:1px solid var(--border);border-radius:11px;background:var(--surface);cursor:pointer;margin-bottom:8px;width:100%;text-align:left;font-family:inherit}
+.pal:hover{border-color:var(--primary);background:var(--primary-50)}
+.pal b{font-size:12.5px;display:block}
+.pal small{font-size:11px;color:var(--faint)}
