@@ -4,10 +4,10 @@ import { newRedis } from '../redis';
 import { db, schema } from '../db';
 import { sendText } from '../whatsapp/cloud-api';
 import { resolveAudienceContacts, type Audience } from '../modules/audience';
-import { ensureConversation } from '../modules/conversations';
+import { ensureConversation } from '../modules/conversationStore';
 import { emitToAccount } from '../realtime/io';
-import { resumeFlowRun } from '../flows/engine';
-import type { DispatchJobData, FlowResumeJobData } from './index';
+import { handleFlowJob } from '../flows/runner';
+import type { DispatchJobData, FlowJobData } from './index';
 
 const THROTTLE_MS = 1200; // intervalo anti-bloqueio entre envios
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -56,10 +56,10 @@ export function startDispatchWorker() {
   return worker;
 }
 
-/** Worker que retoma execuções de fluxo após blocos de espera. */
+/** Worker que retoma execuções de fluxo (fim de espera, tempo do pagamento). */
 export function startFlowWorker() {
-  const worker = new Worker<FlowResumeJobData>('flows', async (job) => {
-    await resumeFlowRun(job.data.runId, job.data.nodeId);
+  const worker = new Worker<FlowJobData>('flows', async (job) => {
+    await handleFlowJob(job.data);
   }, { connection: newRedis(), concurrency: 5 });
   worker.on('failed', (job, err) => console.error(`[flows] job ${job?.id} falhou:`, err.message));
   console.log('Worker de fluxos iniciado.');

@@ -15,6 +15,13 @@
       "when": 1793934932091,
       "tag": "0001_ai_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793990945050,
+      "tag": "0002_flows_v2",
+      "breakpoints": true
     }
   ]
 }

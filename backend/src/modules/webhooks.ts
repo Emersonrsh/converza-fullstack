@@ -5,7 +5,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { config } from '../config';
 import { asyncHandler, AppError } from '../utils/http';
-import { triggerFlowsForInbound } from '../flows/engine';
+import { triggerFlowsForInbound, onPaymentApproved } from '../flows/runner';
 
 export const webhooksRouter = Router();
 
@@ -64,7 +64,21 @@ hooksInRouter.post('/:token', asyncHandler(async (req, res) => {
         accountId: wh.accountId, contactId: contact.id, amount: amount.toFixed(2), status,
       });
     }
-    await triggerFlowsForInbound(wh.accountId, contact.id, String(body.event ?? 'webhook'), null, 'webhook');
+    // venda aprovada → libera fluxos que aguardavam o pagamento deste contato
+    if (status === 'approved') await onPaymentApproved(wh.accountId, contact.id);
+    await triggerFlowsForInbound({
+      accountId: wh.accountId,
+      contactId: contact.id,
+      text: String(body.event ?? body.status ?? 'webhook'),
+      source: 'webhook',
+      webhookId: wh.id,
+      vars: {
+        evento: String(body.event ?? body.status ?? ''),
+        valor: amount > 0 ? amount.toFixed(2) : '',
+        produto: String(body.product?.name ?? body.product_name ?? body.produto ?? ''),
+        status_venda: status,
+      },
+    });
   }
   res.sendStatus(200);
 }));

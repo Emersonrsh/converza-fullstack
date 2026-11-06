@@ -56,6 +56,7 @@ export function Layout() {
   }, [accountId]);
 
   const [t, s] = TITLES[loc.pathname] ?? ['Converza', ''];
+  const fullscreen = /^\/flows\/[^/]+/.test(loc.pathname);
   const account = accounts.find((a) => a.id === accountId);
 
   return (
@@ -102,12 +103,14 @@ export function Layout() {
       </aside>
 
       <div className="main">
-        <header className="topbar">
-          <div><h1>{t}</h1><div className="sub">{s}</div></div>
-          <div className="spacer" />
-          {user && <div className="row" style={{ gap: 9 }}><Avatar name={user.name} size={34} /></div>}
-        </header>
-        <div className="content"><Outlet /></div>
+        {!fullscreen && (
+          <header className="topbar">
+            <div><h1>{t}</h1><div className="sub">{s}</div></div>
+            <div className="spacer" />
+            {user && <div className="row" style={{ gap: 9 }}><Avatar name={user.name} size={34} /></div>}
+          </header>
+        )}
+        <div className={cx('content', fullscreen && 'flush')}><Outlet /></div>
       </div>
       <Toaster />
     </div>

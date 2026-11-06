@@ -21,10 +21,14 @@ export const config = {
     appId: process.env.META_APP_ID ?? '',
     appSecret: process.env.META_APP_SECRET ?? '',
     configId: process.env.META_EMBEDDED_SIGNUP_CONFIG_ID ?? '',
+    // true = não confere a assinatura dos webhooks (só para testes; o padrão é conferir quando há META_APP_SECRET)
+    skipSignature: process.env.WHATSAPP_SKIP_SIGNATURE === 'true',
   },
   ai: {
     // Chave do operador para a execução dos agentes (OpenAI-compatível).
     apiKey: process.env.OPENAI_API_KEY ?? '',
-    baseUrl: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+    baseUrl: (process.env.OPENAI_BASE_URL ?? 'https://openrouter.ai/api/v1').replace(/\/+$/, ''),
+    // modelo usado pelos recursos de IA dos fluxos (gerar, traduzir, blocos sem modelo definido)
+    defaultModel: process.env.AI_DEFAULT_MODEL ?? 'openai/gpt-4o-mini',
   },
 } as const;

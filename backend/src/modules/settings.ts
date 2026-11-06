@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { and, eq } from 'drizzle-orm';
 import { db, schema } from '../db';
-import { asyncHandler, AppError } from '../utils/http';
+import { asyncHandler, AppError, isUuid } from '../utils/http';
 
 export const settingsRouter = Router();
 
@@ -45,14 +45,34 @@ settingsRouter.get('/products', asyncHandler(async (req, res) => {
   res.json({ products: rows });
 }));
 
+const checkoutUrl = z.string().trim().max(1000)
+  .refine((v) => v === '' || /^https?:\/\/\S+$/i.test(v), 'O link precisa começar com http:// ou https://')
+  .optional();
+
 settingsRouter.post('/products', asyncHandler(async (req, res) => {
-  const data = z.object({ name: z.string().min(1), price: z.number().nonnegative() }).parse(req.body);
+  const data = z.object({ name: z.string().trim().min(1), price: z.number().nonnegative(), checkoutUrl }).parse(req.body);
   const [row] = await db.insert(schema.products)
-    .values({ accountId: req.accountId!, name: data.name, price: data.price.toFixed(2) }).returning();
+    .values({ accountId: req.accountId!, name: data.name, price: data.price.toFixed(2), checkoutUrl: data.checkoutUrl || null })
+    .returning();
   res.status(201).json({ product: row });
 }));
 
+settingsRouter.patch('/products/:id', asyncHandler(async (req, res) => {
+  if (!isUuid(req.params.id)) throw new AppError(404, 'Produto não encontrado');
+  const data = z.object({
+    name: z.string().trim().min(1).optional(), price: z.number().nonnegative().optional(), checkoutUrl,
+  }).parse(req.body);
+  const [row] = await db.update(schema.products).set({
+    ...(data.name ? { name: data.name } : {}),
+    ...(data.price !== undefined ? { price: data.price.toFixed(2) } : {}),
+    ...(data.checkoutUrl !== undefined ? { checkoutUrl: data.checkoutUrl || null } : {}),
+  }).where(and(eq(schema.products.id, req.params.id), eq(schema.products.accountId, req.accountId!))).returning();
+  if (!row) throw new AppError(404, 'Produto não encontrado');
+  res.json({ product: row });
+}));
+
 settingsRouter.delete('/products/:id', asyncHandler(async (req, res) => {
+  if (!isUuid(req.params.id)) throw new AppError(404, 'Produto não encontrado');
   const [row] = await db.delete(schema.products)
     .where(and(eq(schema.products.id, req.params.id), eq(schema.products.accountId, req.accountId!)))
     .returning({ id: schema.products.id });

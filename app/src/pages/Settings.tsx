@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { api, money } from '../api';
+import { api } from '../api';
 import { Icon } from '../icons';
-import { Field, Spinner, toast, cx } from '../components/ui';
+import { Field, Spinner, toast } from '../components/ui';
+import { ProductsManager } from '../components/Products';
 
 interface Account { id: string; name: string; timezone: string; }
 interface Tag { id: string; name: string; color: string; }
-interface Product { id: string; name: string; price: string; }
 
 export function Settings() {
   const [tab, setTab] = useState<'conta' | 'etiquetas' | 'produtos'>('conta');
@@ -64,28 +64,13 @@ function TagsTab() {
 }
 
 function ProductsTab() {
-  const [list, setList] = useState<Product[] | null>(null);
-  const [name, setName] = useState(''); const [price, setPrice] = useState('');
-  const load = () => api.get<{ products: Product[] }>('/settings/products').then((r) => setList(r.products));
-  useEffect(() => { load(); }, []);
-  async function add() { if (!name.trim()) return; await api.post('/settings/products', { name, price: Number(price) || 0 }); setName(''); setPrice(''); load(); }
-  async function del(id: string) { await api.del(`/settings/products/${id}`); load(); }
-  if (!list) return <Spinner />;
   return (
     <div>
-      <b className="title">Produtos</b>
-      <div className="card" style={{ overflow: 'hidden', margin: '12px 0' }}>
-        <table><thead><tr><th>Produto</th><th>Preço</th><th /></tr></thead>
-          <tbody>{list.map((p) => <tr key={p.id}><td><b>{p.name}</b></td><td>{money(Number(p.price))}</td>
-            <td><button className={cx('btn', 'icon', 'sm', 'ghost')} onClick={() => del(p.id)}><Icon name="close" size={15} /></button></td></tr>)}</tbody>
-        </table>
-        {list.length === 0 && <div className="empty">Nenhum produto.</div>}
-      </div>
-      <div className="row" style={{ maxWidth: 460 }}>
-        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome do produto" />
-        <input className="input" style={{ maxWidth: 120 }} value={price} onChange={(e) => setPrice(e.target.value)} placeholder="Preço" type="number" />
-        <button className="btn primary" onClick={add}><Icon name="plus" size={15} /></button>
-      </div>
+      <b className="title">Produtos e links de pagamento</b>
+      <p className="muted" style={{ fontSize: 13, margin: '6px 0 14px', lineHeight: 1.5 }}>
+        O bloco <b>Pagamento</b> dos fluxos envia o link do produto ao cliente e espera a confirmação da venda.
+      </p>
+      <ProductsManager />
     </div>
   );
 }

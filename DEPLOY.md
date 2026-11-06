@@ -36,10 +36,10 @@ O Render faz deploy a partir de um repositório. Sem instalar Git pela linha de 
    | `DATABASE_URL` | a Internal Database URL do Postgres |
    | `REDIS_URL` | a Internal URL do Key Value |
    | `JWT_SECRET` | qualquer frase longa e secreta |
-   | `APP_ORIGIN` | `https://converza-app.onrender.com` (o endereço do frontend — veja Parte 4) |
+   | `APP_ORIGIN` | o endereço do frontend, ex.: `https://converza-fullstack.onrender.com` (veja Parte 4) |
    | `WHATSAPP_VERIFY_TOKEN` | um texto à sua escolha (anote, usa no Meta) |
    | `GRAPH_API_VERSION` | `v21.0` |
-   | `META_APP_ID` / `META_APP_SECRET` / `META_EMBEDDED_SIGNUP_CONFIG_ID` | (deixe vazio por enquanto; preenche quando criar o app Meta) |
+   | `META_APP_ID` / `META_APP_SECRET` / `META_EMBEDDED_SIGNUP_CONFIG_ID` | (deixe vazio por enquanto; preenche quando criar o app Meta). Com o `META_APP_SECRET` preenchido, a API passa a recusar webhooks sem a assinatura da Meta — use a "Chave secreta do app" do **mesmo** app onde o webhook está cadastrado. |
    | `OPENAI_API_KEY` | sua chave do OpenRouter `sk-or-...` (sem ela os agentes não respondem) |
    | `OPENAI_BASE_URL` | `https://openrouter.ai/api/v1` |
 4. Crie o serviço. O Render builda a imagem, roda as migrations e sobe a API. A URL final será algo como `https://converza-api.onrender.com`.
@@ -57,13 +57,13 @@ O Render faz deploy a partir de um repositório. Sem instalar Git pela linha de 
    |---|---|
    | `VITE_API_URL` | `https://converza-api.onrender.com/api/v1` |
    | `VITE_SOCKET_URL` | `https://converza-api.onrender.com` |
-4. Em **Redirects/Rewrites**, adicione uma regra: **Source** `/*` → **Destination** `/index.html` → **Rewrite** (faz o roteamento do app funcionar).
-5. Crie. A URL será `https://converza-app.onrender.com`.
+4. (Opcional) Em **Redirects/Rewrites**, adicione a regra **Source** `/*` → **Destination** `/index.html` → **Rewrite**. Não é obrigatório: o build já gera um `404.html` igual ao `index.html`, então atualizar a página em qualquer tela (ex.: `/flows/...`) abre o app normalmente.
+5. Crie. A URL aparece no topo da página do serviço (ex.: `https://converza-fullstack.onrender.com`) — é ela que vai no `APP_ORIGIN` da API.
 
 ## Parte 5 — Amarrar as pontas
 
 1. Confirme que o `APP_ORIGIN` da API é exatamente a URL do frontend (sem barra no fim). Se precisou ajustar, salve e o Render redeploya.
-2. Abra `https://converza-app.onrender.com`, crie sua conta e entre.
+2. Abra a URL do frontend, crie sua conta e entre.
 3. **Base para o WhatsApp:** seu webhook agora é `https://converza-api.onrender.com/api/v1/webhooks/whatsapp` e o token de verificação é o `WHATSAPP_VERIFY_TOKEN` que você definiu. Use esses valores ao configurar o app na Meta.
 
 ## Atualizações futuras

@@ -22,7 +22,7 @@ export async function runAgentForInbound(accountId: string, conversationId: stri
   if (!(await hasTokens(accountId))) return; // trava: sem saldo de tokens
 
   const [conv] = await db.select().from(schema.conversations).where(eq(schema.conversations.id, conversationId)).limit(1);
-  if (!conv?.connectionId) return;
+  if (!conv?.connectionId || conv.botPaused) return; // sem conexão ou atendimento humano
   const [contact] = await db.select().from(schema.contacts).where(eq(schema.contacts.id, conv.contactId)).limit(1);
   const [conn] = await db.select().from(schema.connections).where(eq(schema.connections.id, conv.connectionId)).limit(1);
   if (!contact || !conn) return;

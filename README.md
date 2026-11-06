@@ -40,7 +40,8 @@ Abra `http://localhost:5173`, crie uma conta (ou use o login do seed: `demo@conv
 - Contatos (CRM), funil Kanban com arrastar, inbox com envio e **recebimento em tempo real**
 - Conexões de WhatsApp (Cloud API), dashboard com dados reais do banco
 - Disparos em massa em fila com progresso ao vivo
-- Fluxos (CRUD + ativar/pausar, executados pelo motor do backend)
+- **Fluxos**: editor visual (arrastar, conectar, zoom, minimapa, desfazer/refazer, copiar/colar), 15 tipos de bloco (mensagem, mídia, menu com botões/lista, pergunta com validação, condição, espera, teste A/B, ações de CRM, transferir para humano, webhook/HTTP, pagamento com espera da confirmação, resposta e classificação com IA, ir para outro fluxo), pastas com cores, busca e filtros, simulador, estatísticas por bloco (entradas/avanços/taxa), compartilhar e importar por código, traduzir com IA, gerar fluxo com IA, arquivar
+- Inbox com chave "automação ativa / atendimento humano" e lista dos fluxos em andamento na conversa
 - Agentes de IA (CRUD), webhooks de entrada (CRUD + receptor público), equipe, assinatura e configurações
 
 ## O que precisa das suas credenciais para ir "ao vivo"
@@ -54,4 +55,10 @@ Estão integrados no código e ativam quando você pluga as chaves/infra:
 
 ## Próximos passos de produto
 
-Construtor visual de fluxos (arrastar-e-soltar) ligado ao grafo salvo; execução dos agentes de IA sobre as conversas; reagendamento de `delay` nos fluxos via fila; assinatura HMAC do webhook da Meta e criptografia de tokens em repouso.
+Modelos de mensagem aprovados (templates) para falar fora da janela de 24h; criptografia dos tokens em repouso; edição simultânea de um mesmo fluxo por várias pessoas.
+
+## Testes
+
+```bash
+cd backend && npm test        # motor de fluxos: blocos, retomadas, gatilhos, estatísticas, IA, importação, SSRF
+```

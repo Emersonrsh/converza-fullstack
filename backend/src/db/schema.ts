@@ -1,6 +1,7 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable, pgEnum, uuid, text, integer, numeric, boolean,
-  timestamp, jsonb, index, uniqueIndex,
+  timestamp, jsonb, index, uniqueIndex, primaryKey,
 } from 'drizzle-orm/pg-core';
 
 /* ---------- enums ---------- */
@@ -86,6 +87,8 @@ export const conversations = pgTable('conversations', {
   connectionId: uuid('connection_id').references(() => connections.id, { onDelete: 'set null' }),
   status: convStatusEnum('status').notNull().default('open'),
   assignedUserId: uuid('assigned_user_id').references(() => users.id, { onDelete: 'set null' }),
+  // true = atendimento humano: fluxos e agentes de IA não respondem
+  botPaused: boolean('bot_paused').notNull().default(false),
   unreadCount: integer('unread_count').notNull().default(0),
   lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -122,16 +125,32 @@ export const tags = pgTable('tags', {
 }));
 
 /* ---------- automation ---------- */
+export const flowFolders = pgTable('flow_folders', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  color: text('color').notNull().default('#2f73e0'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  byAccount: index('flow_folders_account_idx').on(t.accountId),
+}));
+
 export const flows = pgTable('flows', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  folderId: uuid('folder_id').references(() => flowFolders.id, { onDelete: 'set null' }),
   name: text('name').notNull(),
   status: flowStatusEnum('status').notNull().default('draft'),
   trigger: jsonb('trigger').notNull().default({}),
   graph: jsonb('graph').notNull().default({ nodes: [], edges: [] }),
+  // código aleatório para outra conta importar uma cópia (null = não compartilhado)
+  shareCode: text('share_code').unique(),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   byAccount: index('flows_account_idx').on(t.accountId),
+  byFolder: index('flows_folder_idx').on(t.folderId),
 }));
 
 export const flowRuns = pgTable('flow_runs', {
@@ -146,6 +165,20 @@ export const flowRuns = pgTable('flow_runs', {
   finishedAt: timestamp('finished_at', { withTimezone: true }),
 }, (t) => ({
   byFlow: index('flow_runs_flow_idx').on(t.flowId),
+  byContactStatus: index('flow_runs_contact_status_idx').on(t.contactId, t.status),
+  // no máximo UMA execução em andamento por fluxo e contato (evita duplicar em mensagens rápidas)
+  activePerContact: uniqueIndex('flow_runs_active_uq').on(t.flowId, t.contactId)
+    .where(sql`status in ('running','waiting','waiting_input','waiting_payment')`),
+}));
+
+/** Contadores por bloco: entradas (chegaram ao bloco) e avanços (seguiram adiante). */
+export const flowNodeStats = pgTable('flow_node_stats', {
+  flowId: uuid('flow_id').notNull().references(() => flows.id, { onDelete: 'cascade' }),
+  nodeId: text('node_id').notNull(),
+  entries: integer('entries').notNull().default(0),
+  advances: integer('advances').notNull().default(0),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.flowId, t.nodeId] }),
 }));
 
 export const agents = pgTable('agents', {
@@ -194,6 +227,8 @@ export const products = pgTable('products', {
   accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   price: numeric('price', { precision: 12, scale: 2 }).notNull().default('0'),
+  // link de pagamento/checkout usado pelo bloco "Pagamento" dos fluxos
+  checkoutUrl: text('checkout_url'),
 }, (t) => ({
   byAccount: index('products_account_idx').on(t.accountId),
 }));
@@ -224,5 +259,5 @@ export const subscriptions = pgTable('subscriptions', {
 
 export const schema = {
   accounts, users, memberships, connections, contacts, conversations, messages,
-  tags, flows, flowRuns, agents, campaigns, webhooks, products, sales, subscriptions,
+  tags, flowFolders, flows, flowRuns, flowNodeStats, agents, campaigns, webhooks, products, sales, subscriptions,
 };

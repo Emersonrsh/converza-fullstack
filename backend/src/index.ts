@@ -11,6 +11,8 @@ import { conversationsRouter } from './modules/conversations';
 import { dashboardRouter } from './modules/dashboard';
 import { dispatchRouter } from './modules/dispatch';
 import { flowsRouter } from './modules/flows';
+import { flowFoldersRouter } from './modules/flowFolders';
+import { cleanupOrphanRuns } from './flows/runner';
 import { agentsRouter } from './modules/agents';
 import { webhooksRouter, hooksInRouter } from './modules/webhooks';
 import { teamRouter } from './modules/team';
@@ -23,7 +25,11 @@ import { startDispatchWorker, startFlowWorker } from './queue/worker';
 
 const app = express();
 app.use(cors({ origin: config.appOrigin, credentials: true }));
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({
+  limit: '2mb',
+  // guarda o corpo original para conferir a assinatura dos webhooks da Meta
+  verify: (req, _res, buf) => { (req as unknown as { rawBody?: Buffer }).rawBody = buf; },
+}));
 
 app.get('/api/v1/health', (_req, res) => res.json({ ok: true, service: 'converza', time: new Date().toISOString() }));
 
@@ -43,6 +49,7 @@ app.use('/api/v1/connections', ...guard, connectionsRouter);
 app.use('/api/v1/dashboard', ...guard, dashboardRouter);
 app.use('/api/v1/dispatch', ...guard, dispatchRouter);
 app.use('/api/v1/flows', ...guard, flowsRouter);
+app.use('/api/v1/flow-folders', ...guard, flowFoldersRouter);
 app.use('/api/v1/agents', ...guard, agentsRouter);
 app.use('/api/v1/webhooks', ...guard, webhooksRouter);
 app.use('/api/v1/team', ...guard, teamRouter);
@@ -60,6 +67,9 @@ if (process.env.START_WORKER !== 'false') {
   startDispatchWorker();
   startFlowWorker();
 }
+
+// execuções que ficaram presas em "running" por reinício do servidor viram "erro"
+cleanupOrphanRuns().catch((err) => console.error('[flows] limpeza de execuções:', (err as Error).message));
 
 server.listen(config.port, () => {
   console.log(`Converza API em http://localhost:${config.port}  (env: ${config.env})`);

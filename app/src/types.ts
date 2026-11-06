@@ -9,24 +9,34 @@ export interface Contact {
   stage: Stage; tags: string[]; value: string; lastContactAt: string | null; createdAt: string;
 }
 export interface Conversation {
-  id: string; status: string; unreadCount: number; lastMessageAt: string;
+  id: string; status: string; unreadCount: number; lastMessageAt: string; botPaused: boolean;
   contactId: string; contactName: string; contactPhone: string; stage: Stage;
 }
 export interface Message {
   id: string; conversationId: string; direction: 'in' | 'out'; type: string;
-  body: string | null; status: string; createdAt: string;
+  body: string | null; mediaUrl?: string | null; status: string; createdAt: string;
 }
+export interface ActiveRun { id: string; status: string; startedAt: string; flowId: string; flowName: string; }
 export interface Connection {
   id: string; name: string; displayPhone: string | null; phoneNumberId: string | null;
   status: 'connected' | 'disconnected' | 'pending'; createdAt: string;
 }
+export type FlowStatus = 'draft' | 'active' | 'paused';
 export interface Flow {
-  id: string; name: string; status: 'draft' | 'active' | 'paused';
-  trigger: Record<string, any>; graph: { nodes: FlowNode[]; edges: FlowEdge[] }; createdAt: string;
-  runs?: number;
+  id: string; name: string; status: FlowStatus; folderId: string | null; archivedAt: string | null;
+  shareCode: string | null; trigger: Record<string, any>; graph: { nodes: FlowNode[]; edges: FlowEdge[] };
+  createdAt: string; updatedAt: string;
 }
-export interface FlowNode { id: string; type: string; x?: number; y?: number; data?: Record<string, any>; }
-export interface FlowEdge { source: string; target: string; branch?: 'true' | 'false'; }
+export interface FlowListItem {
+  id: string; name: string; status: FlowStatus; folderId: string | null; archivedAt: string | null;
+  shareCode: string | null; trigger: Record<string, any>; blocks: number; runs: number; activeRuns: number;
+  createdAt: string; updatedAt: string;
+}
+export interface FlowFolder { id: string; name: string; color: string; flowCount: number; }
+export interface FlowNode { id: string; type: string; position?: { x: number; y: number }; x?: number; y?: number; data?: Record<string, any>; }
+export interface FlowEdge { id?: string; source: string; target: string; sourceHandle?: string | null; branch?: string | null; }
+export interface NodeStat { entries: number; advances: number; }
+export interface Product { id: string; name: string; price: string; checkoutUrl: string | null; }
 export interface Agent {
   id: string; name: string; model: string; enabled: boolean; systemPrompt: string; createdAt: string;
 }

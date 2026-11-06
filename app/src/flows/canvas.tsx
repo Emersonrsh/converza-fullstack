@@ -1,0 +1,123 @@
+import { createContext, memo, useContext, useEffect, type CSSProperties } from 'react';
+import {
+  BaseEdge, EdgeLabelRenderer, Handle, Position, getBezierPath, useReactFlow, useUpdateNodeInternals,
+  type EdgeProps, type Node, type NodeProps,
+} from '@xyflow/react';
+import { Icon } from '../icons';
+import { cx } from '../components/ui';
+import { BLOCKS, emptyLookups, outputsFor, summary, type BlockType, type Lookups } from './blocks';
+import type { IssueLevel } from './validate';
+import type { NodeStat } from '../types';
+
+export type BlockNodeData = Record<string, any>;
+export type BlockFlowNode = Node<BlockNodeData>;
+
+export interface BuilderCtx {
+  stats: Record<string, NodeStat>;
+  simNodeId: string | null;
+  lookups: Lookups;
+  levels: Record<string, IssueLevel>;
+}
+export const BuilderContext = createContext<BuilderCtx>({ stats: {}, simNodeId: null, lookups: emptyLookups, levels: {} });
+
+/** Contexto separado para o hover das conexões (não re-renderiza os blocos). */
+export const EdgeHoverContext = createContext<string | null>(null);
+
+export const BlockNode = memo(function BlockNode({ id, type, data, selected }: NodeProps<BlockFlowNode>) {
+  const ctx = useContext(BuilderContext);
+  const meta = BLOCKS[type as BlockType] ?? BLOCKS.message;
+  const outs = outputsFor(type, data);
+  const updateInternals = useUpdateNodeInternals();
+  const handlesKey = outs.map((o) => `${o.id ?? 'out'}:${o.label}`).join('|');
+  useEffect(() => { updateInternals(id); }, [id, handlesKey, updateInternals]);
+
+  const st = ctx.stats[id];
+  const entries = st?.entries ?? 0;
+  const advances = st?.advances ?? 0;
+  const rate = entries ? Math.min(100, Math.round((advances / entries) * 100)) : 0;
+  const rows = outs.length > 1 || (outs.length === 1 && outs[0].label !== '');
+  const text = summary(type, data, ctx.lookups);
+  const level = ctx.levels[id];
+
+  return (
+    <div
+      className={cx('blk', selected && 'sel', ctx.simNodeId === id && 'sim', !!level && 'bad', level === 'error' && 'err')}
+      style={{ '--c': meta.color } as CSSProperties}
+      data-testid={`block-${type}`}
+    >
+      {type !== 'trigger' && <Handle type="target" position={Position.Left} className="blk-hin" />}
+      <div className="blk-hd">
+        <span className="blk-ic"><Icon name={meta.icon} size={14} stroke={2.2} /></span>
+        <span className="blk-tt">{data.title || meta.label}</span>
+      </div>
+      <div className={cx('blk-bd', !text && 'empty')}>{text || 'Clique para configurar'}</div>
+      {rows ? (
+        <div className="blk-outs">
+          {outs.map((o) => (
+            <div key={o.id ?? 'out'} className={cx('blk-out', o.tone)}>
+              <span title={o.label}>{o.label || 'Continuar'}</span>
+              <Handle type="source" position={Position.Right} id={o.id ?? undefined} className="blk-hout" />
+            </div>
+          ))}
+        </div>
+      ) : outs.length === 1 ? (
+        <Handle type="source" position={Position.Right} className="blk-hout solo" />
+      ) : null}
+      <div className="blk-ft" title="Estatísticas de contatos reais (a simulação não conta)">
+        <span><b>{entries}</b> entradas</span>
+        <span><b>{advances}</b> avanços</span>
+        <span><b>{rate}%</b> taxa</span>
+      </div>
+    </div>
+  );
+});
+
+const GREEN = new Set(['true', 'paid', 'success']);
+const RED = new Set(['false', 'unpaid', 'error', 'invalid']);
+
+export function DeletableEdge(props: EdgeProps) {
+  const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, style, selected, sourceHandleId } = props;
+  const { deleteElements } = useReactFlow();
+  const hovered = useContext(EdgeHoverContext) === id;
+  const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const tone = sourceHandleId && GREEN.has(sourceHandleId) ? 'var(--success)'
+    : sourceHandleId && RED.has(sourceHandleId) ? 'var(--danger)' : undefined;
+  return (
+    <>
+      <BaseEdge id={id} path={path} markerEnd={markerEnd} interactionWidth={22}
+        style={{ ...style, ...(tone ? { stroke: tone } : {}), ...(selected ? { strokeWidth: 3 } : {}) }} />
+      <EdgeLabelRenderer>
+        <button
+          type="button"
+          className={cx('edge-del', 'nodrag', 'nopan', (selected || hovered) && 'show')}
+          style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
+          onClick={(e) => { e.stopPropagation(); void deleteElements({ edges: [{ id }] }); }}
+          title="Remover conexão"
+          aria-label="Remover conexão"
+        >×</button>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+export const nodeTypes = Object.fromEntries(Object.keys(BLOCKS).map((t) => [t, BlockNode]));
+export const edgeTypes = { deletable: DeletableEdge };
+
+export function ZoomControls() {
+  const rf = useReactFlow();
+  const reset = () => {
+    const start = rf.getNodes().find((n) => n.type === 'trigger') ?? rf.getNodes()[0];
+    if (start) {
+      const w = start.measured?.width ?? 260;
+      rf.setCenter(start.position.x + w / 2 + 260, start.position.y + 120, { zoom: 1, duration: 300 });
+    } else rf.setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 300 });
+  };
+  return (
+    <div className="fb-zoom">
+      <button type="button" onClick={() => rf.zoomIn({ duration: 200 })} title="Aumentar zoom" aria-label="Aumentar zoom"><Icon name="zoomIn" size={16} /></button>
+      <button type="button" onClick={() => rf.zoomOut({ duration: 200 })} title="Diminuir zoom" aria-label="Diminuir zoom"><Icon name="zoomOut" size={16} /></button>
+      <button type="button" onClick={() => rf.fitView({ padding: 0.25, duration: 300, maxZoom: 1.2 })} title="Ver o fluxo inteiro" aria-label="Ver o fluxo inteiro"><Icon name="fit" size={16} /></button>
+      <button type="button" onClick={reset} title="Voltar ao início (100%)" aria-label="Voltar ao início"><Icon name="reset" size={16} /></button>
+    </div>
+  );
+}

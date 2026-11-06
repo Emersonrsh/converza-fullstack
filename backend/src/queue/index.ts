@@ -2,10 +2,11 @@ import { Queue } from 'bullmq';
 import { newRedis } from '../redis';
 
 export interface DispatchJobData { campaignId: string; accountId: string; }
-export interface FlowResumeJobData { runId: string; nodeId: string; }
+/** kind: 'delay' = fim de um bloco Espera; 'payment_timeout' = tempo do Pagamento esgotado. */
+export interface FlowJobData { runId: string; nodeId: string; kind?: 'delay' | 'payment_timeout'; }
 
 export const dispatchQueue = new Queue<DispatchJobData>('dispatch', { connection: newRedis() });
-export const flowQueue = new Queue<FlowResumeJobData>('flows', { connection: newRedis() });
+export const flowQueue = new Queue<FlowJobData>('flows', { connection: newRedis() });
 
 /** Enfileira o envio de uma campanha, opcionalmente agendada para o futuro. */
 export async function enqueueCampaign(data: DispatchJobData, runAt?: Date | null) {
@@ -19,13 +20,13 @@ export async function enqueueCampaign(data: DispatchJobData, runAt?: Date | null
   });
 }
 
-/** Agenda a retomada de uma execução de fluxo após um bloco de espera. */
-export async function enqueueFlowResume(data: FlowResumeJobData, delayMs: number) {
-  await flowQueue.add('resume', data, {
+/** Agenda a retomada de uma execução de fluxo. */
+export async function enqueueFlowJob(data: FlowJobData, delayMs: number) {
+  await flowQueue.add(data.kind ?? 'resume', data, {
     delay: Math.max(0, delayMs),
     attempts: 3,
     backoff: { type: 'exponential', delay: 3000 },
-    removeOnComplete: 200,
+    removeOnComplete: 500,
     removeOnFail: 500,
   });
 }

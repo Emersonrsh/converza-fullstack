@@ -1,5 +1,8 @@
 import type { Request, Response, NextFunction } from 'express';
 
+export const isUuid = (s: unknown): s is string =>
+  typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
 export class AppError extends Error {
   status: number;
   constructor(status: number, message: string) {

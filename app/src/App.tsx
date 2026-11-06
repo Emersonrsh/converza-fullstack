@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth';
 import { Spinner } from './components/ui';
@@ -17,6 +18,9 @@ import { Team } from './pages/Team';
 import { Billing } from './pages/Billing';
 import { Settings } from './pages/Settings';
 
+// o editor de fluxos (React Flow) só é baixado quando alguém abre um fluxo
+const FlowBuilder = lazy(() => import('./pages/FlowBuilder').then((m) => ({ default: m.FlowBuilder })));
+
 export default function App() {
   const { user, loading } = useAuth();
   if (loading) return <div style={{ height: '100vh' }}><Spinner /></div>;
@@ -35,6 +39,7 @@ export default function App() {
         <Route path="/contacts" element={<Contacts />} />
         <Route path="/kanban" element={<Kanban />} />
         <Route path="/flows" element={<Flows />} />
+        <Route path="/flows/:id" element={<Suspense fallback={<Spinner />}><FlowBuilder /></Suspense>} />
         <Route path="/agents" element={<Agents />} />
         <Route path="/dispatch" element={<Dispatch />} />
         <Route path="/connections" element={<Connections />} />
