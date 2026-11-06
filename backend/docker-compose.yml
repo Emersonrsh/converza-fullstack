@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: converza-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: converza
+      POSTGRES_PASSWORD: converza
+      POSTGRES_DB: converza
+    ports:
+      - "5432:5432"
+    volumes:
+      - converza_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U converza"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: converza-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - converza_redis:/data
+
+volumes:
+  converza_pg:
+  converza_redis:
