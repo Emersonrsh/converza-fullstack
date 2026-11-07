@@ -1,71 +1,180 @@
-import { useEffect, useState } from 'react';
-import { api, num } from '../api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { api } from '../api';
+import { useAuth } from '../auth';
 import { Icon } from '../icons';
-import { Switch, Modal, Field, Spinner, toast } from '../components/ui';
-import type { Agent } from '../types';
+import { Spinner, Switch, TopbarActions, cx, toast } from '../components/ui';
+import { ConfirmModal } from '../kanban/modals';
+import { AgentAvatar } from '../agents/AgentAvatar';
+import { BuildAgentModal, ImportAgentModal, LimitModal, ShareAgentModal, TemplatesModal, isLimitError } from '../agents/modals';
+import { VoicesTab } from '../agents/VoicesTab';
+import { AUDIENCE_LABEL, ROLE_LABEL, ago, fmtN } from '../agents/util';
+import type { Agent, AgentLimit, AgentListResp } from '../agents/types';
 
-// IDs no formato do OpenRouter (um gateway, uma chave, vários provedores).
-const MODELS = [
-  'openai/gpt-4o',
-  'openai/gpt-4o-mini',
-  'google/gemini-1.5-pro',
-  'anthropic/claude-3.5-sonnet',
-];
+type ModalState = null | 'import' | 'templates' | 'build' | { limit: string | null } | { share: Agent } | { del: Agent };
+
+function AgentCard({ a, canEdit, onToggle, onOpen, onMenu, menuOpen, onDuplicate, onShare, onDelete }: {
+  a: Agent; canEdit: boolean; onToggle: () => void; onOpen: () => void; onMenu: () => void; menuOpen: boolean;
+  onDuplicate: () => void; onShare: () => void; onDelete: () => void;
+}) {
+  const audio = a.replyAudio === 'never' ? 'Responde em texto' : `${a.replyAudio === 'always' ? 'Sempre em áudio' : 'Áudio quando o cliente manda áudio'} · ${a.voiceName ?? 'voz padrão'}`;
+  return (
+    <div className={cx('card ag-card', a.enabled && 'on')} data-testid="agent-card">
+      <div className="ag-card-top">
+        <AgentAvatar avatar={a.avatar} size={46} />
+        <div className="ag-card-who">
+          <b>{a.name}</b>
+          <span><span className="pill">{ROLE_LABEL[a.role] ?? a.role}</span><span className={cx('pill dot', a.enabled ? 'green' : '')} data-testid="agent-status">{a.enabled ? 'ativo' : 'pausado'}</span></span>
+        </div>
+        {canEdit && <Switch on={a.enabled} onClick={onToggle} />}
+      </div>
+      <p className="ag-card-desc">{a.description || 'Sem descrição.'}</p>
+      <div className="ag-chips">
+        <span className={cx('ag-chip', !!a.flowId && !a.flowActive && 'warn')} title="Fluxo que ele dispara">
+          <Icon name="flow" size={12} />{a.flowName ? `${a.flowName}${a.flowActive ? '' : ' (pausado)'}` : 'Sem fluxo'}
+        </span>
+        <span className="ag-chip" title="Quem ele atende"><Icon name="users" size={12} />{a.audience === 'tags' ? `Etiqueta: ${a.audienceTags.join(', ')}` : AUDIENCE_LABEL[a.audience]}</span>
+        <span className="ag-chip" title="Como responde"><Icon name="mic" size={12} />{audio}</span>
+      </div>
+      <div className="ag-stats" title="Últimos 30 dias">
+        <div><b>{fmtN(a.stats.conversations)}</b><span>conversas</span></div>
+        <div><b>{fmtN(a.stats.replies)}</b><span>respostas</span></div>
+        <div><b>{fmtN(a.stats.flows)}</b><span>fluxos</span></div>
+        <div><b>{fmtN(a.stats.handoffs)}</b><span>p/ equipe</span></div>
+      </div>
+      <div className="ag-card-foot">
+        <small className="faint">{a.stats.lastAt ? `Agiu ${ago(a.stats.lastAt)}` : 'Ainda não atendeu'} · 30 dias</small>
+        <span className="spacer" />
+        <button type="button" className="btn sm" onClick={onOpen} data-testid="agent-open"><Icon name={canEdit ? 'edit' : 'play'} size={14} />{canEdit ? 'Editar' : 'Ver e testar'}</button>
+        {canEdit && (
+          <div className="menu-wrap">
+            <button type="button" className="btn icon sm ghost" onClick={onMenu} aria-label={`Ações de ${a.name}`} data-testid="agent-menu"><Icon name="dots" size={15} /></button>
+            {menuOpen && (
+              <div className="menu fade">
+                <button type="button" onClick={onDuplicate}><Icon name="copy" size={15} />Duplicar</button>
+                <button type="button" onClick={onShare}><Icon name="share" size={15} />Compartilhar código</button>
+                <div className="sep" />
+                <button type="button" className="danger" onClick={onDelete}><Icon name="trash" size={15} />Excluir</button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function Agents() {
-  const [list, setList] = useState<Agent[] | null>(null);
-  const [edit, setEdit] = useState<Agent | null>(null);
-  const load = () => api.get<{ agents: Agent[] }>('/agents').then((r) => setList(r.agents));
-  useEffect(() => { load(); }, []);
+  const nav = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const tab = params.get('aba') === 'vozes' ? 'vozes' : 'agentes';
+  const { accountId, accounts } = useAuth();
+  const canEdit = accounts.find((a) => a.id === accountId)?.role !== 'agent';
+  const [data, setData] = useState<AgentListResp | null>(null);
+  const [modal, setModal] = useState<ModalState>(null);
+  const [menu, setMenu] = useState<string | null>(null);
+  const busy = useRef(false);
 
-  async function create() { const { agent } = await api.post<{ agent: Agent }>('/agents', { name: 'Novo agente' }); setEdit(agent); load(); }
-  async function toggle(a: Agent) { await api.put(`/agents/${a.id}`, { enabled: !a.enabled }); load(); }
-  async function save() {
-    if (!edit) return;
-    await api.put(`/agents/${edit.id}`, { name: edit.name, model: edit.model, systemPrompt: edit.systemPrompt });
-    setEdit(null); load(); toast('Agente salvo');
+  const load = useCallback(() => api.get<AgentListResp>('/agents').then(setData).catch((e) => toast(e instanceof Error ? e.message : 'Erro')), []);
+  useEffect(() => { void load(); }, [load, accountId]);
+  useEffect(() => {
+    if (!menu) return;
+    const h = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest('.menu-wrap')) setMenu(null); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [menu]);
+
+  const limit: AgentLimit | null = data?.limit ?? null;
+  const full = !!limit && limit.max !== null && limit.used >= limit.max;
+  /** Abre a criação ou o aviso de limite */
+  const guard = (next: ModalState | (() => void)) => {
+    if (full) { setModal({ limit: null }); return; }
+    if (typeof next === 'function') next(); else setModal(next);
+  };
+
+  async function toggle(a: Agent) {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      const r = await api.put<{ agent: Agent }>(`/agents/${a.id}`, { enabled: !a.enabled });
+      setData((d) => d && { ...d, agents: d.agents.map((x) => (x.id === a.id ? r.agent : x)) });
+      toast(r.agent.enabled ? `${a.name} está atendendo` : `${a.name} foi pausado`);
+    } catch (e) { toast(e instanceof Error ? e.message : 'Erro'); }
+    busy.current = false;
   }
-  async function remove(id: string) { await api.del(`/agents/${id}`); setEdit(null); load(); }
+  async function duplicate(a: Agent) {
+    setMenu(null);
+    try { await api.post(`/agents/${a.id}/duplicate`); toast('Cópia criada (pausada)'); void load(); }
+    catch (e) { if (isLimitError(e)) setModal({ limit: e.message }); else toast(e instanceof Error ? e.message : 'Erro'); }
+  }
 
-  if (!list) return <Spinner />;
-
+  const setTab = (t: string) => setParams(t === 'agentes' ? {} : { aba: t }, { replace: true });
+  if (!data) return <Spinner />;
+  const list = data.agents;
   return (
-    <div className="fade grid">
-      <div className="row"><div className="spacer" /><button className="btn primary" onClick={create}><Icon name="plus" size={16} />Novo agente</button></div>
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
-        {list.map((a) => (
-          <div className="card pad" key={a.id}>
-            <div className="row"><div style={{ width: 42, height: 42, borderRadius: 12, background: 'var(--primary-50)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="bot" size={22} /></div>
-              <div className="spacer" /><Switch on={a.enabled} onClick={() => toggle(a)} /></div>
-            <b style={{ fontSize: 15, display: 'block', marginTop: 12 }}>{a.name}</b>
-            <div className="muted" style={{ fontSize: 12.5, marginTop: 4, lineHeight: 1.45, minHeight: 34 }}>{a.systemPrompt || 'Sem instruções ainda.'}</div>
-            <div className="row" style={{ gap: 8, marginTop: 12 }}><span className="pill blue">{a.model}</span></div>
-            <div className="row" style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-              <span className={`pill ${a.enabled ? 'green' : ''} dot`}>{a.enabled ? 'ativo' : 'inativo'}</span><div className="spacer" />
-              <button className="btn sm" onClick={() => setEdit(a)}><Icon name="gear" size={14} />Configurar</button></div>
-          </div>
-        ))}
-        {list.length === 0 && <div className="empty" style={{ gridColumn: 'span 3' }}>Nenhum agente. Crie um atendente de IA.</div>}
+    <div className="fade ag-page" data-testid="agents-page">
+      {canEdit && (
+        <TopbarActions>
+          <button type="button" className="btn" onClick={() => guard('import')} data-testid="open-import-agent"><Icon name="download" size={15} />Importar</button>
+          <button type="button" className="btn" onClick={() => guard('templates')} data-testid="open-templates">Modelos</button>
+          <button type="button" className="btn" onClick={() => guard('build')} data-testid="open-build"><Icon name="bot" size={15} />Criar com IA</button>
+          <button type="button" className="btn primary" onClick={() => guard(() => nav('/agents/novo'))} data-testid="new-agent"><Icon name="plus" size={16} />Novo agente</button>
+        </TopbarActions>
+      )}
+
+      <div className="ag-head">
+        <div className="seg" role="tablist">
+          <button type="button" className={cx(tab === 'agentes' && 'active')} onClick={() => setTab('agentes')} role="tab" aria-selected={tab === 'agentes'} data-testid="tab-agents">Agentes</button>
+          <button type="button" className={cx(tab === 'vozes' && 'active')} onClick={() => setTab('vozes')} role="tab" aria-selected={tab === 'vozes'} data-testid="tab-voices">Vozes</button>
+        </div>
+        <span className="spacer" />
+        {limit && tab === 'agentes' && (
+          <span className={cx('ag-limit', full && 'full')} data-testid="agents-limit">
+            {!limit.active ? 'Sem assinatura ativa' : `${limit.used} de ${limit.max ?? 0} agentes · ${limit.perConnection} por instância`}
+          </span>
+        )}
       </div>
 
-      {edit && (
-        <Modal title="Configurar agente" onClose={() => setEdit(null)}
-          footer={<><button className="btn" style={{ marginRight: 'auto' }} onClick={() => remove(edit.id)}>Excluir</button>
-            <button className="btn" onClick={() => setEdit(null)}>Cancelar</button><button className="btn primary" onClick={save}>Salvar</button></>}>
-          <div className="grid" style={{ gap: 12 }}>
-            <Field label="Nome"><input className="input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
-            <Field label="Modelo">
-              <select className="select" value={edit.model} onChange={(e) => setEdit({ ...edit, model: e.target.value })}>
-                {MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
-            </Field>
-            <Field label="Instruções (system prompt)">
-              <textarea className="input" rows={5} value={edit.systemPrompt} onChange={(e) => setEdit({ ...edit, systemPrompt: e.target.value })}
-                placeholder="Você é um closer de vendas. Qualifique o lead, contorne objeções e envie o link de pagamento." />
-            </Field>
-            <div className="faint" style={{ fontSize: 11.5 }}>A execução do agente usa a chave do provedor de IA configurada no backend.</div>
-          </div>
-        </Modal>
+      {tab === 'vozes' ? <VoicesTab canEdit={canEdit} /> : (
+        <>
+          {!data.aiEnabled && <div className="hint" style={{ marginBottom: 14 }}><Icon name="alert" size={14} />A IA não está configurada no servidor (OPENAI_API_KEY): os agentes não vão responder até isso ser feito.</div>}
+          {data.aiEnabled && data.balance <= 0 && list.some((a) => a.enabled) && (
+            <div className="hint" style={{ marginBottom: 14 }}><Icon name="alert" size={14} />Sem saldo de tokens de IA: os agentes pararam de responder.
+              <button type="button" className="linkbtn" onClick={() => nav('/billing')}>Comprar tokens</button></div>
+          )}
+          {list.length === 0 ? (
+            <div className="ag-empty" data-testid="agents-empty">
+              <Icon name="bot" size={34} />
+              <b>Nenhum agente ainda</b>
+              <span>Crie o primeiro para começar.</span>
+              {canEdit && <button type="button" className="btn primary" onClick={() => guard(() => nav('/agents/novo'))} data-testid="create-first-agent"><Icon name="plus" size={15} />Criar o primeiro agente</button>}
+            </div>
+          ) : (
+            <div className="ag-grid">
+              {list.map((a) => (
+                <AgentCard key={a.id} a={a} canEdit={canEdit} onToggle={() => void toggle(a)} onOpen={() => nav(`/agents/${a.id}`)}
+                  onMenu={() => setMenu(menu === a.id ? null : a.id)} menuOpen={menu === a.id}
+                  onDuplicate={() => void duplicate(a)} onShare={() => { setMenu(null); setModal({ share: a }); }} onDelete={() => { setMenu(null); setModal({ del: a }); }} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {modal === 'import' && <ImportAgentModal onClose={() => setModal(null)} onLimit={(m) => setModal({ limit: m })} onDone={(ids) => { setModal(null); void load(); if (ids.length === 1) nav(`/agents/${ids[0]}`); }} />}
+      {modal === 'templates' && <TemplatesModal onClose={() => setModal(null)} onPick={(id) => { setModal(null); nav(`/agents/novo?modelo=${id}`); }} />}
+      {modal === 'build' && <BuildAgentModal onClose={() => setModal(null)} onLimit={(m) => setModal({ limit: m })} onCreated={(a) => { setModal(null); nav(`/agents/${a.id}`); }} />}
+      {modal && typeof modal === 'object' && 'limit' in modal && <LimitModal limit={limit} message={modal.limit ?? undefined} onClose={() => setModal(null)} />}
+      {modal && typeof modal === 'object' && 'share' in modal && (
+        <ShareAgentModal agent={modal.share} onClose={() => setModal(null)} onChange={(code) => setData((d) => d && { ...d, agents: d.agents.map((x) => (x.id === modal.share.id ? { ...x, shareCode: code } : x)) })} />
+      )}
+      {modal && typeof modal === 'object' && 'del' in modal && (
+        <ConfirmModal title="Excluir agente" confirm="Excluir agente" danger onClose={() => setModal(null)} onConfirm={async () => {
+          try { await api.del(`/agents/${modal.del.id}`); toast(`Agente “${modal.del.name}” excluído`); setModal(null); void load(); }
+          catch (e) { toast(e instanceof Error ? e.message : 'Erro'); }
+        }}>
+          Excluir <b>{modal.del.name}</b>? As conversas que ele atendeu continuam no Chats ao vivo.
+        </ConfirmModal>
       )}
     </div>
   );

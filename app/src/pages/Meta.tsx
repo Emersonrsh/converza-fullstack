@@ -1,32 +1,60 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { useAuth } from '../auth';
+import { getSocket } from '../socket';
 import { Icon } from '../icons';
-import { Spinner, toast } from '../components/ui';
+import { Spinner, cx } from '../components/ui';
+import { Manager } from '../facebook/Manager';
+import { Pixels } from '../facebook/Pixels';
+import { Profiles } from '../facebook/Profiles';
+import type { Overview } from '../facebook/types';
 
+const TABS: [string, string, string][] = [
+  ['', 'Gerenciador', 'fb-tab-manager'],
+  ['pixel', 'Pixel', 'fb-tab-pixel'],
+  ['perfis', 'Perfis e contas', 'fb-tab-profiles'],
+];
+
+/** Facebook: Gerenciador (anúncios), Pixel (eventos de conversão) e Perfis e contas (login da Meta). */
 export function Meta() {
-  const [status, setStatus] = useState<{ connected: boolean } | null>(null);
+  const loc = useLocation();
+  const nav = useNavigate();
+  const { accountId } = useAuth();
+  const tab = loc.pathname.replace(/^\/meta\/?/, '').split('/')[0];
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => { api.get<{ connected: boolean }>('/meta/status').then(setStatus); }, []);
-
-  async function connect() {
-    const r = await api.post<{ oauthUrl: string }>('/meta/connect');
-    toast('Abra o OAuth da Meta para autorizar');
-    window.open(r.oauthUrl, '_blank');
-  }
-
-  if (!status) return <Spinner />;
+  const load = useCallback(() => api.get<Overview>('/meta/overview').then((r) => { setOverview(r); setErr(null); })
+    .catch((e) => setErr(e instanceof Error ? e.message : 'Erro')), []);
+  useEffect(() => { void load(); }, [load, accountId]);
+  useEffect(() => {
+    const sock = getSocket();
+    if (!sock) return;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const on = () => { if (t) clearTimeout(t); t = setTimeout(() => void load(), 400); };
+    sock.on('meta:changed', on);
+    return () => { sock.off('meta:changed', on); if (t) clearTimeout(t); };
+  }, [load, accountId]);
 
   return (
-    <div className="fade grid">
-      <div className="card pad" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <div style={{ width: 48, height: 48, borderRadius: 13, background: 'var(--info-50)', color: 'var(--info)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="meta" size={24} /></div>
-        <div style={{ flex: 1 }}><b style={{ fontSize: 15 }}>Conta de anúncios Meta</b>
-          <div className="muted" style={{ fontSize: 13 }}>Conecte para medir ROAS, CPA e atribuição de vendas por campanha.</div></div>
-        <button className="btn primary" onClick={connect}><Icon name="globe" size={16} />Conectar com a Meta</button>
+    <div className="fade fbm-page" data-testid="facebook-page">
+      <div className="card fbm-tabs-card">
+        <div className="seg fbm-tabs" role="tablist">
+          {TABS.map(([k, l, id]) => (
+            <button type="button" key={id} role="tab" aria-selected={tab === k} className={cx(tab === k && 'active')}
+              onClick={() => nav(k ? `/meta/${k}` : '/meta')} data-testid={id}>{l}</button>
+          ))}
+        </div>
       </div>
-      <div className="empty card" style={{ padding: 40 }}>
-        Nenhuma campanha para exibir ainda. Conecte sua conta Meta para puxar os anúncios e cruzar com as vendas.
-      </div>
+      {err && !overview && (
+        <div className="ag-empty"><Icon name="alert" size={30} /><b>Não foi possível carregar</b><span>{err}</span>
+          <button type="button" className="btn" onClick={() => void load()}>Tentar de novo</button></div>
+      )}
+      {!overview && !err && <Spinner />}
+      {overview && tab === '' && <Manager overview={overview} />}
+      {overview && tab === 'pixel' && <Pixels canEdit={overview.canEdit} />}
+      {overview && tab === 'perfis' && <Profiles overview={overview} onChanged={() => void load()} />}
     </div>
   );
 }

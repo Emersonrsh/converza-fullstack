@@ -159,12 +159,16 @@ function Builder({ flowId }: { flowId: string }) {
   }, [flowId]);
 
   const loadLookups = useCallback(async () => {
-    const [c, w, t, p, f] = await Promise.allSettled([
+    const [c, w, t, p, f, k, cf, dp, gv] = await Promise.allSettled([
       api.get<{ connections: WaConnection[] }>('/connections'),
       api.get<{ webhooks: Webhook[] }>('/webhooks'),
       api.get<{ members: Member[] }>('/team'),
       api.get<{ products: Product[] }>('/settings/products'),
       api.get<{ flows: FlowListItem[] }>('/flows'),
+      api.get<{ boards: { id: string; name: string; columns: { id: string; name: string }[] }[] }>('/kanban/boards'),
+      api.get<{ fields: { key: string; label: string }[] }>('/contacts/fields'),
+      api.get<{ departments: { id: string; name: string; color: string }[] }>('/departments'),
+      api.get<{ variables: { key: string; type: 'text' | 'number'; value: string }[] }>('/globals'),
     ]);
     setLookups({
       connections: c.status === 'fulfilled' ? c.value.connections.map((x) => ({ id: x.id, name: x.displayPhone ? `${x.name} (${x.displayPhone})` : x.name })) : [],
@@ -172,6 +176,10 @@ function Builder({ flowId }: { flowId: string }) {
       team: t.status === 'fulfilled' ? t.value.members.map((x) => ({ userId: x.userId, name: x.name })) : [],
       products: p.status === 'fulfilled' ? p.value.products : [],
       flows: f.status === 'fulfilled' ? f.value.flows.map((x) => ({ id: x.id, name: x.name, status: x.status, archived: !!x.archivedAt })) : [],
+      kanban: k.status === 'fulfilled' ? k.value.boards.map((b) => ({ id: b.id, name: b.name, columns: b.columns.map((c) => ({ id: c.id, name: c.name })) })) : [],
+      fields: cf.status === 'fulfilled' ? cf.value.fields.map((x) => ({ key: x.key, label: x.label })) : [],
+      departments: dp.status === 'fulfilled' ? dp.value.departments.map((x) => ({ id: x.id, name: x.name, color: x.color })) : [],
+      globals: gv.status === 'fulfilled' ? gv.value.variables.map((x) => ({ key: x.key, type: x.type, value: x.value })) : [],
     });
   }, []);
 
@@ -636,7 +644,7 @@ function Builder({ flowId }: { flowId: string }) {
   const ctx = useMemo(() => ({ stats, simNodeId, lookups, levels }), [stats, simNodeId, lookups, levels]);
   const selected = nodes.filter((n) => n.selected);
   const selectedNode = selected.length === 1 ? selected[0] : null;
-  const variables = useMemo(() => variablesOf(nodes), [nodes]);
+  const variables = useMemo(() => variablesOf(nodes, lookups.fields.map((f) => f.key), lookups.globals.map((g) => g.key)), [nodes, lookups.fields, lookups.globals]);
 
   // ao abrir o painel de um bloco, garante que ele continue visível no canvas
   const selectedId = selectedNode?.id ?? null;

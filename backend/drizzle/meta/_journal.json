@@ -22,6 +22,125 @@
       "when": 1793990945050,
       "tag": "0002_flows_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793997227365,
+      "tag": "0003_dashboard",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793999672597,
+      "tag": "0004_chats",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794002020866,
+      "tag": "0005_chat_replies",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794003691139,
+      "tag": "0006_kanban",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794005850885,
+      "tag": "0007_contacts",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794009548879,
+      "tag": "0008_agents",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794012150341,
+      "tag": "0009_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794012240164,
+      "tag": "0010_connection_app_secret",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794014457400,
+      "tag": "0011_connection_onboarded_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794015992017,
+      "tag": "0012_webhooks_mapping",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794017300866,
+      "tag": "0013_webhook_dedupe",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794018387994,
+      "tag": "0014_dispatch_flows",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1794020056276,
+      "tag": "0015_legacy_campaigns",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794021459694,
+      "tag": "0016_facebook",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794025739491,
+      "tag": "0017_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794031609455,
+      "tag": "0018_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794032342474,
+      "tag": "0019_agent_department",
+      "breakpoints": true
     }
   ]
 }

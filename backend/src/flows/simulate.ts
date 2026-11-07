@@ -38,6 +38,12 @@ export interface SimDeps {
   http(req: HttpRequestSpec): Promise<HttpResult>;
   product(id: string): Promise<ProductInfo | null>;
   flowName(id: string): Promise<string | null>;
+  /** "Quadro › Coluna" para a anotação do simulador (null se não existir mais). */
+  kanbanLabel?(boardId: string, columnId: string): Promise<string | null>;
+  /** hora/data/dia/saudação e variáveis globais de verdade (a simulação não muda os valores salvos) */
+  extras?(): Promise<Dict>;
+  /** nome do setor para a anotação */
+  departmentName?(id: string): Promise<string | null>;
 }
 
 export interface SimResult { outputs: SimOutput[]; state: SimState; visited: string[]; }
@@ -45,7 +51,7 @@ export interface SimResult { outputs: SimOutput[]; state: SimState; visited: str
 function freshState(): SimState {
   return {
     status: 'idle', nodeId: null, run: normalizeState({}), started: false, history: [],
-    contact: { name: 'Cliente Teste', phone: '+55 11 99999-0000', stage: 'new', tags: [] },
+    contact: { name: 'Cliente Teste', phone: '+55 11 99999-0000', stage: 'new', tags: [], email: null, custom: {} },
   };
 }
 
@@ -68,12 +74,18 @@ function sanitizeState(raw: unknown): SimState {
       phone: String(c.phone ?? f.contact.phone).slice(0, 40),
       stage: String(c.stage ?? 'new'),
       tags: Array.isArray(c.tags) ? c.tags.map(String).slice(0, 50) : [],
+      email: typeof c.email === 'string' ? c.email.slice(0, 160) : null,
+      custom: c.custom && typeof c.custom === 'object' && !Array.isArray(c.custom)
+        ? Object.fromEntries(Object.entries(c.custom as Dict).slice(0, 50).map(([k, v]) => [String(k).slice(0, 40), String(v ?? '').slice(0, 500)]))
+        : {},
     },
   };
 }
 
 function memoryExecutor(state: SimState, outputs: SimOutput[], visited: string[], deps: SimDeps): FlowExecutor {
   const note = (text: string) => outputs.push({ kind: 'note', text });
+  let extrasCache: Dict | null = null;
+  const simGlobals: Dict = {};
   return {
     async getContact() { return state.contact; },
     async sendText(text) {
@@ -104,8 +116,36 @@ function memoryExecutor(state: SimState, outputs: SimOutput[], visited: string[]
       state.contact.name = name;
       note(`👤 Nome do contato → ${name}`);
     },
-    async handoff() {
-      note('🙋 Conversa transferida para atendimento humano — fluxos e IA ficam pausados nesta conversa.');
+    async setContactField(key, value) {
+      state.contact.custom = { ...(state.contact.custom ?? {}), [key]: value };
+      if (!value) delete state.contact.custom[key];
+      note(`🗂️ Campo “${key}” do contato → ${value || '(vazio)'}`);
+    },
+    async moveToKanban(boardId, columnId) {
+      const label = deps.kanbanLabel ? await deps.kanbanLabel(boardId, columnId) : null;
+      note(label ? `🗂️ Kanban → ${label}` : '🗂️ Kanban: o quadro/coluna escolhido não existe mais.');
+    },
+    async handoff(_assign, departmentId) {
+      const dept = departmentId && deps.departmentName ? await deps.departmentName(departmentId) : null;
+      note(dept
+        ? `🙋 Conversa enviada para a fila do setor “${dept}” — fluxos e IA ficam pausados nesta conversa.`
+        : '🙋 Conversa transferida para atendimento humano — fluxos e IA ficam pausados nesta conversa.');
+    },
+    async extras() {
+      if (!extrasCache) extrasCache = { ...(deps.extras ? await deps.extras() : {}), ...simGlobals };
+      return extrasCache;
+    },
+    async inBusinessHours() {
+      note('🕘 Horário de atendimento: na simulação conta como “dentro do horário”.');
+      return true;
+    },
+    async setGlobal(key, op, value) {
+      const cur = (await this.extras!())[key] ?? '';
+      const n = Number(String(value).replace(',', '.'));
+      const next = op === 'set' ? value : String((Number(String(cur).replace(',', '.')) || 0) + (op === 'subtract' ? -n : n));
+      simGlobals[key] = next;
+      extrasCache = null;
+      note(`🌐 Variável global ${key} → ${next} (na simulação não é salva)`);
     },
     async gotoFlow(flowId) {
       const name = await deps.flowName(flowId);

@@ -111,6 +111,27 @@ describe('blocos básicos', () => {
     assert.deepEqual(bots(r), ['tem tag']);
   });
 
+  it('ação de Kanban aparece na simulação (e avisa se o quadro não existe mais)', async () => {
+    const b = '11111111-1111-1111-1111-111111111111'; const c = '22222222-2222-2222-2222-222222222222';
+    const g = { nodes: [T(), N('a', 'action', { kanbanBoardId: b, kanbanColumnId: c })], edges: [E('trigger', 'a')] };
+    const notes = (r: { outputs: { kind: string; text?: string }[] }) => r.outputs.filter((o) => o.kind === 'note').map((o) => o.text).join(' | ');
+    const [ok] = await chat(g, ['oi'], deps({ kanbanLabel: async (bb: string, cc: string) => (bb === b && cc === c ? 'Vendas › Qualificação' : null) }));
+    assert.match(notes(ok), /Kanban → Vendas › Qualificação/);
+    const [gone] = await chat(g, ['oi'], deps({ kanbanLabel: async () => null }));
+    assert.match(notes(gone), /não existe mais/);
+  });
+
+  it('ação salva campo personalizado do contato e ele vira variável {{campos.chave}}', async () => {
+    const g = {
+      nodes: [T(), N('q', 'ask', { text: 'Qual o seu CPF?', saveAs: 'cpf', validation: 'none' }),
+        N('a', 'action', { setFields: [{ key: 'cpf', value: '{{cpf}}' }] }), N('m', 'message', { text: 'CPF salvo: {{campos.cpf}} · {{email}}' })],
+      edges: [E('trigger', 'q'), E('q', 'a'), E('a', 'm')],
+    };
+    const [, r] = await chat(g, ['oi', '123.456.789-00']);
+    assert.deepEqual(r.state.contact.custom, { cpf: '123.456.789-00' });
+    assert.deepEqual(bots(r), ['CPF salvo: 123.456.789-00 · ']);
+  });
+
   it('espera é pulada na simulação e o fluxo continua', async () => {
     const g = { nodes: [T(), N('d', 'delay', { amount: 2, unit: 'hours' }), N('m', 'message', { text: 'voltei' })], edges: [E('trigger', 'd'), E('d', 'm')] };
     const [r] = await chat(g, ['oi']);
@@ -208,7 +229,7 @@ describe('estatísticas', () => {
     const adv: string[] = [];
     const exec = {
       getContact: async () => ({ name: 'A', phone: '1', stage: 'new', tags: [] }),
-      sendText: async () => {}, sendMedia: async () => {}, sendMenu: async () => {}, setStage: async () => {},
+      sendText: async () => {}, sendMedia: async () => {}, sendMenu: async () => {}, setStage: async () => {}, moveToKanban: async () => {}, setContactField: async () => {},
       addTag: async () => {}, removeTag: async () => {}, setContactName: async () => {}, handoff: async () => {},
       gotoFlow: async () => {}, http: async () => ({ ok: true, status: 200, body: null }), ai: async () => '',
       getProduct: async () => null, onEnter: (id: string) => { enter.push(id); }, onAdvance: (id: string) => { adv.push(id); },

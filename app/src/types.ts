@@ -2,7 +2,7 @@ export type Role = 'owner' | 'admin' | 'agent';
 export type Stage = 'new' | 'in_service' | 'negotiating' | 'won' | 'lost';
 
 export interface User { id: string; name: string; email: string; }
-export interface Account { id: string; name: string; slug: string; role: Role; }
+export interface Account { id: string; name: string; slug: string; role: Role; support?: boolean; supportUntil?: string; }
 
 export interface Contact {
   id: string; name: string; phone: string; waId: string | null;
@@ -36,7 +36,7 @@ export interface FlowFolder { id: string; name: string; color: string; flowCount
 export interface FlowNode { id: string; type: string; position?: { x: number; y: number }; x?: number; y?: number; data?: Record<string, any>; }
 export interface FlowEdge { id?: string; source: string; target: string; sourceHandle?: string | null; branch?: string | null; }
 export interface NodeStat { entries: number; advances: number; }
-export interface Product { id: string; name: string; price: string; checkoutUrl: string | null; }
+export interface Product { id: string; name: string; price: string; cost?: string; checkoutUrl: string | null; }
 export interface Agent {
   id: string; name: string; model: string; enabled: boolean; systemPrompt: string; createdAt: string;
 }
@@ -46,8 +46,7 @@ export interface Campaign {
 }
 export interface Webhook { id: string; name: string; token: string; events: string[]; hits: number; url?: string; }
 export interface Member { membershipId: string; role: Role; userId: string; name: string; email: string; }
-export interface Plan { id: string; name: string; price: number; features: string[]; }
-export interface Subscription { plan: string; status: string; currentPeriodEnd: string | null; }
+export interface Subscription { status: string; instances: number; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean }
 export interface Dashboard {
   kpis: { leads: number; revenue: number; sales: number; ticket: number; conversion: number };
   series: { byHour: { hour: number; count: number; revenue: number }[] };

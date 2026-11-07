@@ -62,7 +62,12 @@ export function validateFlow(nodes: N[], edges: E[], lk: Lookups): Issue[] {
         if (!String(d.text ?? '').trim()) add(n.id, 'error', `${nm} está sem a pergunta.`);
         break;
       case 'condition':
+        if (d.field === 'business_hours') break;
         if (d.field === 'var' && !String(d.varName ?? '').trim()) add(n.id, 'error', `${nm}: escolha qual variável verificar.`);
+        if (d.field === 'global') {
+          if (!d.globalKey) add(n.id, 'error', `${nm}: escolha a variável global.`);
+          else if (!lk.globals.some((g) => g.key === d.globalKey)) add(n.id, 'error', `${nm}: a variável global {{${d.globalKey}}} não existe mais.`);
+        }
         if (!NO_VALUE_OPS.has(d.op) && !String(d.value ?? '').trim()) add(n.id, 'warn', `${nm}: o valor para comparar está vazio.`);
         break;
       case 'delay':
@@ -71,10 +76,31 @@ export function validateFlow(nodes: N[], edges: E[], lk: Lookups): Issue[] {
         else if (d.unit === 'hours' && Number(d.amount) >= 24) add(n.id, 'warn', `${nm}: esperas de 24h ou mais podem cair fora da janela de atendimento do WhatsApp.`);
         break;
       case 'action': {
-        const nothing = !d.setStage && !(d.addTags ?? []).length && !(d.removeTags ?? []).length && !String(d.setName ?? '').trim();
+        const sf = (Array.isArray(d.setFields) ? d.setFields : []) as { key?: string; value?: string }[];
+        const sg = (Array.isArray(d.setGlobals) ? d.setGlobals : []) as { key?: string; op?: string; value?: string }[];
+        const nothing = !d.setStage && !(d.addTags ?? []).length && !(d.removeTags ?? []).length && !String(d.setName ?? '').trim() && !d.kanbanBoardId && !sf.length && !sg.length;
+        for (const g of sg) {
+          if (!g.key) add(n.id, 'error', `${nm}: escolha a variável global.`);
+          else if (!lk.globals.some((x) => x.key === g.key)) add(n.id, 'error', `${nm}: a variável global {{${g.key}}} não existe mais.`);
+          else if ((g.op === 'add' || g.op === 'subtract') && lk.globals.find((x) => x.key === g.key)?.type !== 'number') add(n.id, 'error', `${nm}: só dá para somar ou subtrair numa variável do tipo número ({{${g.key}}} é texto).`);
+        }
+        for (const f of sf) {
+          if (!f.key) add(n.id, 'error', `${nm}: escolha o campo do contato a salvar.`);
+          else if (!lk.fields.some((x) => x.key === f.key)) add(n.id, 'error', `${nm}: o campo “${f.key}” não existe mais.`);
+          else if (!String(f.value ?? '').trim()) add(n.id, 'warn', `${nm}: o valor do campo “${lk.fields.find((x) => x.key === f.key)?.label}” está vazio (vai apagar o campo).`);
+        }
         if (nothing) add(n.id, 'warn', `${nm} não faz nenhuma ação.`);
+        if (d.kanbanBoardId) {
+          const b = lk.kanban.find((x) => x.id === d.kanbanBoardId);
+          if (!b) add(n.id, 'error', `${nm}: o quadro do Kanban escolhido não existe mais.`);
+          else if (!d.kanbanColumnId) add(n.id, 'error', `${nm}: escolha a coluna do Kanban.`);
+          else if (!b.columns.some((c) => c.id === d.kanbanColumnId)) add(n.id, 'error', `${nm}: a coluna do Kanban escolhida não existe mais.`);
+        }
         break;
       }
+      case 'handoff':
+        if (!d.assignUserId && d.departmentId && lk.departments.length && !lk.departments.some((x) => x.id === d.departmentId)) add(n.id, 'error', `${nm}: o setor escolhido não existe mais.`);
+        break;
       case 'http': {
         const url = String(d.url ?? '').trim();
         if (!url) add(n.id, 'error', `${nm}: falta a URL da API.`);

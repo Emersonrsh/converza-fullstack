@@ -119,7 +119,7 @@ export function Simulator({ hidden, triggerType, getGraph, onCursor, onClose }: 
             <span className={cx('switch', realHttp && 'on')} aria-hidden="true"><i /></span>
             <span style={{ fontSize: 12.5 }}>Chamar integrações (Webhook/HTTP) de verdade</span>
           </label>
-          <div className="cf-hint" style={{ marginTop: -4 }}>Blocos de IA respondem de verdade e consomem tokens do plano.</div>
+          <div className="cf-hint" style={{ marginTop: -4 }}>Blocos de IA respondem de verdade e consomem tokens de IA da conta.</div>
         </div>
       )}
 

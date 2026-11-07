@@ -50,54 +50,87 @@ function safeLookup(hostname: string, options: any, callback: (...args: any[]) =
   });
 }
 
-export async function safeHttpRequest(req: HttpRequestSpec): Promise<HttpResult> {
+interface RawResult { ok: boolean; status: number; headers: http.IncomingHttpHeaders; text: string; error?: string }
+
+/** Pedido HTTP com as travas de segurança. `truncate`: em vez de falhar, guarda só o começo de respostas grandes. */
+function rawRequest(urlStr: string, req: { method: string; headers: Record<string, string>; body?: string }, opts: { maxBytes: number; truncate?: boolean; userAgent: string }): Promise<RawResult> {
   let url: URL;
-  try { url = new URL(req.url); } catch { return { ok: false, status: 0, body: null, error: 'URL inválida' }; }
+  try { url = new URL(urlStr); } catch { return Promise.resolve({ ok: false, status: 0, headers: {}, text: '', error: 'URL inválida' }); }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    return { ok: false, status: 0, body: null, error: 'Somente URLs http ou https' };
+    return Promise.resolve({ ok: false, status: 0, headers: {}, text: '', error: 'Somente URLs http ou https' });
   }
   const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
   if ((net.isIP(host) && isBlockedIp(host)) || host === 'localhost' || host.endsWith('.localhost')
       || host.endsWith('.internal') || host.endsWith('.local')) {
-    return { ok: false, status: 0, body: null, error: 'Destino bloqueado por segurança' };
+    return Promise.resolve({ ok: false, status: 0, headers: {}, text: '', error: 'Destino bloqueado por segurança' });
   }
   const method = METHODS.has(req.method) ? req.method : 'GET';
   const lib = url.protocol === 'https:' ? https : http;
 
-  return new Promise<HttpResult>((resolve) => {
+  return new Promise<RawResult>((resolve) => {
     let done = false;
-    const finish = (r: HttpResult) => { if (!done) { done = true; resolve(r); } };
+    const finish = (r: RawResult) => { if (!done) { done = true; resolve(r); } };
 
     const request = lib.request(url, {
       method,
-      headers: { 'User-Agent': 'Converza-Flows/1.0', Accept: 'application/json, text/plain, */*', ...req.headers },
+      headers: { 'User-Agent': opts.userAgent, Accept: 'application/json, text/plain, */*', ...req.headers },
       lookup: safeLookup as any,
       timeout: TIMEOUT_MS,
     }, (res) => {
       const chunks: Buffer[] = [];
       let size = 0;
+      const status = res.statusCode ?? 0;
+      const end = () => finish({ ok: status >= 200 && status < 300, status, headers: res.headers, text: Buffer.concat(chunks).toString('utf8') });
       res.on('data', (c: Buffer) => {
+        if (done) return;
         size += c.length;
-        if (size > MAX_BYTES) {
+        if (size > opts.maxBytes) {
+          if (opts.truncate) {
+            chunks.push(c.subarray(0, Math.max(0, c.length - (size - opts.maxBytes))));
+            end();
+          } else {
+            finish({ ok: false, status, headers: res.headers, text: '', error: `Resposta maior que ${Math.round(opts.maxBytes / 1_000_000)} MB` });
+          }
           request.destroy();
-          finish({ ok: false, status: res.statusCode ?? 0, body: null, error: 'Resposta maior que 1 MB' });
           return;
         }
         chunks.push(c);
       });
-      res.on('end', () => {
-        const text = Buffer.concat(chunks).toString('utf8');
-        let body: unknown = text;
-        try { body = text ? JSON.parse(text) : null; } catch { /* texto puro */ }
-        const status = res.statusCode ?? 0;
-        finish({ ok: status >= 200 && status < 300, status, body });
-      });
-      res.on('error', (e) => finish({ ok: false, status: 0, body: null, error: e.message }));
+      res.on('end', () => end());
+      res.on('error', (e) => finish({ ok: false, status: 0, headers: {}, text: '', error: e.message }));
     });
 
     request.on('timeout', () => request.destroy(new Error('Tempo limite de 10s esgotado')));
-    request.on('error', (e) => finish({ ok: false, status: 0, body: null, error: e.message }));
+    request.on('error', (e) => finish({ ok: false, status: 0, headers: {}, text: '', error: e.message }));
     if (req.body) request.write(req.body);
     request.end();
   });
+}
+
+export async function safeHttpRequest(req: HttpRequestSpec): Promise<HttpResult> {
+  const r = await rawRequest(req.url, { method: req.method, headers: req.headers, body: req.body }, { maxBytes: MAX_BYTES, userAgent: 'Converza-Flows/1.0' });
+  if (r.error) return { ok: false, status: r.status, body: null, error: r.error };
+  let body: unknown = r.text;
+  try { body = r.text ? JSON.parse(r.text) : null; } catch { /* texto puro */ }
+  return { ok: r.ok, status: r.status, body };
+}
+
+/**
+ * Baixa uma página para leitura (ex.: o site do cliente no "Criar agente com IA"): segue até 3
+ * redirecionamentos — cada um passa pelas mesmas travas — e guarda só os primeiros 2 MB.
+ */
+export async function safeFetchPage(urlStr: string): Promise<{ ok: boolean; status: number; url: string; contentType: string; text: string; error?: string }> {
+  let current = urlStr;
+  for (let hop = 0; hop <= 3; hop++) {
+    const r = await rawRequest(current, { method: 'GET', headers: { Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5', 'Accept-Language': 'pt-BR,pt;q=0.9' } },
+      { maxBytes: 2_000_000, truncate: true, userAgent: 'Mozilla/5.0 (compatible; ConverzaBot/1.0; +https://converza.app)' });
+    if (r.error) return { ok: false, status: r.status, url: current, contentType: '', text: '', error: r.error };
+    const loc = r.headers.location;
+    if (r.status >= 300 && r.status < 400 && loc) {
+      try { current = new URL(Array.isArray(loc) ? loc[0] : loc, current).toString(); } catch { return { ok: false, status: r.status, url: current, contentType: '', text: '', error: 'Redirecionamento inválido' }; }
+      continue;
+    }
+    return { ok: r.ok, status: r.status, url: current, contentType: String(r.headers['content-type'] ?? ''), text: r.text };
+  }
+  return { ok: false, status: 0, url: current, contentType: '', text: '', error: 'Redirecionamentos demais' };
 }

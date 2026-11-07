@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { Icon } from '../icons';
-import { Modal, toast, cx } from '../components/ui';
+import { Modal, toast, cx, useBackdrop } from '../components/ui';
 import { ProductsManager } from '../components/Products';
 import type { Flow, FlowFolder, Product } from '../types';
 
@@ -143,7 +143,7 @@ export function GenerateModal({ replacing, onClose, onGenerated }: {
           </div>
         </div>
         {replacing && <div className="note warn"><Icon name="alert" size={15} /><span>Os blocos atuais deste fluxo serão substituídos (dá para desfazer com Ctrl+Z).</span></div>}
-        <div className="cf-hint">A IA monta os blocos e conexões; revise os textos e teste no Simulador antes de ativar. Usa tokens de IA do seu plano.</div>
+        <div className="cf-hint">A IA monta os blocos e conexões; revise os textos e teste no Simulador antes de ativar. Usa tokens de IA da conta.</div>
       </div>
     </Modal>
   );
@@ -224,7 +224,7 @@ export function TranslateModal({ flowId, onClose, onDone }: { flowId: string; on
         <div className="muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
           A IA traduz todos os textos (mensagens, perguntas, opções de menu e instruções) e cria uma <b>cópia</b> do fluxo como rascunho. O original não muda e variáveis como <code>{'{{nome}}'}</code> são mantidas.
         </div>
-        <div className="cf-hint">Usa tokens de IA do seu plano.</div>
+        <div className="cf-hint">Usa tokens de IA da conta.</div>
       </div>
     </Modal>
   );
@@ -254,8 +254,9 @@ export function MoveModal({ current, folders, onClose, onMove }: {
 /* ------------------------------------------------------------ pagamentos */
 
 export function ProductsModal({ onClose, onChange }: { onClose: () => void; onChange: (list: Product[]) => void }) {
+  const bg = useBackdrop(onClose);
   return (
-    <div className="modal-bg" onClick={onClose}>
+    <div className="modal-bg" {...bg}>
       <div className="modal wide fade" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
         <div className="mh">
           <div><b style={{ fontSize: 15 }}>Pagamentos — produtos e links</b>

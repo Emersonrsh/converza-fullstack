@@ -9,7 +9,7 @@
 import { STAGE_LABEL, type Dict, type FlowEdge, type FlowGraph, type FlowNode, type MenuOption } from './types';
 
 export type MediaKind = 'image' | 'audio' | 'video' | 'document';
-export interface ContactSnapshot { name: string; phone: string; stage: string; tags: string[]; }
+export interface ContactSnapshot { name: string; phone: string; stage: string; tags: string[]; email?: string | null; custom?: Record<string, unknown>; }
 export interface ProductInfo { id: string; name: string; price: number; checkoutUrl: string | null; }
 export interface HttpRequestSpec { method: string; url: string; headers: Record<string, string>; body?: string; }
 export interface HttpResult { ok: boolean; status: number; body: unknown; error?: string; }
@@ -24,7 +24,17 @@ export interface FlowExecutor {
   addTag(tag: string): Promise<void>;
   removeTag(tag: string): Promise<void>;
   setContactName(name: string): Promise<void>;
-  handoff(assignUserId: string | null): Promise<void>;
+  /** Coloca o contato no quadro/coluna do Kanban (cria o card no topo ou move o existente). */
+  moveToKanban(boardId: string, columnId: string): Promise<void>;
+  /** Salva um valor num campo personalizado do contato (ex.: CPF perguntado no fluxo). */
+  setContactField(key: string, value: string): Promise<void>;
+  handoff(assignUserId: string | null, departmentId?: string | null): Promise<void>;
+  /** hora/data/dia/saudação e variáveis globais ({{g_…}}) */
+  extras?(): Promise<Dict>;
+  /** dentro do horário de atendimento do número? (null = horário desligado) */
+  inBusinessHours?(): Promise<boolean | null>;
+  /** muda uma variável global (definir, somar ou subtrair) */
+  setGlobal?(key: string, op: 'set' | 'add' | 'subtract', value: string): Promise<void>;
   gotoFlow(flowId: string): Promise<void>;
   http(req: HttpRequestSpec): Promise<HttpResult>;
   ai(req: AiRequest): Promise<string>;
@@ -89,13 +99,18 @@ function nextOf(graph: FlowGraph, nodeId: string, handle: string | null): FlowNo
   return e ? findNode(graph, e.target) : undefined;
 }
 
-export function scopeOf(contact: ContactSnapshot, state: RunState): Dict {
+export function scopeOf(contact: ContactSnapshot, state: RunState, extras: Dict = {}): Dict {
   const first = contact.name.split(/\s+/)[0] ?? contact.name;
   return {
+    // hora, data, dia, saudação e variáveis globais (g_…)
+    ...extras,
     nome: contact.name, name: contact.name,
     primeiro_nome: first, first_name: first,
     telefone: contact.phone, phone: contact.phone,
     etapa: STAGE_LABEL[contact.stage] ?? contact.stage, stage: contact.stage,
+    email: contact.email ?? '',
+    // campos personalizados do contato: {{campos.cpf}}
+    campos: contact.custom ?? {},
     resposta: state.lastMessage, lastMessage: state.lastMessage, mensagem: state.lastMessage,
     // variáveis salvas pelo fluxo têm prioridade (ex.: perguntar e salvar "nome")
     ...state.vars,
@@ -279,7 +294,7 @@ export async function runFrom(graph: FlowGraph, startId: string | null | undefin
 
 async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: FlowExecutor): Promise<StepResult> {
   const d = node.data ?? {};
-  const scope = async () => scopeOf(await exec.getContact(), state);
+  const scope = async () => scopeOf(await exec.getContact(), state, exec.extras ? await exec.extras() : {});
 
   switch (node.type) {
     case 'trigger':
@@ -345,6 +360,17 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
         const name = render(d.setName, s).trim();
         if (name) await exec.setContactName(name);
       }
+      for (const f of Array.isArray(d.setFields) ? d.setFields : []) {
+        const key = String(f?.key ?? '').trim();
+        if (key) await exec.setContactField(key, render(f?.value ?? '', s).trim());
+      }
+      // variáveis globais da conta: definir, somar ou subtrair
+      for (const g of Array.isArray(d.setGlobals) ? d.setGlobals : []) {
+        const key = String(g?.key ?? '').trim();
+        const op = g?.op === 'add' || g?.op === 'subtract' ? g.op : 'set';
+        if (key && exec.setGlobal) await exec.setGlobal(key, op, render(g?.value ?? '', s).trim());
+      }
+      if (d.kanbanBoardId && d.kanbanColumnId) await exec.moveToKanban(String(d.kanbanBoardId), String(d.kanbanColumnId));
       return { next: nextOf(graph, node.id, null) };
     }
 
@@ -353,7 +379,7 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
         const text = render(d.message, await scope());
         if (text.trim()) await exec.sendText(text);
       }
-      await exec.handoff(d.assignUserId ? String(d.assignUserId) : null);
+      await exec.handoff(d.assignUserId ? String(d.assignUserId) : null, d.departmentId ? String(d.departmentId) : null);
       return { next: nextOf(graph, node.id, null) };
     }
 
@@ -461,6 +487,11 @@ async function evaluateCondition(d: Dict, state: RunState, exec: FlowExecutor): 
     const has = contact.tags.some((t) => norm(t) === norm(d.value));
     return op === 'not_has_tag' ? !has : has;
   }
+  // horário de atendimento do número (desligado conta como "aberto")
+  if (field === 'business_hours') {
+    const open = exec.inBusinessHours ? await exec.inBusinessHours() : null;
+    return op === 'closed' ? open === false : open !== false;
+  }
 
   let value = '';
   if (field === 'lastMessage') value = state.lastMessage;
@@ -468,9 +499,10 @@ async function evaluateCondition(d: Dict, state: RunState, exec: FlowExecutor): 
   else if (field === 'name') value = contact.name;
   else if (field === 'stage') value = contact.stage;
   else if (field === 'phone') value = contact.phone;
+  else if (field === 'global') value = String((exec.extras ? await exec.extras() : {})[String(d.globalKey ?? '')] ?? '');
 
   const v = norm(value);
-  const target = norm(render(d.value, scopeOf(contact, state)));
+  const target = norm(render(d.value, scopeOf(contact, state, exec.extras ? await exec.extras() : {})));
   const alts = alternatives(target);
 
   switch (op) {

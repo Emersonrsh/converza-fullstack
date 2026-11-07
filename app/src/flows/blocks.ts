@@ -18,7 +18,7 @@ export const BLOCKS: Record<BlockType, BlockMeta> = {
   delay: { label: 'Espera', desc: 'Aguarda um tempo', icon: 'clock', color: '#64748b', category: 'Lógica' },
   random: { label: 'Teste A/B', desc: 'Divide por porcentagem', icon: 'shuffle', color: '#ea580c', category: 'Lógica' },
   goto_flow: { label: 'Ir para fluxo', desc: 'Continua em outro fluxo', icon: 'arrowRight', color: '#475569', category: 'Lógica' },
-  action: { label: 'Ações de CRM', desc: 'Etapa do funil, etiquetas, nome', icon: 'tag', color: '#1a9f52', category: 'CRM' },
+  action: { label: 'Ações de CRM', desc: 'Etapa do funil, etiquetas, nome, Kanban', icon: 'tag', color: '#1a9f52', category: 'CRM' },
   handoff: { label: 'Transferir p/ humano', desc: 'Pausa a automação na conversa', icon: 'userArrow', color: '#db2777', category: 'CRM' },
   http: { label: 'Webhook / HTTP', desc: 'Chama uma API externa', icon: 'globe', color: '#0f766e', category: 'Integrações' },
   payment: { label: 'Pagamento', desc: 'Envia o link e aguarda a confirmação', icon: 'dollar', color: '#16a34a', category: 'Integrações' },
@@ -57,7 +57,7 @@ export function defaultData(type: BlockType): Record<string, any> {
     case 'condition': return { field: 'lastMessage', op: 'contains', value: 'sim', varName: '' };
     case 'delay': return { amount: 5, unit: 'minutes' };
     case 'random': return { percentA: 50 };
-    case 'action': return { setStage: '', addTags: [], removeTags: [], setName: '' };
+    case 'action': return { setStage: '', addTags: [], removeTags: [], setName: '', kanbanBoardId: '', kanbanColumnId: '', setFields: [] };
     case 'handoff': return { message: 'Vou te transferir para um atendente, só um instante! 🙋', assignUserId: '' };
     case 'http': return { method: 'POST', url: '', headers: [], body: '{\n  "telefone": "{{telefone}}",\n  "nome": "{{nome}}"\n}', saveAs: 'http' };
     case 'payment': return { productId: '', url: '', text: 'Aqui está o seu link de pagamento 👇\n{{link}}', wait: true, timeoutMinutes: 60 };
@@ -111,8 +111,12 @@ export interface Lookups {
   team: { userId: string; name: string }[];
   products: { id: string; name: string; price: string; checkoutUrl: string | null }[];
   flows: { id: string; name: string; status: string; archived: boolean }[];
+  kanban: { id: string; name: string; columns: { id: string; name: string }[] }[];
+  fields: { key: string; label: string }[];
+  departments: { id: string; name: string; color: string }[];
+  globals: { key: string; type: 'text' | 'number'; value: string }[];
 }
-export const emptyLookups: Lookups = { connections: [], webhooks: [], team: [], products: [], flows: [] };
+export const emptyLookups: Lookups = { connections: [], webhooks: [], team: [], products: [], flows: [], kanban: [], fields: [], departments: [], globals: [] };
 
 const UNITS: Record<string, [string, string]> = {
   seconds: ['segundo', 'segundos'], minutes: ['minuto', 'minutos'], hours: ['hora', 'horas'], days: ['dia', 'dias'],
@@ -127,8 +131,9 @@ const OPS: Record<string, string> = {
   contains: 'contém', not_contains: 'não contém', equals: 'é igual a', not_equals: 'é diferente de',
   starts_with: 'começa com', not_empty: 'não está vazia', is_empty: 'está vazia', is_number: 'é um número',
   greater_than: 'é maior que', less_than: 'é menor que', has_tag: 'tem a etiqueta', not_has_tag: 'não tem a etiqueta',
+  open: 'está dentro do horário', closed: 'está fora do horário',
 };
-const FIELDS: Record<string, string> = { lastMessage: 'Resposta', name: 'Nome', stage: 'Etapa', phone: 'Telefone', tags: 'Contato' };
+const FIELDS: Record<string, string> = { lastMessage: 'Resposta', name: 'Nome', stage: 'Etapa', phone: 'Telefone', tags: 'Contato', global: 'Global' };
 export const OP_LABELS = OPS;
 
 /** Texto curto mostrado dentro do bloco no canvas. */
@@ -150,7 +155,8 @@ export function summary(type: string, d: Record<string, any>, lk: Lookups): stri
     case 'menu': return String(d.text ?? '');
     case 'condition': {
       if (d.field === 'tags') return `Contato ${OPS[d.op] ?? d.op} “${d.value ?? ''}”`;
-      const field = d.field === 'var' ? `{{${d.varName || '?'}}}` : FIELDS[d.field] ?? 'Resposta';
+      if (d.field === 'business_hours') return d.op === 'closed' ? 'Fora do horário de atendimento' : 'Dentro do horário de atendimento';
+      const field = d.field === 'var' ? `{{${d.varName || '?'}}}` : d.field === 'global' ? `{{${d.globalKey || 'g_?'}}}` : FIELDS[d.field] ?? 'Resposta';
       const noValue = ['not_empty', 'is_empty', 'is_number'].includes(d.op);
       const value = d.field === 'stage' ? stageLabel(d.value) : d.value;
       return `${field} ${OPS[d.op] ?? d.op}${noValue ? '' : ` “${value ?? ''}”`}`;
@@ -165,11 +171,22 @@ export function summary(type: string, d: Record<string, any>, lk: Lookups): stri
       if (add.length) parts.push(`+ ${add.join(', ')}`);
       if (rem.length) parts.push(`− ${rem.join(', ')}`);
       if (d.setName) parts.push(`Nome → ${d.setName}`);
+      const sf = (Array.isArray(d.setFields) ? d.setFields : []).filter((f: { key?: string }) => f?.key);
+      if (sf.length) parts.push(`Campos → ${sf.map((f: { key: string }) => lk.fields.find((x) => x.key === f.key)?.label ?? f.key).join(', ')}`);
+      const sg = (Array.isArray(d.setGlobals) ? d.setGlobals : []).filter((g: { key?: string }) => g?.key);
+      if (sg.length) parts.push(sg.map((g: { key: string; op?: string; value?: string }) => `${g.key} ${g.op === 'add' ? '+' : g.op === 'subtract' ? '−' : '='} ${g.value ?? ''}`).join(', '));
+      if (d.kanbanBoardId) {
+        const b = lk.kanban.find((x) => x.id === d.kanbanBoardId);
+        const c = b?.columns.find((x) => x.id === d.kanbanColumnId);
+        parts.push(b ? `Kanban → ${b.name} › ${c?.name ?? '?'}` : 'Kanban → quadro removido');
+      }
       return parts.join(' · ');
     }
     case 'handoff': {
       const who = lk.team.find((t) => t.userId === d.assignUserId)?.name;
-      return `Transferir para ${who ?? 'a equipe'}`;
+      if (who) return `Transferir para ${who}`;
+      const dept = lk.departments.find((x) => x.id === d.departmentId)?.name;
+      return dept ? `Fila do setor ${dept}` : 'Transferir para a equipe';
     }
     case 'http': return d.url ? `${d.method ?? 'GET'} ${String(d.url).replace(/^https?:\/\//, '')}` : '';
     case 'payment': {
@@ -185,8 +202,8 @@ export function summary(type: string, d: Record<string, any>, lk: Lookups): stri
 }
 
 /** Variáveis que podem ser usadas nos textos, a partir dos blocos do fluxo. */
-export function variablesOf(nodes: { type?: string; data: Record<string, any> }[]): string[] {
-  const vars = new Set<string>(['primeiro_nome', 'nome', 'telefone', 'resposta']);
+export function variablesOf(nodes: { type?: string; data: Record<string, any> }[], fieldKeys: string[] = [], globalKeys: string[] = []): string[] {
+  const vars = new Set<string>(['primeiro_nome', 'nome', 'telefone', 'email', 'resposta', 'saudacao', 'data', 'hora', 'dia', ...fieldKeys.map((k) => `campos.${k}`), ...globalKeys]);
   for (const n of nodes) {
     const d = n.data ?? {};
     if (n.type === 'ask' && d.saveAs) vars.add(d.saveAs);

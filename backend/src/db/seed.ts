@@ -21,8 +21,9 @@ async function main() {
   await db.insert(schema.memberships).values({ userId: user.id, accountId: account.id, role: 'owner' });
   const periodEnd = new Date(); periodEnd.setMonth(periodEnd.getMonth() + 1);
   await db.insert(schema.subscriptions).values({
-    accountId: account.id, plan: 'growth', status: 'active',
-    aiTokensAllowance: 10000, aiTokensBalance: 10000, currentPeriodEnd: periodEnd,
+    accountId: account.id, status: 'active', instances: 3, startedAt: new Date(),
+    // demonstração: vale até o fim do período e não renova (não há cobrança de verdade por trás)
+    cancelAtPeriodEnd: true, aiTokensBalance: 10000, currentPeriodEnd: periodEnd,
   });
 
   const [product] = await db.insert(schema.products)

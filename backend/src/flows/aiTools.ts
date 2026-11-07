@@ -78,6 +78,7 @@ function sanitizeData(type: string, raw: unknown): Dict {
       setStage: (STAGES as readonly string[]).includes(d.setStage) ? d.setStage : '',
       addTags: (Array.isArray(d.addTags) ? d.addTags : []).map((t: unknown) => str(t, 40)).filter(Boolean).slice(0, 10),
       removeTags: [],
+      kanbanBoardId: '', kanbanColumnId: '', setFields: [],
     };
     case 'handoff': return { message: str(d.message, 1000), assignUserId: '' };
     case 'ai_reply': return { prompt: str(d.prompt, 3000), useHistory: true, send: true };
@@ -211,25 +212,51 @@ function textRefs(n: FlowNode): TextRef[] {
   return refs;
 }
 
-export async function translateGraph(graph: FlowGraph, languageName: string, ai: AiFn): Promise<FlowGraph> {
-  const copy: FlowGraph = JSON.parse(JSON.stringify(graph));
+const TRANSLATE_BATCH = 40;
+const translatePrompt = (languageName: string) =>
+  `Traduza os VALORES do JSON para ${languageName}. Mantenha as chaves iguais. Não traduza variáveis entre chaves duplas (ex.: {{nome}}, {{link}}). Preserve emojis, quebras de linha e o tom. Em listas separadas por vírgula, traduza cada item e mantenha as vírgulas. Responda SOMENTE com o JSON.`;
+
+function collectTexts(graph: FlowGraph) {
   const all: { node: FlowNode; ref: TextRef; value: string }[] = [];
-  for (const n of copy.nodes) {
+  for (const n of graph.nodes) {
     for (const ref of textRefs(n)) {
       const v = ref.get(n);
       if (v && v.trim()) all.push({ node: n, ref, value: v });
     }
   }
-  for (let i = 0; i < all.length; i += 40) {
-    const batch = all.slice(i, i + 40);
-    const input: Dict = {};
-    batch.forEach((b, j) => { input[`t${j}`] = b.value; });
+  return all;
+}
+
+function batchInput(batch: { value: string }[]): Dict {
+  const input: Dict = {};
+  batch.forEach((b, j) => { input[`t${j}`] = b.value; });
+  return input;
+}
+
+/**
+ * Quanto a tradução deve gastar, antes de começar (para reservar o saldo).
+ * Conta o pedido (instrução + textos) e a resposta (os textos traduzidos, que costumam
+ * crescer até ~30% em outras línguas), com uma folga. O que sobrar volta para o saldo.
+ */
+export function estimateTranslation(graph: FlowGraph, languageName = 'inglês'): { texts: number; batches: number; tokens: number } {
+  const all = collectTexts(graph);
+  let chars = 0;
+  for (let i = 0; i < all.length; i += TRANSLATE_BATCH) {
+    const json = JSON.stringify(batchInput(all.slice(i, i + TRANSLATE_BATCH))).length;
+    chars += translatePrompt(languageName).length + json + json * 1.3 + 40;
+  }
+  const batches = Math.ceil(all.length / TRANSLATE_BATCH);
+  return { texts: all.length, batches, tokens: all.length ? Math.ceil((chars / 3.2) * 1.15) + 30 * batches : 0 };
+}
+
+export async function translateGraph(graph: FlowGraph, languageName: string, ai: AiFn): Promise<FlowGraph> {
+  const copy: FlowGraph = JSON.parse(JSON.stringify(graph));
+  const all = collectTexts(copy);
+  for (let i = 0; i < all.length; i += TRANSLATE_BATCH) {
+    const batch = all.slice(i, i + TRANSLATE_BATCH);
     const out = await ai([
-      {
-        role: 'system',
-        content: `Traduza os VALORES do JSON para ${languageName}. Mantenha as chaves iguais. Não traduza variáveis entre chaves duplas (ex.: {{nome}}, {{link}}). Preserve emojis, quebras de linha e o tom. Em listas separadas por vírgula, traduza cada item e mantenha as vírgulas. Responda SOMENTE com o JSON.`,
-      },
-      { role: 'user', content: JSON.stringify(input) },
+      { role: 'system', content: translatePrompt(languageName) },
+      { role: 'user', content: JSON.stringify(batchInput(batch)) },
     ], 4000);
     let parsed: Dict;
     try { parsed = extractJson(out); } catch { throw new Error('A IA não retornou uma tradução válida. Tente novamente.'); }
@@ -251,6 +278,7 @@ export function stripForImport(graph: FlowGraph): FlowGraph {
     if (n.type === 'trigger') { d.connectionId = ''; d.webhookId = ''; }
     if (n.type === 'goto_flow') d.flowId = '';
     if (n.type === 'handoff') d.assignUserId = '';
+    if (n.type === 'action') { d.kanbanBoardId = ''; d.kanbanColumnId = ''; }
     if (n.type === 'payment') d.productId = '';
     if (n.type === 'http' && Array.isArray(d.headers)) {
       d.headers = d.headers.map((h: Dict) => ({ key: String(h?.key ?? ''), value: '' }));

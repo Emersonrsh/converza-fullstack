@@ -7,10 +7,14 @@ import { db, schema } from '../db';
 import { isUuid } from '../utils/http';
 import { emitToAccount } from '../realtime/io';
 import { ensureConversation } from '../modules/conversationStore';
+import { upsertContactCard } from '../modules/kanbanStore';
 import { enqueueFlowJob, type FlowJobData } from '../queue';
 import { aiCall } from '../ai/usage';
 import { sendText, sendMedia, sendButtons, sendList, type WaConnection, type SendResult } from '../whatsapp/cloud-api';
 import { safeHttpRequest } from './http';
+import { flowExtras, setGlobalValue } from './globals';
+import { openNow } from '../modules/businessHours';
+import { defaultFlowsFor } from '../modules/defaultFlows';
 import { normalizeGraph, triggerOf, STAGES, type Dict, type FlowGraph } from './types';
 import {
   runFrom, resumeInput, resumeAfterDelay, resumePayment, normalizeState, triggerMatches, norm,
@@ -36,6 +40,8 @@ export interface InboundEvent {
   isFirstMessage?: boolean;
   webhookId?: string | null;
   vars?: Dict;
+  /** fluxos que não devem começar por este evento (o webhook já cuidou deles) */
+  excludeFlowIds?: string[];
 }
 
 /* -------------------------------------------------------------- executor */
@@ -46,6 +52,7 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
   let contactRow: ContactRow | null = null;
   let connCache: ConnectionRow | null | undefined;
   let convCache: ConversationRow | null = null;
+  let extrasCache: Record<string, string> | null = null;
 
   const contact = async (): Promise<ContactRow> => {
     if (!contactRow) {
@@ -92,19 +99,21 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
     const conn = await connection();
     let status: 'sent' | 'failed' = 'failed';
     let waMessageId: string | null = null;
+    let error: string | null = conn ? null : 'Conversa sem conexão de WhatsApp';
     if (conn) {
       try {
         const r = await send({ phoneNumberId: conn.phoneNumberId, accessToken: conn.accessToken }, await recipient());
         waMessageId = r.waMessageId;
         status = 'sent';
       } catch (err) {
-        console.error('[flow] envio falhou:', (err as Error).message);
+        error = (err as Error).message;
+        console.error('[flow] envio falhou:', error);
       }
     }
     // registra no inbox para a equipe acompanhar o que o fluxo enviou
     const conv = await conversation();
     const [msg] = await db.insert(schema.messages).values({
-      accountId: p.accountId, conversationId: conv.id, direction: 'out', type, body, mediaUrl, status, waMessageId,
+      accountId: p.accountId, conversationId: conv.id, direction: 'out', type, body, mediaUrl, status, waMessageId, error,
     }).returning();
     await db.update(schema.conversations).set({ lastMessageAt: new Date() }).where(eq(schema.conversations.id, conv.id));
     emitToAccount(p.accountId, 'message:new', { conversationId: conv.id, message: msg });
@@ -135,7 +144,7 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
     pendingGoto: null,
     async getContact() {
       const c = await contact();
-      return { name: c.name, phone: c.phone, stage: c.stage, tags: [...c.tags] };
+      return { name: c.name, phone: c.phone, stage: c.stage, tags: [...c.tags], email: c.email, custom: { ...(c.custom as Record<string, unknown> ?? {}) } };
     },
     async sendText(text) {
       await deliver((conn, to) => sendText(conn, to, text), text, 'text', null);
@@ -174,7 +183,21 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
     async setContactName(name) {
       await updateContact({ name: name.slice(0, 120) });
     },
-    async handoff(assignUserId) {
+    async setContactField(key, value) {
+      const [f] = await db.select().from(schema.contactFields)
+        .where(and(eq(schema.contactFields.accountId, p.accountId), eq(schema.contactFields.key, key))).limit(1);
+      if (!f) { console.warn('[flow] campo personalizado não existe:', key); return; }
+      const c = await contact();
+      const custom = { ...((c.custom ?? {}) as Record<string, unknown>) };
+      if (value) custom[key] = value.slice(0, 500); else delete custom[key];
+      await updateContact({ custom });
+    },
+    async moveToKanban(boardId, columnId) {
+      if (!isUuid(boardId) || !isUuid(columnId)) return;
+      const r = await upsertContactCard(p.accountId, p.contactId, boardId, columnId);
+      if ('error' in r) console.warn('[flow] Kanban:', r.error);
+    },
+    async handoff(assignUserId, departmentId) {
       const conv = await conversation();
       let assigned: string | null = null;
       if (assignUserId && isUuid(assignUserId)) {
@@ -182,13 +205,33 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
           .where(and(eq(schema.memberships.userId, assignUserId), eq(schema.memberships.accountId, p.accountId))).limit(1);
         if (m) assigned = assignUserId;
       }
+      // fila do setor: fica em Aguardando só para os membros do setor
+      let dept: string | null = null;
+      if (!assigned && departmentId && isUuid(departmentId)) {
+        const [d] = await db.select({ id: schema.departments.id }).from(schema.departments)
+          .where(and(eq(schema.departments.id, departmentId), eq(schema.departments.accountId, p.accountId))).limit(1);
+        dept = d?.id ?? null;
+      }
       const [updated] = await db.update(schema.conversations)
-        .set({ botPaused: true, status: 'pending', ...(assigned ? { assignedUserId: assigned } : {}) })
+        .set({ botPaused: true, status: 'pending', ...(assigned ? { assignedUserId: assigned } : {}), ...(dept ? { departmentId: dept, assignedUserId: null } : {}) })
         .where(eq(schema.conversations.id, conv.id)).returning();
       if (updated) convCache = updated;
       emitToAccount(p.accountId, 'conversation:updated', { conversation: updated });
     },
     async gotoFlow(flowId) { exec.pendingGoto = flowId; },
+    async extras() {
+      if (!extrasCache) extrasCache = await flowExtras(p.accountId);
+      return extrasCache;
+    },
+    async inBusinessHours() {
+      const c = await connection();
+      const h = await openNow(p.accountId, c?.id ?? null);
+      return h.enabled ? h.open : null;
+    },
+    async setGlobal(key, op, value) {
+      await setGlobalValue(p.accountId, key, op, value);
+      extrasCache = null;
+    },
     http: (req) => safeHttpRequest(req),
     async ai(req) {
       const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [{ role: 'system', content: req.system }];
@@ -202,7 +245,14 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
         }
       }
       if (req.user) messages.push({ role: 'user', content: req.user });
-      return aiCall(p.accountId, messages, { model: req.model, maxTokens: req.maxTokens });
+      // para "Uso da IA": a conversa do contato (sem criar uma nova só por isso)
+      const convId = convCache?.id ?? (await db.select({ id: schema.conversations.id }).from(schema.conversations)
+        .where(and(eq(schema.conversations.accountId, p.accountId), eq(schema.conversations.contactId, p.contactId)))
+        .orderBy(desc(schema.conversations.lastMessageAt)).limit(1))[0]?.id ?? null;
+      return aiCall(p.accountId, messages, {
+        model: req.model, maxTokens: req.maxTokens,
+        usage: { kind: 'flow_ai', conversationId: convId, contactId: p.contactId, flowId: p.flowId, label: 'Bloco de IA do fluxo' },
+      });
     },
     async getProduct(id) {
       if (!isUuid(id)) return null;
@@ -312,6 +362,35 @@ async function startFlowById(accountId: string, flowId: string, contactId: strin
   await startRun(flow, contactId, state, { ignoreReentry: true });
 }
 
+/**
+ * Dispara um fluxo para o contato por fora do gatilho (ex.: o agente de IA manda o checkout).
+ * 'started' = começou; 'running' = já está em andamento para esse contato; 'inactive' = fluxo pausado/arquivado/inexistente.
+ */
+export async function startFlowForContact(accountId: string, flowId: string, contactId: string,
+  from: { lastMessage?: string; connectionId?: string | null; vars?: Dict } = {}): Promise<'started' | 'running' | 'inactive'> {
+  if (!isUuid(flowId)) return 'inactive';
+  const [flow] = await db.select().from(schema.flows)
+    .where(and(eq(schema.flows.id, flowId), eq(schema.flows.accountId, accountId))).limit(1);
+  if (!flow || flow.status !== 'active' || flow.archivedAt) return 'inactive';
+  const state = normalizeState({ lastMessage: from.lastMessage ?? '', vars: from.vars ?? {}, connectionId: from.connectionId ?? null });
+  return (await startRun(flow, contactId, state, { ignoreReentry: true })) ? 'started' : 'running';
+}
+
+/**
+ * Fluxo que espera o cliente responder (o webhook mandou um modelo fora da janela de 24h).
+ * Na próxima mensagem dele, o fluxo começa do início com as variáveis do evento.
+ */
+async function startPendingFlow(ev: InboundEvent): Promise<boolean> {
+  const [p] = await db.delete(schema.flowPending)
+    .where(and(eq(schema.flowPending.contactId, ev.contactId), eq(schema.flowPending.accountId, ev.accountId)))
+    .returning();
+  if (!p || p.expiresAt.getTime() < Date.now()) return false;
+  const r = await startFlowForContact(ev.accountId, p.flowId, ev.contactId, {
+    lastMessage: ev.text, connectionId: ev.connectionId ?? p.connectionId, vars: (p.vars ?? {}) as Dict,
+  });
+  return r === 'started';
+}
+
 /* ------------------------------------------------------------ entradas */
 
 /**
@@ -342,14 +421,34 @@ export async function triggerFlowsForInbound(ev: InboundEvent): Promise<boolean>
     }
   }
 
+  // 1b) respondeu o modelo mandado pelo webhook → começa o fluxo que estava esperando
+  if (ev.source === 'inbound_message' && await startPendingFlow(ev)) return true;
+
   // 2) inicia os fluxos cujo gatilho combina (palavra-chave tem prioridade)
   const flows = await db.select().from(schema.flows).where(and(
     eq(schema.flows.accountId, ev.accountId), eq(schema.flows.status, 'active'), isNull(schema.flows.archivedAt),
   ));
+  const skip = new Set(ev.excludeFlowIds ?? []);
   const matched = flows
+    .filter((f) => !skip.has(f.id))
     .map((f) => ({ flow: f, trigger: triggerOf(f.trigger, normalizeGraph(f.graph)) }))
     .filter(({ trigger }) => triggerMatches(trigger, ev));
   const byKeyword = matched.filter(({ trigger }) => trigger.type === 'keyword');
+
+  // 3) fluxos padrões do número (palavra-chave continua valendo antes de tudo)
+  if (!byKeyword.length && ev.source === 'inbound_message') {
+    const defaults = await defaultFlowsFor(ev.connectionId);
+    if (defaults?.offHoursFlowId) {
+      const h = await openNow(ev.accountId, ev.connectionId);
+      // fora do horário: só o aviso de fora do horário responde (uma vez a cada 12 h por contato)
+      if (h.enabled && !h.open) {
+        await startDefaultFlow(defaults.offHoursFlowId, ev, 12);
+        return true;
+      }
+    }
+    // boas-vindas: primeira mensagem de um contato novo, quando nenhum fluxo tem gatilho para ela
+    if (!matched.length && ev.isFirstMessage && defaults?.welcomeFlowId && await startDefaultFlow(defaults.welcomeFlowId, ev, 0)) return true;
+  }
   const selected = byKeyword.length ? byKeyword : matched;
 
   let started = false;
@@ -364,6 +463,38 @@ export async function triggerFlowsForInbound(ev: InboundEvent): Promise<boolean>
     }
   }
   return started;
+}
+
+/**
+ * Começa um fluxo padrão (escolhido em Configurações › Fluxos Padrões). Vale para fluxos ativos e rascunhos
+ * (o gatilho deles não importa aqui); fluxo pausado ou arquivado não roda. `throttleHours`: não repete para
+ * o mesmo contato dentro desse tempo (0 = sem trava).
+ */
+async function startDefaultFlow(flowId: string, ev: InboundEvent, throttleHours: number): Promise<boolean> {
+  const [flow] = await db.select().from(schema.flows).where(and(
+    eq(schema.flows.id, flowId), eq(schema.flows.accountId, ev.accountId), isNull(schema.flows.archivedAt),
+  )).limit(1);
+  if (!flow || flow.status === 'paused') return false;
+  if (throttleHours > 0) {
+    const [last] = await db.select({ startedAt: schema.flowRuns.startedAt }).from(schema.flowRuns)
+      .where(and(eq(schema.flowRuns.flowId, flow.id), eq(schema.flowRuns.contactId, ev.contactId)))
+      .orderBy(desc(schema.flowRuns.startedAt)).limit(1);
+    if (last && Date.now() - last.startedAt.getTime() < throttleHours * 3_600_000) return false;
+  }
+  try {
+    const state = normalizeState({ lastMessage: ev.text, lastReplyId: ev.replyId ?? null, vars: ev.vars ?? {}, connectionId: ev.connectionId ?? null });
+    return await startRun(flow, ev.contactId, state, { ignoreReentry: true });
+  } catch (err) {
+    console.error(`[flow ${flow.id}] fluxo padrão não começou:`, (err as Error).message);
+    return false;
+  }
+}
+
+/** Nada respondeu a mensagem (nenhum fluxo e nenhum agente de IA): o fluxo padrão "quando nada responde". */
+export async function startFallbackFlow(ev: InboundEvent): Promise<boolean> {
+  const defaults = await defaultFlowsFor(ev.connectionId);
+  if (!defaults?.fallbackFlowId) return false;
+  return startDefaultFlow(defaults.fallbackFlowId, ev, 1);
 }
 
 /** Pagamento aprovado (webhook de venda) → retoma execuções aguardando pagamento do contato. */

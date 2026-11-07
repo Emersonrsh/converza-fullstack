@@ -276,16 +276,29 @@ export function ConfigPanel({ node, currentFlowId, lookups, variables, onChange,
           <F label="Verificar">
             <select className="select" value={d.field ?? 'lastMessage'} onChange={(e) => {
               const field = e.target.value;
-              const op = field === 'tags' ? 'has_tag' : field === 'stage' ? 'equals' : 'contains';
-              set({ field, op, value: field === 'stage' ? 'new' : '' });
-            }}>
+              const op = field === 'tags' ? 'has_tag' : field === 'stage' ? 'equals' : field === 'business_hours' ? 'open' : 'contains';
+              set({ field, op, value: field === 'stage' ? 'new' : '', ...(field === 'global' ? { globalKey: lookups.globals[0]?.key ?? '' } : {}) });
+            }} data-testid="cond-field">
               <option value="lastMessage">Última resposta do cliente</option>
               <option value="var">Uma variável</option>
               <option value="name">Nome do contato</option>
               <option value="stage">Etapa do funil</option>
               <option value="tags">Etiquetas do contato</option>
+              <option value="business_hours">Horário de atendimento</option>
+              <option value="global">Uma variável global</option>
             </select>
           </F>
+          {d.field === 'business_hours' && (
+            <div className="cf-info">Usa os horários de trabalho do número da conversa (Configurações › Empresa › Horários). Se os horários estiverem desligados, conta como <b>dentro do horário</b>.</div>
+          )}
+          {d.field === 'global' && (
+            <F label="Variável global" hint={lookups.globals.length ? undefined : 'Crie em Configurações › Variáveis Globais.'}>
+              <select className="select" value={d.globalKey ?? ''} onChange={(e) => set({ globalKey: e.target.value })} data-testid="cond-global">
+                <option value="">Escolha…</option>
+                {lookups.globals.map((g) => <option key={g.key} value={g.key}>{`{{${g.key}}}`} {g.value ? `(agora: ${g.value.slice(0, 20)})` : ''}</option>)}
+              </select>
+            </F>
+          )}
           {d.field === 'var' && (
             <F label="Variável">
               <input className="input" list="flow-vars" value={d.varName ?? ''} placeholder="email" onChange={(e) => set({ varName: sanitizeVarName(e.target.value) })} />
@@ -293,14 +306,15 @@ export function ConfigPanel({ node, currentFlowId, lookups, variables, onChange,
             </F>
           )}
           <F label="Condição">
-            <select className="select" value={d.op ?? 'contains'} onChange={(e) => set({ op: e.target.value })}>
+            <select className="select" value={d.op ?? 'contains'} onChange={(e) => set({ op: e.target.value })} data-testid="cond-op">
               {(d.field === 'tags' ? ['has_tag', 'not_has_tag']
                 : d.field === 'stage' ? ['equals', 'not_equals']
+                : d.field === 'business_hours' ? ['open', 'closed']
                 : ['contains', 'not_contains', 'equals', 'not_equals', 'starts_with', 'not_empty', 'is_empty', 'is_number', 'greater_than', 'less_than'])
                 .map((op) => <option key={op} value={op}>{OP_LABELS[op]}</option>)}
             </select>
           </F>
-          {!['not_empty', 'is_empty', 'is_number'].includes(d.op) && (
+          {d.field !== 'business_hours' && !['not_empty', 'is_empty', 'is_number'].includes(d.op) && (
             d.field === 'stage' ? (
               <F label="Etapa">
                 <select className="select" value={d.value ?? 'new'} onChange={(e) => set({ value: e.target.value })}>
@@ -351,16 +365,84 @@ export function ConfigPanel({ node, currentFlowId, lookups, variables, onChange,
           </F>
           <Template label="Atualizar nome do contato (opcional)" value={d.setName} onChange={(v) => set({ setName: v })} vars={variables} rows={1}
             hint="Ex.: depois de perguntar o nome e salvar em {{nome_cliente}}." />
+          <F label="Salvar em campos do contato" hint={lookups.fields.length ? 'Ex.: depois de perguntar o CPF (salvo em {{cpf}}), guarde no campo CPF do contato.' : 'Crie campos em Configurações › Campos personalizados.'}>
+            <div className="le">
+              {(Array.isArray(d.setFields) ? d.setFields : []).map((f: D, i: number) => (
+                <div className="row" key={i} style={{ gap: 6, marginBottom: 6 }} data-testid="action-field-row">
+                  <select className="select sm" style={{ maxWidth: 140 }} value={f.key ?? ''} onChange={(e) => set({ setFields: (d.setFields ?? []).map((x: D, j: number) => (j === i ? { ...x, key: e.target.value } : x)) })} data-testid="action-field-key">
+                    <option value="">Campo…</option>
+                    {lookups.fields.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
+                  </select>
+                  <input className="input sm" placeholder="{{resposta}}" value={f.value ?? ''} onChange={(e) => set({ setFields: (d.setFields ?? []).map((x: D, j: number) => (j === i ? { ...x, value: e.target.value } : x)) })} data-testid="action-field-value" />
+                  <button type="button" className="btn icon sm ghost" onClick={() => set({ setFields: (d.setFields ?? []).filter((_: D, j: number) => j !== i) })} aria-label="Remover campo"><Icon name="close" size={14} /></button>
+                </div>
+              ))}
+              {lookups.fields.length > 0 && (
+                <button type="button" className="btn sm ghost" onClick={() => set({ setFields: [...(Array.isArray(d.setFields) ? d.setFields : []), { key: lookups.fields[0].key, value: '' }] })} data-testid="action-add-field">
+                  <Icon name="plus" size={13} />Adicionar campo
+                </button>
+              )}
+            </div>
+          </F>
+          <F label="Variáveis globais" hint={lookups.globals.length ? 'Vale para a empresa toda (todos os fluxos veem o valor novo). Somar e subtrair só para números.' : 'Crie em Configurações › Variáveis Globais (ex.: vagas restantes, cupom do mês).'}>
+            <div className="le">
+              {(Array.isArray(d.setGlobals) ? d.setGlobals : []).map((g: D, i: number) => {
+                const upd = (patch: D) => set({ setGlobals: (d.setGlobals ?? []).map((x: D, j: number) => (j === i ? { ...x, ...patch } : x)) });
+                const isNum = lookups.globals.find((x) => x.key === g.key)?.type === 'number';
+                return (
+                  <div className="row" key={i} style={{ gap: 6, marginBottom: 6 }} data-testid="action-global-row">
+                    <select className="select sm" style={{ maxWidth: 130 }} value={g.key ?? ''} onChange={(e) => upd({ key: e.target.value })} data-testid="action-global-key">
+                      <option value="">Variável…</option>
+                      {lookups.globals.map((x) => <option key={x.key} value={x.key}>{x.key}</option>)}
+                    </select>
+                    <select className="select sm" style={{ maxWidth: 104 }} value={g.op ?? 'set'} onChange={(e) => upd({ op: e.target.value })} data-testid="action-global-op">
+                      <option value="set">definir</option>
+                      {isNum && <option value="add">somar</option>}
+                      {isNum && <option value="subtract">subtrair</option>}
+                    </select>
+                    <input className="input sm" placeholder={isNum ? '1' : '{{resposta}}'} value={g.value ?? ''} onChange={(e) => upd({ value: e.target.value })} data-testid="action-global-value" />
+                    <button type="button" className="btn icon sm ghost" onClick={() => set({ setGlobals: (d.setGlobals ?? []).filter((_: D, j: number) => j !== i) })} aria-label="Remover"><Icon name="close" size={14} /></button>
+                  </div>
+                );
+              })}
+              {lookups.globals.length > 0 && (
+                <button type="button" className="btn sm ghost" onClick={() => set({ setGlobals: [...(Array.isArray(d.setGlobals) ? d.setGlobals : []), { key: lookups.globals[0].key, op: 'set', value: '' }] })} data-testid="action-add-global">
+                  <Icon name="plus" size={13} />Adicionar variável global
+                </button>
+              )}
+            </div>
+          </F>
+          <F label="Colocar no Kanban" hint={lookups.kanban.length ? 'O contato entra no topo da coluna; se já estiver no quadro, é movido para ela.' : 'Crie um quadro em Kanban para usar esta ação.'}>
+            <select className="select" value={d.kanbanBoardId ?? ''} data-testid="action-kanban-board"
+              onChange={(e) => { const b = lookups.kanban.find((x) => x.id === e.target.value); set({ kanbanBoardId: e.target.value, kanbanColumnId: b?.columns[0]?.id ?? '' }); }}>
+              <option value="">(não mexer no Kanban)</option>
+              {lookups.kanban.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+            {d.kanbanBoardId && (
+              <select className="select" style={{ marginTop: 6 }} value={d.kanbanColumnId ?? ''} onChange={(e) => set({ kanbanColumnId: e.target.value })} data-testid="action-kanban-column">
+                <option value="">Escolha a coluna…</option>
+                {lookups.kanban.find((b) => b.id === d.kanbanBoardId)?.columns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            )}
+          </F>
         </>)}
 
         {type === 'handoff' && (<>
           <Template label="Mensagem antes de transferir (opcional)" value={d.message} onChange={(v) => set({ message: v })} vars={variables} rows={3} />
           <F label="Atribuir a">
-            <select className="select" value={d.assignUserId ?? ''} onChange={(e) => set({ assignUserId: e.target.value })}>
+            <select className="select" value={d.assignUserId ?? ''} onChange={(e) => set({ assignUserId: e.target.value, ...(e.target.value ? { departmentId: '' } : {}) })} data-testid="handoff-user">
               <option value="">Equipe (sem responsável)</option>
               {lookups.team.map((t) => <option key={t.userId} value={t.userId}>{t.name}</option>)}
             </select>
           </F>
+          {!d.assignUserId && (
+            <F label="Fila do setor" hint={lookups.departments.length ? 'A conversa fica em “Aguardando” só para quem é do setor; quem pegar primeiro, atende.' : 'Crie setores em Configurações › Empresa › Departamentos.'}>
+              <select className="select" value={d.departmentId ?? ''} onChange={(e) => set({ departmentId: e.target.value })} data-testid="handoff-dept">
+                <option value="">Fila geral (qualquer pessoa)</option>
+                {lookups.departments.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+              </select>
+            </F>
+          )}
           <div className="cf-info">A conversa fica marcada como <b>atendimento humano</b>: fluxos e IA param de responder até alguém retomar a automação no inbox.</div>
         </>)}
 
@@ -436,7 +518,7 @@ export function ConfigPanel({ node, currentFlowId, lookups, variables, onChange,
           <F label="Mensagem se a IA falhar ou estiver sem saldo">
             <input className="input" value={d.fallbackText ?? ''} placeholder="Já te respondo! 😊" onChange={(e) => set({ fallbackText: e.target.value })} />
           </F>
-          <div className="cf-info"><Icon name="bolt" size={13} /> Consome tokens de IA do seu plano a cada resposta.</div>
+          <div className="cf-info"><Icon name="bolt" size={13} /> Consome tokens de IA da conta a cada resposta.</div>
         </>)}
 
         {type === 'ai_classify' && (<>

@@ -1,15 +1,18 @@
 import { Router } from 'express';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { asyncHandler, AppError, isUuid } from '../utils/http';
+import { flowExtras } from '../flows/globals';
 import { normalizeGraph, triggerOf, blockCount, type FlowGraph } from '../flows/types';
 import { simulate, type SimHistoryItem } from '../flows/simulate';
 import { safeHttpRequest } from '../flows/http';
 import { aiCall } from '../ai/usage';
+import { uniqueFlowName as uniqueName } from './flowNames';
+import { TRANSLATE_LANGS, translateFlow, translationEstimate } from './translations';
 import {
-  GENERATE_SYSTEM, LANGUAGES, extractJson, sanitizeGeneratedGraph, stripForImport, translateGraph,
+  GENERATE_SYSTEM, extractJson, sanitizeGeneratedGraph, stripForImport,
 } from '../flows/aiTools';
 
 export const flowsRouter = Router();
@@ -43,17 +46,6 @@ async function ownFlow(accountId: string, id: string): Promise<FlowRow> {
   return row;
 }
 
-async function uniqueName(accountId: string, base: string): Promise<string> {
-  const rows = await db.select({ name: schema.flows.name }).from(schema.flows).where(eq(schema.flows.accountId, accountId));
-  const names = new Set(rows.map((r) => r.name.toLowerCase()));
-  const clean = base.trim().slice(0, 110) || 'Novo fluxo';
-  if (!names.has(clean.toLowerCase())) return clean;
-  for (let i = 2; i < 500; i++) {
-    const n = `${clean} ${i}`;
-    if (!names.has(n.toLowerCase())) return n;
-  }
-  return `${clean} ${Date.now()}`;
-}
 
 async function validFolder(accountId: string, folderId: string | null | undefined): Promise<string | null> {
   if (!folderId) return null;
@@ -154,7 +146,7 @@ flowsRouter.post('/generate', asyncHandler(async (req, res) => {
   const text = await aiCall(req.accountId!, [
     { role: 'system', content: GENERATE_SYSTEM },
     { role: 'user', content: description },
-  ], { maxTokens: 3500, temperature: 0.4 });
+  ], { maxTokens: 3500, temperature: 0.4, usage: { kind: 'flow_generate', label: description.slice(0, 120) } });
   let raw: unknown;
   try { raw = extractJson(text); }
   catch { throw new AppError(502, 'A IA não devolveu um fluxo válido. Tente descrever de outro jeito.'); }
@@ -185,12 +177,26 @@ flowsRouter.post('/simulate', asyncHandler(async (req, res) => {
       { role: 'system', content: r.system },
       ...(r.history ? history.slice(-12) : []),
       ...(r.user ? [{ role: 'user' as const, content: r.user }] : []),
-    ], { model: r.model, maxTokens: r.maxTokens }),
+    ], { model: r.model, maxTokens: r.maxTokens, usage: { kind: 'flow_simulate', label: 'Bloco de IA no simulador' } }),
     product: async (id) => {
       if (!isUuid(id)) return null;
       const [p] = await db.select().from(schema.products)
         .where(and(eq(schema.products.id, id), eq(schema.products.accountId, accountId))).limit(1);
       return p ? { id: p.id, name: p.name, price: Number(p.price), checkoutUrl: p.checkoutUrl } : null;
+    },
+    extras: () => flowExtras(accountId),
+    departmentName: async (id) => {
+      if (!isUuid(id)) return null;
+      const [d] = await db.select({ name: schema.departments.name }).from(schema.departments)
+        .where(and(eq(schema.departments.id, id), eq(schema.departments.accountId, accountId))).limit(1);
+      return d?.name ?? null;
+    },
+    kanbanLabel: async (boardId, columnId) => {
+      if (!isUuid(boardId) || !isUuid(columnId)) return null;
+      const [r] = await db.select({ board: schema.kanbanBoards.name, column: schema.kanbanColumns.name }).from(schema.kanbanColumns)
+        .innerJoin(schema.kanbanBoards, eq(schema.kanbanBoards.id, schema.kanbanColumns.boardId))
+        .where(and(eq(schema.kanbanColumns.id, columnId), eq(schema.kanbanColumns.boardId, boardId), eq(schema.kanbanBoards.accountId, accountId))).limit(1);
+      return r ? `${r.board} › ${r.column}` : null;
     },
     flowName: async (id) => {
       if (!isUuid(id)) return null;
@@ -262,6 +268,12 @@ flowsRouter.put('/:id', asyncHandler(async (req, res) => {
 
 flowsRouter.delete('/:id', asyncHandler(async (req, res) => {
   const flow = await ownFlow(req.accountId!, req.params.id);
+  // disparo em massa ainda vivo usa este fluxo: excluir deixaria os contatos sem ter o que receber
+  const live = await db.select({ name: schema.campaigns.name }).from(schema.campaigns)
+    .where(and(eq(schema.campaigns.flowId, flow.id), inArray(schema.campaigns.status, ['scheduled', 'sending', 'paused']))).limit(3);
+  if (live.length) {
+    throw new AppError(409, `Este fluxo está no disparo em massa “${live.map((c) => c.name).join('”, “')}”. Termine ou cancele o disparo antes de excluir o fluxo.`, { code: 'flow_in_dispatch' });
+  }
   await db.delete(schema.flows).where(eq(schema.flows.id, flow.id));
   res.status(204).end();
 }));
@@ -338,24 +350,15 @@ flowsRouter.delete('/:id/stats', asyncHandler(async (req, res) => {
 /* ------------------------------------------------------------ traduzir */
 
 flowsRouter.post('/:id/translate', asyncHandler(async (req, res) => {
-  const accountId = req.accountId!;
-  const { language } = z.object({ language: z.enum(['en', 'es', 'pt', 'fr', 'it', 'de']) }).parse(req.body);
-  const flow = await ownFlow(accountId, req.params.id);
-  const graph = normalizeGraph(flow.graph);
-  let translated: FlowGraph;
-  try {
-    translated = await translateGraph(graph, LANGUAGES[language],
-      (messages, maxTokens) => aiCall(accountId, messages, { maxTokens, temperature: 0.2 }));
-  } catch (err) {
-    if (err instanceof AppError) throw err;
-    throw new AppError(502, (err as Error).message);
-  }
-  const [row] = await db.insert(schema.flows).values({
-    accountId, folderId: flow.folderId,
-    name: await uniqueName(accountId, `${flow.name} (${language.toUpperCase()})`),
-    status: 'draft', graph: translated, trigger: triggerOf(undefined, translated),
-  }).returning();
-  res.status(201).json({ flow: row });
+  const { language } = z.object({ language: z.enum(TRANSLATE_LANGS) }).parse(req.body);
+  const flow = await ownFlow(req.accountId!, req.params.id);
+  const out = await translateFlow(req.accountId!, req.user?.id ?? null, flow, language);
+  res.status(201).json(out);
+}));
+
+flowsRouter.get('/:id/translate/estimate', asyncHandler(async (req, res) => {
+  const flow = await ownFlow(req.accountId!, req.params.id);
+  res.json(await translationEstimate(req.accountId!, flow));
 }));
 
 export { ACTIVE as ACTIVE_FLOW_RUN_STATUSES };

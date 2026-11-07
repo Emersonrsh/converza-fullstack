@@ -5,9 +5,12 @@ export const isUuid = (s: unknown): s is string =>
 
 export class AppError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** campos extras na resposta (ex.: { code: 'agent_limit', limit }) */
+  extra?: Record<string, unknown>;
+  constructor(status: number, message: string, extra?: Record<string, unknown>) {
     super(message);
     this.status = status;
+    this.extra = extra;
   }
 }
 
@@ -22,7 +25,7 @@ export function asyncHandler(
 
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
   if (err instanceof AppError) {
-    return res.status(err.status).json({ error: err.message });
+    return res.status(err.status).json({ ...(err.extra ?? {}), error: err.message });
   }
   // Erros de validação do zod
   if (err && typeof err === 'object' && 'issues' in err) {
@@ -30,4 +33,11 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   }
   console.error(err);
   return res.status(500).json({ error: 'Erro interno do servidor' });
+}
+
+/** Endereço público da API: PUBLIC_API_URL ou o host da própria requisição (atrás do proxy do Render). */
+export function publicBase(req: Request, configured: string): string {
+  if (configured) return configured;
+  const proto = String(req.headers['x-forwarded-proto'] ?? req.protocol).split(',')[0].trim();
+  return `${proto}://${req.get('host')}`;
 }
