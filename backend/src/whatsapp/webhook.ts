@@ -261,10 +261,19 @@ async function handleInbound(accountId: string, connectionId: string, m: any, pr
   // reações não disparam automação; atendimento humano: nenhuma automação responde
   if (silent || conv.botPaused) return;
 
-  const handled = await triggerFlowsForInbound({
+  const mediaMsgId = ['audio', 'image', 'document', 'video', 'sticker'].includes(mediaType) && msg.waMediaId ? msg.id : null;
+  const inbound = {
     accountId, contactId: contact.id, text, replyId, connectionId,
-    source: 'inbound_message', isFirstMessage,
-  });
+    source: 'inbound_message' as const, isFirstMessage, waId: m.id ? String(m.id) : null, mediaMsgId,
+  };
+
+  // conversa entregue a um agente de IA pelo fluxo: ele responde (só uma espera de fluxo em andamento vem antes)
+  if (conv.aiAgentId) {
+    if (!(await triggerFlowsForInbound({ ...inbound, onlyResume: true }))) await scheduleAgentReply(accountId, conv.id, msg.id);
+    return;
+  }
+
+  const handled = await triggerFlowsForInbound(inbound);
   // o agente de IA só responde se nenhum fluxo tratou a mensagem; se nem ele, entra o fluxo padrão do número
   if (!handled && !(await scheduleAgentReply(accountId, conv.id, msg.id))) {
     await startFallbackFlow({ accountId, contactId: contact.id, text, replyId, connectionId, source: 'inbound_message', isFirstMessage });

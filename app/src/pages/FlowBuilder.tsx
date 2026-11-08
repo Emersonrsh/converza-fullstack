@@ -11,12 +11,12 @@ import { api } from '../api';
 import { Icon } from '../icons';
 import { Spinner, toast, cx } from '../components/ui';
 import {
-  BLOCKS, CATEGORIES, defaultData, emptyLookups, outputsFor, rid, variablesOf, type BlockType, type Lookups, type Output,
+  BLOCKS, TOOLS, defaultData, emptyLookups, outputsFor, rid, upgradeNode, variablesOf, type BlockType, type Lookups, type Output,
 } from '../flows/blocks';
 import {
   BuilderContext, EdgeHoverContext, ZoomControls, edgeTypes, nodeTypes, type BlockFlowNode,
 } from '../flows/canvas';
-import { ConfigPanel } from '../flows/ConfigPanel';
+import { BlockModal, type EditorCtx } from '../flows/editors';
 import { Simulator } from '../flows/Simulator';
 import { levelsByNode, validateFlow, type Issue } from '../flows/validate';
 import { tidyLayout } from '../flows/layout';
@@ -44,11 +44,23 @@ const pickMeta = (f: Flow): Meta => ({
 });
 
 function toRfNode(n: FlowNode): BlockFlowNode {
+  // blocos de fluxos antigos abrem já no formato novo (Mídia → Mensagem, Condição com várias regras…)
+  const up = upgradeNode(n.type, n.data ?? {});
   return {
-    id: n.id, type: n.type, data: n.data ?? {}, deletable: n.type !== 'trigger',
+    id: n.id, type: up.type, data: up.data, deletable: n.type !== 'trigger',
     position: n.position ?? { x: n.x ?? 0, y: n.y ?? 0 },
   };
 }
+
+const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+/** Busca de blocos por nome ou descrição ("pix", "etiqueta", "ia"…). */
+const searchTools = (q: string) => {
+  const t = norm(q.trim());
+  if (!t) return TOOLS;
+  // primeiro quem tem a palavra no nome, depois quem tem na descrição
+  const byName = TOOLS.filter((b) => norm(BLOCKS[b].label).includes(t));
+  return [...byName, ...TOOLS.filter((b) => !byName.includes(b) && norm(BLOCKS[b].desc).includes(t))];
+};
 function toRfEdge(e: FlowEdge): Edge {
   return { id: e.id || rid('e'), source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? null, type: 'deletable' };
 }
@@ -136,6 +148,9 @@ function Builder({ flowId }: { flowId: string }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [modal, setModal] = useState<ModalKind>(null);
   const [picker, setPicker] = useState<Picker | null>(null);
+  const [pickerQuery, setPickerQuery] = useState('');
+  const [toolQuery, setToolQuery] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
   const [, bumpHistory] = useState(0);
 
@@ -146,7 +161,6 @@ function Builder({ flowId }: { flowId: string }) {
   const savingP = useRef<Promise<void> | null>(null);
   const past = useRef<Snap[]>([]);
   const future = useRef<Snap[]>([]);
-  const lastDataSnap = useRef({ id: '', at: 0 });
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   useClickOutside(menuRef, menuOpen, closeMenu);
@@ -159,7 +173,7 @@ function Builder({ flowId }: { flowId: string }) {
   }, [flowId]);
 
   const loadLookups = useCallback(async () => {
-    const [c, w, t, p, f, k, cf, dp, gv] = await Promise.allSettled([
+    const [c, w, t, p, f, k, cf, dp, gv, tg, ag, px, wb] = await Promise.allSettled([
       api.get<{ connections: WaConnection[] }>('/connections'),
       api.get<{ webhooks: Webhook[] }>('/webhooks'),
       api.get<{ members: Member[] }>('/team'),
@@ -169,6 +183,10 @@ function Builder({ flowId }: { flowId: string }) {
       api.get<{ fields: { key: string; label: string }[] }>('/contacts/fields'),
       api.get<{ departments: { id: string; name: string; color: string }[] }>('/departments'),
       api.get<{ variables: { key: string; type: 'text' | 'number'; value: string }[] }>('/globals'),
+      api.get<{ tags: { name: string; color: string }[] }>('/settings/tags'),
+      api.get<{ agents: { id: string; name: string; avatar: string; enabled: boolean }[] }>('/agents'),
+      api.get<{ pixels: { id: string; name: string; platform: string; status: string }[]; platforms: { id: string; label: string; events: string[] }[] }>('/pixels'),
+      api.get<{ wabas: { id: string; name: string; displayPhone: string | null }[] }>('/templates/wabas'),
     ]);
     setLookups({
       connections: c.status === 'fulfilled' ? c.value.connections.map((x) => ({ id: x.id, name: x.displayPhone ? `${x.name} (${x.displayPhone})` : x.name })) : [],
@@ -180,6 +198,11 @@ function Builder({ flowId }: { flowId: string }) {
       fields: cf.status === 'fulfilled' ? cf.value.fields.map((x) => ({ key: x.key, label: x.label })) : [],
       departments: dp.status === 'fulfilled' ? dp.value.departments.map((x) => ({ id: x.id, name: x.name, color: x.color })) : [],
       globals: gv.status === 'fulfilled' ? gv.value.variables.map((x) => ({ key: x.key, type: x.type, value: x.value })) : [],
+      tags: tg.status === 'fulfilled' ? tg.value.tags.map((x) => ({ name: x.name, color: x.color })) : [],
+      agents: ag.status === 'fulfilled' ? ag.value.agents.map((x) => ({ id: x.id, name: x.name, avatar: x.avatar, enabled: x.enabled })) : [],
+      pixels: px.status === 'fulfilled' ? px.value.pixels.map((x) => ({ id: x.id, name: x.name, platform: x.platform, status: x.status })) : [],
+      platforms: px.status === 'fulfilled' ? px.value.platforms : [],
+      wabas: wb.status === 'fulfilled' ? wb.value.wabas.map((x) => ({ id: x.id, name: x.name, displayPhone: x.displayPhone })) : [],
     });
   }, []);
 
@@ -348,6 +371,7 @@ function Builder({ flowId }: { flowId: string }) {
     }
     const rect = stageRef.current?.getBoundingClientRect();
     if (!rect) return;
+    setPickerQuery('');
     setPicker({
       left: Math.min(Math.max(8, pt.clientX - rect.left), rect.width - 262),
       top: Math.min(Math.max(8, pt.clientY - rect.top), rect.height - 372),
@@ -392,8 +416,25 @@ function Builder({ flowId }: { flowId: string }) {
         { id: rid('e'), source: from.source, sourceHandle: from.sourceHandle, target: id, type: 'deletable' },
       ];
     });
+    // abre o editor do bloco novo
+    setEditingId(id);
     return id;
   }, [snapshot, ensureVisible]);
+
+  /** Um lugar livre perto do ponto (para o bloco novo não cair em cima de outro). */
+  const freeSpot = useCallback((start: XYPosition): XYPosition => {
+    const H = 190; // altura provável do bloco novo (cresce com as saídas depois de configurado)
+    const rects = nodesRef.current.map((n) => ({ x: n.position.x, y: n.position.y, w: n.measured?.width ?? NODE_W, h: n.measured?.height ?? 150 }));
+    const hit = (p: XYPosition) => rects.some((r) => p.x < r.x + r.w + 24 && p.x + NODE_W + 24 > r.x && p.y < r.y + r.h + 24 && p.y + H + 24 > r.y);
+    for (let ring = 0; ring < 7; ring++) {
+      const steps = ring === 0 ? [[0, 0]] : [[0, ring], [0, -ring], [ring, 0], [ring, ring], [ring, -ring], [-ring, 0], [-ring, ring], [-ring, -ring]];
+      for (const [dx, dy] of steps) {
+        const p = { x: start.x + dx * (NODE_W + 50), y: start.y + dy * (H + 40) };
+        if (!hit(p)) return p;
+      }
+    }
+    return start;
+  }, []);
 
   const addFromTools = useCallback((type: BlockType) => {
     const sel = nodesRef.current.filter((n) => n.selected);
@@ -404,7 +445,7 @@ function Builder({ flowId }: { flowId: string }) {
       const idx = outs.findIndex((o) => !used.has(o.id ?? ''));
       if (idx >= 0) {
         const w = s.measured?.width ?? NODE_W;
-        createNode(type, { x: s.position.x + w + COL_GAP, y: s.position.y + idx * 80 }, { source: s.id, sourceHandle: outs[idx].id });
+        createNode(type, freeSpot({ x: s.position.x + w + COL_GAP, y: s.position.y + idx * 80 }), { source: s.id, sourceHandle: outs[idx].id });
         return;
       }
     }
@@ -412,9 +453,8 @@ function Builder({ flowId }: { flowId: string }) {
     const center = rect
       ? rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
       : { x: 0, y: 0 };
-    const jitter = (nodesRef.current.length % 6) * 22;
-    createNode(type, { x: center.x - NODE_W / 2 + jitter, y: center.y - 70 + jitter });
-  }, [createNode, rf]);
+    createNode(type, freeSpot({ x: center.x - NODE_W / 2, y: center.y - 70 }));
+  }, [createNode, rf, freeSpot]);
 
   const onDragOver = (e: DragEvent) => {
     if (!e.dataTransfer.types.includes(DND_TYPE)) return;
@@ -429,13 +469,12 @@ function Builder({ flowId }: { flowId: string }) {
     createNode(type, { x: p.x - NODE_W / 2, y: p.y - 24 });
   };
 
-  const updateNodeData = useCallback((id: string, patch: Record<string, any>) => {
+  /** Salvar do editor: troca os dados do bloco de uma vez (com desfazer). */
+  const replaceNodeData = useCallback((id: string, data: Record<string, any>) => {
     const node = nodesRef.current.find((n) => n.id === id);
     if (!node) return;
-    const now = Date.now();
-    if (lastDataSnap.current.id !== id || now - lastDataSnap.current.at > 1200) snapshot();
-    lastDataSnap.current = { id, at: now };
-    const data = { ...node.data, ...patch };
+    if (JSON.stringify(node.data) === JSON.stringify(data)) return;
+    snapshot();
     const oldOuts = outputsFor(node.type ?? '', node.data);
     const newOuts = outputsFor(node.type ?? '', data);
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data } : n)));
@@ -491,6 +530,11 @@ function Builder({ flowId }: { flowId: string }) {
   }, [selectionSnap]);
 
   const paste = useCallback(() => { if (clipboard) pasteSnap(clipboard, 48); }, [pasteSnap]);
+  const duplicateNode = useCallback((id: string) => {
+    const n = nodesRef.current.find((x) => x.id === id);
+    if (!n || n.type === 'trigger') return;
+    pasteSnap({ nodes: [{ id: n.id, type: n.type, position: n.position, data: n.data }], edges: [] }, 40);
+  }, [pasteSnap]);
   const duplicateSelection = useCallback(() => { const s = selectionSnap(); if (s) pasteSnap(s, 40); }, [selectionSnap, pasteSnap]);
 
   const applyTidy = useCallback((withSnapshot: boolean) => {
@@ -523,6 +567,11 @@ function Builder({ flowId }: { flowId: string }) {
       else if (mod && k === 'd') { e.preventDefault(); duplicateSelection(); }
       else if (mod && k === 's') { e.preventDefault(); void persist().then((ok) => ok && toast('Salvo ✓')); }
       else if (k === 'escape') { setPicker(null); setMenuOpen(false); setIssuesOpen(false); deselect(); }
+      else if (k === 'enter' && !mod && !t?.closest?.('button, a')) {
+        // Enter abre o editor do bloco selecionado
+        const sel = nodesRef.current.filter((n) => n.selected);
+        if (sel.length === 1) { e.preventDefault(); setEditingId(sel[0].id); }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -641,21 +690,17 @@ function Builder({ flowId }: { flowId: string }) {
 
   /* ------------------------------------------------------------ render */
 
-  const ctx = useMemo(() => ({ stats, simNodeId, lookups, levels }), [stats, simNodeId, lookups, levels]);
-  const selected = nodes.filter((n) => n.selected);
-  const selectedNode = selected.length === 1 ? selected[0] : null;
+  const ctx = useMemo(() => ({
+    stats, simNodeId, lookups, levels, onEdit: setEditingId, onDuplicate: duplicateNode, onDelete: deleteNode,
+  }), [stats, simNodeId, lookups, levels, duplicateNode, deleteNode]);
   const variables = useMemo(() => variablesOf(nodes, lookups.fields.map((f) => f.key), lookups.globals.map((g) => g.key)), [nodes, lookups.fields, lookups.globals]);
-
-  // ao abrir o painel de um bloco, garante que ele continue visível no canvas
-  const selectedId = selectedNode?.id ?? null;
-  useEffect(() => {
-    if (!selectedId) return;
-    const t = setTimeout(() => {
-      const n = nodesRef.current.find((x) => x.id === selectedId);
-      if (n && !nodesRef.current.some((x) => x.dragging)) ensureVisible(n.position);
-    }, 120);
-    return () => clearTimeout(t);
-  }, [selectedId, ensureVisible]);
+  const editingNode = editingId ? nodes.find((n) => n.id === editingId) ?? null : null;
+  const editorCtx: EditorCtx | null = editingNode ? {
+    lookups, setLookups, vars: variables, flowId, nodeId: editingNode.id, openProducts: () => setModal('products'),
+    triggerConnectionId: String(nodes.find((n) => n.type === 'trigger')?.data?.connectionId ?? ''),
+  } : null;
+  const toolList = useMemo(() => searchTools(toolQuery), [toolQuery]);
+  const pickerList = useMemo(() => searchTools(pickerQuery), [pickerQuery]);
   const triggerType = String(nodes.find((n) => n.type === 'trigger')?.data?.type ?? 'any_message');
   const blockTotal = nodes.filter((n) => n.type !== 'trigger').length;
 
@@ -735,23 +780,29 @@ function Builder({ flowId }: { flowId: string }) {
       <div className="fbx-body">
         {showTools && (
           <aside className="fb-tools" data-testid="tools">
-            {CATEGORIES.map((cat) => (
-              <div key={cat}>
-                <h5>{cat}</h5>
-                {(Object.keys(BLOCKS) as BlockType[]).filter((t) => BLOCKS[t].category === cat).map((t) => (
-                  <button type="button" key={t} className="tool" style={{ '--c': BLOCKS[t].color } as CSSProperties} draggable
-                    onDragStart={(e) => { e.dataTransfer.setData(DND_TYPE, t); e.dataTransfer.effectAllowed = 'move'; }}
-                    onClick={() => addFromTools(t)} data-testid={`tool-${t}`}>
-                    <span className="ti"><Icon name={BLOCKS[t].icon} size={15} stroke={2.2} /></span>
-                    <span><b>{BLOCKS[t].label}</b><small>{BLOCKS[t].desc}</small></span>
-                  </button>
-                ))}
+            <div className="fb-tools-h">
+              <b>Ferramentas</b>
+              <div className="fb-search">
+                <Icon name="search" size={14} />
+                <input value={toolQuery} placeholder="Buscar blocos..." onChange={(e) => setToolQuery(e.target.value)} data-testid="tools-search" />
+                {toolQuery && <button type="button" onClick={() => setToolQuery('')} aria-label="Limpar busca"><Icon name="close" size={12} /></button>}
               </div>
-            ))}
+            </div>
+            <div className="fb-tools-l">
+              {toolList.map((t) => (
+                <button type="button" key={t} className="tool" style={{ '--c': BLOCKS[t].color } as CSSProperties} draggable
+                  onDragStart={(e) => { e.dataTransfer.setData(DND_TYPE, t); e.dataTransfer.effectAllowed = 'move'; }}
+                  onClick={() => addFromTools(t)} data-testid={`tool-${t}`}>
+                  <span className="ti"><Icon name={BLOCKS[t].icon} size={15} stroke={2.2} /></span>
+                  <span><b>{BLOCKS[t].label}</b><small>{BLOCKS[t].desc}</small></span>
+                </button>
+              ))}
+              {!toolList.length && <div className="faint" style={{ fontSize: 12, padding: '10px 4px' }}>Nenhum bloco com “{toolQuery}”.</div>}
+            </div>
             <div className="tip">
               Clique para adicionar — com um bloco selecionado, o novo já sai conectado nele. Ou arraste para o canvas.
-              Puxe a bolinha de saída de um bloco e solte no vazio para escolher o próximo.
-              <br /><br />Atalhos: <b>Ctrl+Z</b> desfaz · <b>Ctrl+C / Ctrl+V</b> copia e cola · <b>Ctrl+D</b> duplica · <b>Delete</b> apaga.
+              Clique duas vezes num bloco para editar.
+              <br /><br />Atalhos: <b>Enter</b> edita · <b>Ctrl+Z</b> desfaz · <b>Ctrl+C / Ctrl+V</b> copia e cola · <b>Ctrl+D</b> duplica · <b>Delete</b> apaga.
             </div>
           </aside>
         )}
@@ -771,11 +822,12 @@ function Builder({ flowId }: { flowId: string }) {
                 isValidConnection={isValidConnection}
                 onBeforeDelete={onBeforeDelete}
                 onNodeDragStart={snapshot}
+                onNodeDoubleClick={(_, n) => setEditingId(n.id)}
                 onPaneClick={() => { setPicker(null); setIssuesOpen(false); }}
                 onEdgeMouseEnter={(_, e) => setHoverEdge(e.id)}
                 onEdgeMouseLeave={() => setHoverEdge(null)}
                 defaultEdgeOptions={{ type: 'deletable' }}
-                deleteKeyCode={['Backspace', 'Delete']}
+                deleteKeyCode={editingId ? null : ['Backspace', 'Delete']}
                 fitView
                 fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
                 minZoom={0.15}
@@ -835,43 +887,45 @@ function Builder({ flowId }: { flowId: string }) {
 
           {picker && (
             <div className="card fb-picker fade" style={{ left: picker.left, top: picker.top }} data-testid="block-picker">
-              <div className="faint" style={{ fontSize: 11.5, fontWeight: 700, padding: '4px 6px 2px' }}>Adicionar bloco conectado</div>
-              {CATEGORIES.map((cat) => (
-                <div key={cat}>
-                  <h6>{cat}</h6>
-                  {(Object.keys(BLOCKS) as BlockType[]).filter((t) => BLOCKS[t].category === cat).map((t) => (
-                    <button type="button" key={t} onClick={() => {
-                      createNode(t, { x: picker.flow.x, y: picker.flow.y - 22 }, { source: picker.source, sourceHandle: picker.sourceHandle });
+              <div className="faint" style={{ fontSize: 11.5, fontWeight: 700, padding: '4px 6px 6px' }}>Adicionar bloco conectado</div>
+              <div className="fb-search sm">
+                <Icon name="search" size={13} />
+                <input autoFocus value={pickerQuery} placeholder="Buscar blocos..." onChange={(e) => setPickerQuery(e.target.value)} data-testid="picker-search"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setPicker(null);
+                    if (e.key === 'Enter' && pickerList[0]) {
+                      createNode(pickerList[0], { x: picker.flow.x, y: picker.flow.y - 22 }, { source: picker.source, sourceHandle: picker.sourceHandle });
                       setPicker(null);
-                    }}>
-                      <span className="ti" style={{ background: BLOCKS[t].color }}><Icon name={BLOCKS[t].icon} size={12} stroke={2.4} /></span>{BLOCKS[t].label}
-                    </button>
-                  ))}
-                </div>
-              ))}
+                    }
+                  }} />
+              </div>
+              <div className="fb-picker-l">
+                {pickerList.map((t) => (
+                  <button type="button" key={t} onClick={() => {
+                    createNode(t, { x: picker.flow.x, y: picker.flow.y - 22 }, { source: picker.source, sourceHandle: picker.sourceHandle });
+                    setPicker(null);
+                  }} data-testid={`pick-${t}`}>
+                    <span className="ti" style={{ background: BLOCKS[t].color }}><Icon name={BLOCKS[t].icon} size={12} stroke={2.4} /></span>{BLOCKS[t].label}
+                  </button>
+                ))}
+                {!pickerList.length && <div className="faint" style={{ fontSize: 12, padding: 8 }}>Nada encontrado</div>}
+              </div>
             </div>
           )}
         </div>
 
         {showSim && (
-          <Simulator hidden={!!selectedNode} triggerType={triggerType} getGraph={getGraph} onCursor={onCursor}
+          <Simulator triggerType={triggerType} getGraph={getGraph} onCursor={onCursor}
             onClose={() => { setShowSim(false); setSimNodeId(null); }} />
         )}
-        {selectedNode && (
-          <ConfigPanel
-            key={selectedNode.id}
-            node={selectedNode}
-            currentFlowId={flowId}
-            lookups={lookups}
-            variables={variables}
-            onChange={(patch) => updateNodeData(selectedNode.id, patch)}
-            onDelete={() => deleteNode(selectedNode.id)}
-            onDuplicate={duplicateSelection}
-            onClose={deselect}
-            onManagePayments={() => setModal('products')}
-          />
-        )}
       </div>
+
+      {editingNode && editorCtx && (
+        <BlockModal key={editingNode.id} node={editingNode} ctx={editorCtx}
+          onSave={(data) => { replaceNodeData(editingNode.id, data); setEditingId(null); }}
+          onClose={() => setEditingId(null)}
+          onDelete={() => { deleteNode(editingNode.id); setEditingId(null); }} />
+      )}
 
       {modal === 'generate' && (
         <GenerateModal replacing={blockTotal > 0} onClose={() => setModal(null)}

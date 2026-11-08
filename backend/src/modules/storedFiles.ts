@@ -1,4 +1,4 @@
-/** Arquivos guardados no banco (anexos das respostas rápidas): limites do WhatsApp, link assinado e envio para a Meta. */
+/** Arquivos guardados no banco (anexos das respostas rápidas e dos fluxos): limites do WhatsApp, link assinado e envio para a Meta. */
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { and, eq, gt, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
@@ -20,16 +20,16 @@ export const FILE_RULES: Record<FileKind, { mimes: RegExp; maxMb: number; label:
 /** Até 200 MB de anexos por empresa (o banco também guarda o resto). */
 const ACCOUNT_LIMIT = 200 * 1024 * 1024;
 
-export async function saveFile(accountId: string, kind: FileKind, data: Buffer, mime: string, fileName: string) {
+export async function saveFile(accountId: string, kind: FileKind, data: Buffer, mime: string, fileName: string, purpose: 'quick_reply' | 'flow' = 'quick_reply') {
   const rule = FILE_RULES[kind];
   if (!rule) throw new AppError(422, 'Tipo de anexo inválido');
   const m = mime.split(';')[0].trim().toLowerCase();
   if (!rule.mimes.test(m)) throw new AppError(422, `Esse arquivo não serve: use ${rule.label}.`, { code: 'bad_type' });
   if (data.length > rule.maxMb * 1024 * 1024) throw new AppError(413, `Arquivo grande demais: use ${rule.label}.`, { code: 'too_big' });
   const [{ used }] = await db.execute(sqlUsed(accountId)).then((r) => r.rows as { used: number }[]);
-  if (Number(used) + data.length > ACCOUNT_LIMIT) throw new AppError(413, 'A empresa chegou ao limite de 200 MB de anexos. Apague respostas rápidas que não usa mais.', { code: 'storage_full' });
+  if (Number(used) + data.length > ACCOUNT_LIMIT) throw new AppError(413, 'A empresa chegou ao limite de 200 MB de anexos (respostas rápidas e fluxos). Apague anexos que não usa mais.', { code: 'storage_full' });
   const [row] = await db.insert(schema.storedFiles).values({
-    accountId, purpose: 'quick_reply', mime: m, fileName: fileName.slice(0, 140) || 'arquivo', size: data.length,
+    accountId, purpose, mime: m, fileName: fileName.slice(0, 140) || 'arquivo', size: data.length,
     sha256: createHash('sha256').update(data).digest('hex'), data,
   }).returning({ id: schema.storedFiles.id, mime: schema.storedFiles.mime, fileName: schema.storedFiles.fileName, size: schema.storedFiles.size });
   return row;

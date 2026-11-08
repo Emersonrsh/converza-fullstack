@@ -18,7 +18,7 @@ import { partnersRouter } from './modules/partners';
 import { mediaRouter } from './modules/media';
 import { quickRepliesRouter } from './modules/quickReplies';
 import { kanbanRouter } from './modules/kanban';
-import { cleanupOrphanRuns } from './flows/runner';
+import { cleanupOrphanRuns, sweepFlowFiles } from './flows/runner';
 import { agentsRouter } from './modules/agents';
 import { startConnectionHealthSweep } from './modules/connections';
 import { webhooksRouter, hooksInRouter } from './modules/webhooks';
@@ -128,6 +128,10 @@ if (process.env.START_WORKER !== 'false') {
   startMetaAdsSync();
   startBillingJobs();
   startTranslationSweep();
+  // anexos de blocos apagados dos fluxos: limpeza de hora em hora
+  const sweepFiles = () => sweepFlowFiles().catch((err) => console.error('[fluxos] limpeza de anexos:', (err as Error).message));
+  setTimeout(sweepFiles, 60_000).unref();
+  setInterval(sweepFiles, 3600_000).unref();
 }
 
 // execuções que ficaram presas em "running" por reinício do servidor viram "erro"

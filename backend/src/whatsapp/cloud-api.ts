@@ -133,11 +133,99 @@ export function sendText(conn: WaConnection, to: string, body: string, contextId
   return post(conn, { to, type: 'text', text: { preview_url: true, body }, ...ctx(contextId) });
 }
 
-export function sendMedia(conn: WaConnection, to: string, kind: MediaKind, link: string, caption?: string, filename?: string): Promise<SendResult> {
+export function sendMedia(conn: WaConnection, to: string, kind: MediaKind, link: string, caption?: string, filename?: string, contextId?: string | null): Promise<SendResult> {
   const media: Record<string, unknown> = { link };
   if (caption && kind !== 'audio') media.caption = caption;
   if (kind === 'document' && filename) media.filename = filename;
-  return post(conn, { to, type: kind, [kind]: media });
+  return post(conn, { to, type: kind, [kind]: media, ...ctx(contextId) });
+}
+
+/** Mensagem interativa já montada (Pix, carrossel…). */
+export function sendInteractive(conn: WaConnection, to: string, interactive: Record<string, unknown>): Promise<SendResult> {
+  return post(conn, { to, type: 'interactive', interactive });
+}
+
+/** Cartão de contato (vCard). */
+export function sendContactCard(conn: WaConnection, to: string, name: string, phone: string): Promise<SendResult> {
+  const digits = phone.replace(/\D/g, '');
+  return post(conn, {
+    to, type: 'contacts',
+    contacts: [{
+      name: { formatted_name: name.slice(0, 100), first_name: name.split(/\s+/)[0]?.slice(0, 50) || name.slice(0, 50) },
+      phones: [{ phone: `+${digits}`, type: 'CELL', wa_id: digits }],
+    }],
+  });
+}
+
+/** Reação (emoji) numa mensagem do cliente. */
+export function sendReaction(conn: WaConnection, to: string, waMessageId: string, emoji: string): Promise<SendResult> {
+  return post(conn, { to, type: 'reaction', reaction: { message_id: waMessageId, emoji } });
+}
+
+/** Figurinha por link público (WEBP). */
+export function sendStickerLink(conn: WaConnection, to: string, link: string): Promise<SendResult> {
+  return post(conn, { to, type: 'sticker', sticker: { link } });
+}
+
+/**
+ * Cartão de pagamento Pix (order_details com "pix_dynamic_code"): o cliente toca e copia o código.
+ * A conta do WhatsApp precisa estar liberada para a API de pagamentos do Brasil; senão a Meta recusa.
+ */
+export function pixOrderInteractive(p: {
+  referenceId: string; code: string; merchantName: string; key: string; keyType: string; amount: number;
+  text: string; itemName: string; header?: { link?: string; id?: string } | null;
+}): Record<string, unknown> {
+  const cents = Math.round(p.amount * 100);
+  const money = (v: number) => ({ value: v, offset: 100 });
+  return {
+    type: 'order_details',
+    ...(p.header && (p.header.link || p.header.id) ? { header: { type: 'image', image: p.header.link ? { link: p.header.link } : { id: p.header.id } } } : {}),
+    body: { text: (p.text || `Pix de ${(p.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`).slice(0, 1024) },
+    action: {
+      name: 'review_and_pay',
+      parameters: {
+        reference_id: p.referenceId.slice(0, 35),
+        type: 'digital-goods',
+        payment_type: 'br',
+        payment_settings: [{
+          type: 'pix_dynamic_code',
+          pix_dynamic_code: { code: p.code, merchant_name: p.merchantName.slice(0, 100), key: p.key, key_type: p.keyType },
+        }],
+        currency: 'BRL',
+        total_amount: money(cents),
+        order: {
+          status: 'pending',
+          tax: money(0),
+          items: [{ retailer_id: 'pix-1', name: p.itemName.slice(0, 60) || 'Pagamento', amount: money(cents), quantity: 1 }],
+          subtotal: money(cents),
+        },
+      },
+    },
+  };
+}
+
+/** Carrossel de cartões com imagem: botões de resposta (até 2 por cartão) ou 1 botão de link. */
+export function carouselInteractive(text: string, cards: {
+  text: string; image: { link?: string; id?: string }; buttons: { id: string; type: 'reply' | 'url'; title: string; url?: string }[];
+}[]): Record<string, unknown> {
+  return {
+    type: 'carousel',
+    body: { text: text.slice(0, 1024) },
+    action: {
+      cards: cards.slice(0, 10).map((c, i) => {
+        const header = { type: 'image', image: c.image.link ? { link: c.image.link } : { id: c.image.id } };
+        const body = c.text ? { body: { text: c.text.slice(0, 160) } } : {};
+        const url = c.buttons.find((b) => b.type === 'url');
+        if (url) {
+          return { card_index: i, type: 'cta_url', header, ...body, action: { name: 'cta_url', parameters: { display_text: url.title.slice(0, 20), url: url.url } } };
+        }
+        return {
+          card_index: i, header, ...body,
+          action: { buttons: c.buttons.filter((b) => b.type === 'reply').slice(0, 2).map((b) => ({ type: 'quick_reply', quick_reply: { id: b.id.slice(0, 256), title: b.title.slice(0, 20) } })) },
+        };
+      }),
+    },
+  };
 }
 
 /** Até 3 botões de resposta rápida (título até 20 caracteres). */

@@ -151,6 +151,8 @@ export const conversations = pgTable('conversations', {
   departmentId: uuid('department_id').references((): AnyPgColumn => departments.id, { onDelete: 'set null' }),
   // true = atendimento humano: fluxos e agentes de IA não respondem
   botPaused: boolean('bot_paused').notNull().default(false),
+  /** agente de IA entregue pelo bloco "Agente de IA" do fluxo: ele atende esta conversa até ser removido */
+  aiAgentId: uuid('ai_agent_id').references((): AnyPgColumn => agents.id, { onDelete: 'set null' }),
   unreadCount: integer('unread_count').notNull().default(0),
   lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -269,8 +271,21 @@ export const flowNodeStats = pgTable('flow_node_stats', {
   nodeId: text('node_id').notNull(),
   entries: integer('entries').notNull().default(0),
   advances: integer('advances').notNull().default(0),
+  /** rodízio do bloco Distribuidor: quantos contatos já foram distribuídos */
+  rr: integer('rr').notNull().default(0),
 }, (t) => ({
   pk: primaryKey({ columns: [t.flowId, t.nodeId] }),
+}));
+
+/** Distribuidor com "prevenir repetição": o contato volta sempre para a mesma saída. */
+export const flowDistributions = pgTable('flow_distributions', {
+  flowId: uuid('flow_id').notNull().references(() => flows.id, { onDelete: 'cascade' }),
+  nodeId: text('node_id').notNull(),
+  contactId: uuid('contact_id').notNull().references(() => contacts.id, { onDelete: 'cascade' }),
+  outputId: text('output_id').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.flowId, t.nodeId, t.contactId] }),
 }));
 
 /** Vozes clonadas da conta (ElevenLabs): pendente até a pessoa ouvir a prévia e aceitar. */
@@ -1081,5 +1096,5 @@ export const schema = {
   kanbanBoards, kanbanColumns, kanbanCards, contactFields, contactExports, webhookEvents, webhookUsage, flowPending,
   campaignRecipients, dispatchUsage, metaProfiles, metaAdAccounts, pixels, pixelEvents, invoices, billingEvents,
   departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, storedFiles, storedFileMedia,
-  globalVariables, flowTranslations, aiUsage, trackingLinks, trackingClicks, apiKeys, mcpCalls,
+  globalVariables, flowTranslations, aiUsage, trackingLinks, trackingClicks, apiKeys, mcpCalls, flowDistributions,
 };

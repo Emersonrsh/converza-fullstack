@@ -133,7 +133,10 @@ export async function sendPixelEvent(eventId: string, attempt = 1, maxAttempts =
   const person: Person | null = contact
     ? { id: contact.id, name: contact.name, phone: contact.phone, email: contact.email, ctwaClid: contact.ctwaClid, state: sale?.state ?? null }
     : sale ? { id: sale.id, name: sale.customerName, phone: sale.customerPhone, email: null, state: sale.state } : null;
-  const money = sale ? { value: Number(sale.amount), currency: sale.currency, product: sale.productName, orderId: sale.externalId ?? sale.id } : null;
+  // evento do bloco Pixel do fluxo: valor e moeda vêm do próprio evento
+  const money = sale
+    ? { value: Number(sale.amount), currency: sale.currency, product: sale.productName, orderId: sale.externalId ?? sale.id }
+    : ev.trigger === 'flow' && ev.value !== null ? { value: Number(ev.value), currency: ev.currency || 'BRL', product: null, orderId: ev.id } : null;
 
   const { token, wabaId } = await pixelCredentials(px);
   if (!token) { await finish(ev, { status: 'failed', error: 'O pixel está sem token de acesso.' }); return; }

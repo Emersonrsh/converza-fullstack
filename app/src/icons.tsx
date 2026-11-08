@@ -109,6 +109,18 @@ const P: Record<string, string> = {
   server: 'M4 3h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM4 13h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1ZM7 7h.01M7 17h.01',
   cursor: 'M4 4l7.07 17 2.51-7.39L21 11.07 4 4ZM13.5 13.5 19 19',
   target: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12ZM12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z',
+  sliders: 'M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1M15 4v4M9 10v4M17 16v4',
+  video: 'M3 6h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H3a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Zm14 4 5-3v10l-5-3',
+  contact: 'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm7 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm-5 7c.5-2.5 2.5-4 5-4s4.5 1.5 5 4',
+  sticker: 'M15 3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h7l8-8V6a3 3 0 0 0-3-3h-3ZM13 21v-5a3 3 0 0 1 3-3h5M8.5 10h.01M14.5 10h.01',
+  bold: 'M7 4h6a4 4 0 0 1 0 8H7V4Zm0 8h7a4 4 0 0 1 0 8H7v-8Z',
+  italic: 'M19 4h-9M14 20H5M15 4 9 20',
+  strike: 'M16 4H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H7M4 12h16',
+  code: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
+  qr: 'M3 3h7v7H3V3Zm11 0h7v7h-7V3ZM3 14h7v7H3v-7Zm11 0h3v3h-3v-3Zm4 4h3v3h-3v-3Zm-4 3h3M21 14v2',
+  carousel: 'M7 5h10v14H7V5ZM3 7v10M21 7v10',
+  messageCog: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2ZM12 8v1M12 13v1M9.5 9.5l.7.7M13.8 12.8l.7.7M9 11h1M14 11h1',
+  fork: 'M6 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0 4v4a4 4 0 0 0 4 4h4M18 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm-4-2h2a2 2 0 0 1 2 2M18 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0 4v1a3 3 0 0 1-3 3h-1',
 };
 
 export function Icon({ name, size = 18, stroke = 1.9 }: { name: string; size?: number; stroke?: number }) {

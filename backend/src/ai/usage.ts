@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { config } from '../config';
 import { db, schema } from '../db';
 import { AppError, isUuid } from '../utils/http';
-import { chatComplete, aiEnabled, type ChatMsg } from './provider';
+import { chatComplete, aiEnabled, contentChars, type ChatMsg } from './provider';
 import { hasTokens, debitDetailed } from '../modules/tokens';
 import { emitToAccount } from '../realtime/io';
 
@@ -127,7 +127,7 @@ export async function aiCallWithUsage(
   const r = await chatComplete(opts.model || config.ai.defaultModel, messages, {
     maxTokens: opts.maxTokens, temperature: opts.temperature,
   });
-  const used = r.tokens || Math.ceil((messages.reduce((a, m) => a + m.content.length, 0) + r.text.length) / 4);
+  const used = r.tokens || Math.ceil((messages.reduce((a, m) => a + contentChars(m.content), 0) + r.text.length) / 4);
   if (!opts.prepaid) await chargeUsage(accountId, used, opts.usage);
   return { text: r.text, tokens: used };
 }

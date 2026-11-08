@@ -20,8 +20,47 @@ export interface FlowGraph { nodes: FlowNode[]; edges: FlowEdge[]; }
 export const BLOCK_TYPES = [
   'trigger', 'message', 'media', 'menu', 'ask', 'condition', 'delay', 'random',
   'action', 'handoff', 'http', 'payment', 'ai_reply', 'ai_classify', 'goto_flow',
+  // blocos da barra "Ferramentas" (2026-11)
+  'template', 'tags', 'pix', 'carousel', 'chat_status', 'notify', 'distributor', 'pixel',
+  'department', 'ai', 'ai_agent', 'kanban', 'set_var', 'sale',
 ] as const;
 export type BlockType = typeof BLOCK_TYPES[number];
+
+/** Blocos antigos: continuam rodando nos fluxos que já os usam, mas não aparecem mais na barra. */
+export const LEGACY_BLOCKS = ['media', 'random', 'action', 'handoff', 'payment', 'ai_reply', 'ai_classify'] as const;
+
+const UNIT_SEC: Record<string, number> = { seconds: 1, minutes: 60, hours: 3600, days: 86400 };
+/** Limite do WhatsApp/da fila para qualquer espera: 31 dias. */
+export const MAX_WAIT_SECONDS = 31 * 86400;
+
+/** amount + unidade → segundos (0 se vazio/inválido), no máximo 31 dias. */
+export function durationSeconds(amount: unknown, unit: unknown): number {
+  const n = Number(String(amount ?? '').replace(',', '.'));
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(MAX_WAIT_SECONDS, Math.round(n * (UNIT_SEC[String(unit)] ?? 60)));
+}
+
+/** Botões de resposta de um carrossel (cada um vira uma saída). */
+export function carouselReplyButtons(d: Dict): { id: string; title: string }[] {
+  const out: { id: string; title: string }[] = [];
+  for (const c of Array.isArray(d.cards) ? d.cards : []) {
+    for (const b of Array.isArray(c?.buttons) ? c.buttons : []) {
+      if (b?.id && (b.type ?? 'reply') === 'reply') out.push({ id: String(b.id), title: String(b.title ?? '') });
+    }
+  }
+  return out;
+}
+
+/** Botões de resposta rápida do modelo escolhido no bloco Template (guardados ao escolher o modelo). */
+export function templateReplyButtons(d: Dict): { id: string; title: string }[] {
+  return (Array.isArray(d.buttons) ? d.buttons : [])
+    .map((b: Dict, i: number) => ({ b, i }))
+    .filter(({ b }) => String(b?.type ?? '').toUpperCase() === 'QUICK_REPLY')
+    .map(({ b, i }) => ({ id: `qr_${i}`, title: String(b.text ?? '') }));
+}
+
+/** O bloco Template espera a resposta do cliente? (0 = não espera) */
+export const templateWaits = (d: Dict) => durationSeconds(d.timeoutAmount ?? 60, d.timeoutUnit ?? 'minutes') > 0;
 
 export type TriggerType = 'any_message' | 'keyword' | 'first_message' | 'webhook' | 'manual';
 
@@ -87,11 +126,29 @@ export function outputsOf(node: { type: string; data?: Dict }): (string | null)[
     case 'random': return ['a', 'b'];
     case 'http': return ['success', 'error'];
     case 'menu':
-      return [...(Array.isArray(d.options) ? d.options.filter((o: Dict) => o?.id).map((o: Dict) => String(o.id)) : []), 'fallback'];
+      return [
+        ...(Array.isArray(d.options) ? d.options.filter((o: Dict) => o?.id).map((o: Dict) => String(o.id)) : []), 'fallback',
+        ...(durationSeconds(d.expireAmount, d.expireUnit) > 0 ? ['timeout'] : []),
+      ];
+    case 'carousel': {
+      const btns = carouselReplyButtons(d).map((b) => b.id);
+      if (!btns.length) return [null];
+      return [...btns, 'fallback', ...(durationSeconds(d.expireAmount, d.expireUnit) > 0 ? ['timeout'] : [])];
+    }
+    case 'template':
+      return templateWaits(d) ? [...templateReplyButtons(d).map((b) => b.id), 'replied', 'timeout'] : [null];
+    case 'distributor':
+      return (Array.isArray(d.outputs) ? d.outputs : []).filter((o: Dict) => o?.id).map((o: Dict) => String(o.id));
+    case 'ai':
+      return [
+        ...(d.detectReceipt ? ['receipt'] : []),
+        ...(Array.isArray(d.conditions) ? d.conditions.filter((c: Dict) => c?.id).map((c: Dict) => String(c.id)) : []),
+        null, 'error',
+      ];
     case 'ai_classify':
       return [...(Array.isArray(d.categories) ? d.categories.filter((c: Dict) => c?.id).map((c: Dict) => String(c.id)) : []), 'none'];
     case 'payment': return d.wait ? ['paid', 'unpaid'] : [null];
-    case 'ask': return [null, 'invalid'];
+    case 'ask': return [null, 'invalid', 'timeout'];
     case 'goto_flow': return [];
     default: return [null];
   }

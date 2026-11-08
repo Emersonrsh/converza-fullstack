@@ -1,10 +1,14 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
-import { asyncHandler, AppError, isUuid } from '../utils/http';
-import { flowExtras } from '../flows/globals';
+import { asyncHandler, AppError, isUuid, publicBase } from '../utils/http';
+import { config } from '../config';
+import { flowExtras, globalsOf } from '../flows/globals';
+import { FILE_RULES, saveFile, signedFilePath, type FileKind } from './storedFiles';
+import { aiEnabled, byokBaseUrl, chatCompleteWith, listModels, type ChatMsg } from '../ai/provider';
+import { toChatParts } from '../flows/aiBlock';
 import { normalizeGraph, triggerOf, blockCount, type FlowGraph } from '../flows/types';
 import { simulate, type SimHistoryItem } from '../flows/simulate';
 import { safeHttpRequest } from '../flows/http';
@@ -162,6 +166,7 @@ const simSchema = z.object({
     z.object({ type: z.literal('start') }),
     z.object({ type: z.literal('message'), text: z.string().max(4000), replyId: z.string().max(256).nullable().optional() }),
     z.object({ type: z.literal('payment'), paid: z.boolean() }),
+    z.object({ type: z.literal('timeout') }),
   ]),
   realHttp: z.boolean().optional(),
 });
@@ -204,8 +209,107 @@ flowsRouter.post('/simulate', asyncHandler(async (req, res) => {
         .where(and(eq(schema.flows.id, id), eq(schema.flows.accountId, accountId))).limit(1);
       return f?.name ?? null;
     },
+    aiComplete: async (spec, history) => {
+      const messages: ChatMsg[] = [
+        { role: 'system', content: spec.system },
+        ...(spec.history > 0 ? history.slice(-(spec.history * 2) - 1, -1) : []),
+        { role: 'user', content: toChatParts(spec.user) },
+      ];
+      if (spec.provider === 'converza') {
+        return aiCall(accountId, messages, { model: spec.model, maxTokens: spec.maxTokens, usage: { kind: 'flow_simulate', label: 'Bloco de IA no simulador' } });
+      }
+      return (await chatCompleteWith({ baseUrl: byokBaseUrl(spec.provider), apiKey: spec.apiKey ?? '' }, spec.model ?? '', messages, { maxTokens: spec.maxTokens })).text;
+    },
+    agentName: async (id) => {
+      if (!isUuid(id)) return null;
+      const [a] = await db.select({ name: schema.agents.name }).from(schema.agents)
+        .where(and(eq(schema.agents.id, id), eq(schema.agents.accountId, accountId))).limit(1);
+      return a?.name ?? null;
+    },
+    pixelName: async (id) => {
+      if (!isUuid(id)) return null;
+      const [px] = await db.select({ name: schema.pixels.name }).from(schema.pixels)
+        .where(and(eq(schema.pixels.id, id), eq(schema.pixels.accountId, accountId))).limit(1);
+      return px?.name ?? null;
+    },
+    memberName: async (id) => {
+      if (!isUuid(id)) return null;
+      const [u] = await db.select({ name: schema.users.name }).from(schema.users)
+        .innerJoin(schema.memberships, eq(schema.memberships.userId, schema.users.id))
+        .where(and(eq(schema.users.id, id), eq(schema.memberships.accountId, accountId))).limit(1);
+      return u?.name ?? null;
+    },
+    fileUrl: async (id) => {
+      if (!isUuid(id)) return null;
+      const [f] = await db.select({ id: schema.storedFiles.id }).from(schema.storedFiles)
+        .where(and(eq(schema.storedFiles.id, id), eq(schema.storedFiles.accountId, accountId))).limit(1);
+      return f ? `${publicBase(req, config.publicApiUrl)}${signedFilePath(f.id)}` : null;
+    },
+    timezone: async () => {
+      const [a] = await db.select({ tz: schema.accounts.timezone }).from(schema.accounts).where(eq(schema.accounts.id, accountId)).limit(1);
+      return a?.tz || 'America/Sao_Paulo';
+    },
   });
   res.json(result);
+}));
+
+/* ------------------------------------------------------------- arquivos, teste de integração e modelos de IA */
+
+/** Arquivo dos blocos (Mensagem, Carrossel, Botão PIX): o corpo é o próprio arquivo; tipo em x-file-type, nome em ?filename=, uso em ?kind=. */
+flowsRouter.post('/files', express.raw({ type: () => true, limit: '17mb' }), asyncHandler(async (req, res) => {
+  const kind = String(req.query.kind ?? '') as FileKind;
+  if (!FILE_RULES[kind]) throw new AppError(422, 'Tipo de arquivo inválido');
+  const data = req.body as Buffer;
+  if (!Buffer.isBuffer(data) || !data.length) throw new AppError(400, 'Arquivo vazio');
+  const mime = String(req.headers['x-file-type'] ?? req.headers['content-type'] ?? '');
+  const name = String(req.query.filename ?? 'arquivo').replace(/[\r\n"/\\]/g, '').slice(0, 140) || 'arquivo';
+  const f = await saveFile(req.accountId!, kind, data, mime, name, 'flow');
+  res.status(201).json({ file: { ...f, url: `${publicBase(req, config.publicApiUrl)}${signedFilePath(f.id)}` } });
+}));
+
+/** Links de prévia dos arquivos usados no fluxo (valem 12 h). */
+flowsRouter.post('/files/sign', asyncHandler(async (req, res) => {
+  const { ids } = z.object({ ids: z.array(z.string().uuid()).max(300) }).parse(req.body ?? {});
+  if (!ids.length) return res.json({ files: {} });
+  const rows = await db.select({ id: schema.storedFiles.id, fileName: schema.storedFiles.fileName, mime: schema.storedFiles.mime, size: schema.storedFiles.size })
+    .from(schema.storedFiles).where(and(eq(schema.storedFiles.accountId, req.accountId!), inArray(schema.storedFiles.id, ids)));
+  const base = publicBase(req, config.publicApiUrl);
+  res.json({ files: Object.fromEntries(rows.map((r) => [r.id, { ...r, url: `${base}${signedFilePath(r.id)}` }])) });
+}));
+
+/** "Testar requisição" do bloco Integração (mesma proteção do fluxo no ar: nada de endereços internos). */
+flowsRouter.post('/http-test', asyncHandler(async (req, res) => {
+  const b = z.object({
+    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+    url: z.string().trim().min(1, 'Informe a URL').max(2000),
+    headers: z.record(z.string().max(4000)).optional(),
+    body: z.string().max(100_000).optional(),
+  }).parse(req.body ?? {});
+  if (!/^https?:\/\//i.test(b.url)) throw new AppError(422, 'A URL precisa começar com http:// ou https://');
+  const headers: Record<string, string> = { ...(b.headers ?? {}) };
+  if (b.method !== 'GET' && b.body?.trim() && !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')) headers['Content-Type'] = 'application/json';
+  const result = await safeHttpRequest({ method: b.method, url: b.url, headers, body: b.method === 'GET' ? undefined : b.body });
+  res.json({ result });
+}));
+
+/** Modelos que o provedor do Bloco de IA oferece (com a chave da conta ou a do servidor). */
+flowsRouter.post('/ai-models', asyncHandler(async (req, res) => {
+  const b = z.object({ provider: z.enum(['converza', 'openai', 'gemini', 'openrouter']), apiKey: z.string().max(500).optional() }).parse(req.body ?? {});
+  try {
+    if (b.provider === 'converza') {
+      if (!aiEnabled()) throw new AppError(503, 'A IA não está configurada no servidor (OPENAI_API_KEY).');
+      const models = await listModels({ baseUrl: config.ai.baseUrl, apiKey: config.ai.apiKey });
+      return res.json({ models, defaultModel: config.ai.defaultModel });
+    }
+    let key = (b.apiKey ?? '').trim();
+    const g = /^\{\{?\s*(g_[a-z0-9_]+)\s*\}?\}$/i.exec(key);
+    if (g) key = (await globalsOf(req.accountId!))[g[1].toLowerCase()] ?? '';
+    if (!key) throw new AppError(422, g ? `A variável global ${g[1]} está vazia ou não existe.` : 'Informe a chave da API (ou uma variável global com a chave).');
+    res.json({ models: await listModels({ baseUrl: byokBaseUrl(b.provider), apiKey: key }) });
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    throw new AppError(422, (err as Error).message);
+  }
 }));
 
 /* ------------------------------------------------------------- CRUD */

@@ -3,8 +3,12 @@ import { newRedis } from '../redis';
 
 /** Uma parte do disparo em massa; auto = retomada depois do limite diário da Meta. */
 export interface DispatchJobData { campaignId: string; auto?: boolean; }
-/** kind: 'delay' = fim de um bloco Espera; 'payment_timeout' = tempo do Pagamento esgotado. */
-export interface FlowJobData { runId: string; nodeId: string; kind?: 'delay' | 'payment_timeout'; }
+/**
+ * kind: 'delay' = fim de uma espera; 'payment_timeout' = tempo do Pagamento esgotado;
+ * 'input_timeout' = o cliente não respondeu a tempo; 'buffer_flush' = fim do buffer do Aguarda Resposta.
+ * token: identifica a espera (o tempo de uma espera antiga não vale para a nova).
+ */
+export interface FlowJobData { runId: string; nodeId: string; kind?: 'delay' | 'payment_timeout' | 'input_timeout' | 'buffer_flush'; token?: string; }
 
 /** Resposta do agente de IA, agendada para depois da espera (junta mensagens seguidas do cliente). */
 export interface AgentJobData { accountId: string; conversationId: string; messageId: string; }

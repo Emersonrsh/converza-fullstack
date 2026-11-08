@@ -40,6 +40,11 @@ async function pickAgent(accountId: string, conversationId: string) {
   if (!agents.length) return null;
   const [contact] = await db.select().from(schema.contacts).where(eq(schema.contacts.id, conv.contactId)).limit(1);
   if (!contact) return null;
+  // entregue pelo bloco "Agente de IA" do fluxo: esse agente atende, sem olhar as regras de quem ele atende
+  if (conv.aiAgentId) {
+    const chosen = agents.find((a) => a.id === conv.aiAgentId);
+    if (chosen) return { agent: chosen, conv, contact };
+  }
   const [agent] = eligibleAgents(agents, { connectionId: conv.connectionId, tags: contact.tags ?? [], fromAd: !!contact.sourceId || contact.origin === 'ad' });
   return agent ? { agent, conv, contact } : null;
 }

@@ -40,7 +40,7 @@ export const SETTINGS_GROUPS: { label: string; items: SettingsPage[] }[] = [
     items: [
       { slug: 'integracoes', icon: 'plug', label: 'Integrações', title: 'Integrações', desc: 'Tudo o que está conectado à sua conta, num lugar só.', load: page(() => import('./Integrations'), 'IntegrationsPage') },
       { slug: 'trackeamento', icon: 'target', label: 'Trackeamento', title: 'Trackeamento', desc: 'Links rastreáveis para o WhatsApp: cliques, contatos que chegaram e vendas de cada origem.', load: page(() => import('./Tracking'), 'TrackingPage') },
-      { slug: 'produtos', icon: 'bag', label: 'Produtos', title: 'Produtos', desc: 'Produtos e links de pagamento usados no bloco Pagamento dos fluxos.', load: page(() => import('./Products'), 'ProductsPage') },
+      { slug: 'produtos', icon: 'bag', label: 'Produtos', title: 'Produtos', desc: 'Produtos e links de pagamento usados nos fluxos (blocos Venda aprovada e Pagamento).', load: page(() => import('./Products'), 'ProductsPage') },
       { slug: 'mcp', icon: 'key', label: 'Ferramentas MCP', title: 'Ferramentas MCP', desc: 'Deixe assistentes de IA (Claude, ChatGPT, Cursor, n8n) consultarem e agirem na sua conta com uma chave.', managers: true, load: page(() => import('./Mcp'), 'McpPage') },
     ],
   },

@@ -17,8 +17,14 @@ export interface BuilderCtx {
   simNodeId: string | null;
   lookups: Lookups;
   levels: Record<string, IssueLevel>;
+  onEdit: (id: string) => void;
+  onDuplicate: (id: string) => void;
+  onDelete: (id: string) => void;
 }
-export const BuilderContext = createContext<BuilderCtx>({ stats: {}, simNodeId: null, lookups: emptyLookups, levels: {} });
+const noop = () => {};
+export const BuilderContext = createContext<BuilderCtx>({
+  stats: {}, simNodeId: null, lookups: emptyLookups, levels: {}, onEdit: noop, onDuplicate: noop, onDelete: noop,
+});
 
 /** Contexto separado para o hover das conexões (não re-renderiza os blocos). */
 export const EdgeHoverContext = createContext<string | null>(null);
@@ -46,11 +52,18 @@ export const BlockNode = memo(function BlockNode({ id, type, data, selected }: N
       data-testid={`block-${type}`}
     >
       {type !== 'trigger' && <Handle type="target" position={Position.Left} className="blk-hin" />}
+      <div className="blk-tools nodrag nopan" onDoubleClick={(e) => e.stopPropagation()}>
+        <button type="button" onClick={(e) => { e.stopPropagation(); ctx.onEdit(id); }} title="Editar (Enter)" aria-label="Editar bloco" data-testid="blk-edit"><Icon name="edit" size={13} /></button>
+        {type !== 'trigger' && (<>
+          <button type="button" onClick={(e) => { e.stopPropagation(); ctx.onDuplicate(id); }} title="Duplicar" aria-label="Duplicar bloco" data-testid="blk-dup"><Icon name="copy" size={13} /></button>
+          <button type="button" className="del" onClick={(e) => { e.stopPropagation(); ctx.onDelete(id); }} title="Excluir" aria-label="Excluir bloco" data-testid="blk-del"><Icon name="trash" size={13} /></button>
+        </>)}
+      </div>
       <div className="blk-hd">
         <span className="blk-ic"><Icon name={meta.icon} size={14} stroke={2.2} /></span>
         <span className="blk-tt">{data.title || meta.label}</span>
       </div>
-      <div className={cx('blk-bd', !text && 'empty')}>{text || 'Clique para configurar'}</div>
+      <div className={cx('blk-bd', !text && 'empty')}>{text || 'Clique duas vezes para configurar'}</div>
       {rows ? (
         <div className="blk-outs">
           {outs.map((o) => (
@@ -72,8 +85,8 @@ export const BlockNode = memo(function BlockNode({ id, type, data, selected }: N
   );
 });
 
-const GREEN = new Set(['true', 'paid', 'success']);
-const RED = new Set(['false', 'unpaid', 'error', 'invalid']);
+const GREEN = new Set(['true', 'paid', 'success', 'receipt']);
+const RED = new Set(['false', 'unpaid', 'error', 'invalid', 'timeout']);
 
 export function DeletableEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, style, selected, sourceHandleId } = props;
