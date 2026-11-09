@@ -9,6 +9,7 @@ import { flowExtras, globalsOf } from '../flows/globals';
 import { FILE_RULES, saveFile, signedFilePath, type FileKind } from './storedFiles';
 import { aiEnabled, byokBaseUrl, chatCompleteWith, listModels, type ChatMsg } from '../ai/provider';
 import { toChatParts } from '../flows/aiBlock';
+import type { ChatPart } from '../ai/provider';
 import { normalizeGraph, triggerOf, blockCount, type FlowGraph } from '../flows/types';
 import { simulate, type SimHistoryItem } from '../flows/simulate';
 import { safeHttpRequest } from '../flows/http';
@@ -16,7 +17,7 @@ import { aiCall } from '../ai/usage';
 import { uniqueFlowName as uniqueName } from './flowNames';
 import { TRANSLATE_LANGS, translateFlow, translationEstimate } from './translations';
 import {
-  GENERATE_SYSTEM, extractJson, sanitizeGeneratedGraph, stripForImport,
+  GENERATE_FROM_IMAGES, GENERATE_SYSTEM, extractJson, sanitizeGeneratedGraph, stripForImport,
 } from '../flows/aiTools';
 
 export const flowsRouter = Router();
@@ -144,18 +145,35 @@ flowsRouter.post('/import', asyncHandler(async (req, res) => {
   res.status(imported.length ? 201 : 404).json({ imported, notFound });
 }));
 
-/** Assistente de IA: gera um fluxo a partir de uma descrição. */
+/** Imagem enviada pelo navegador (já reduzida): data URL de PNG, JPEG, WEBP ou GIF. */
+const imageDataUrl = z.string().max(4_000_000, 'Imagem grande demais').regex(/^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/, 'Formato de imagem não aceito');
+
+/** Assistente de IA: gera um fluxo a partir de uma descrição e/ou de imagens (print, fluxograma, rascunho, conversa). */
 flowsRouter.post('/generate', asyncHandler(async (req, res) => {
-  const { description } = z.object({ description: z.string().trim().min(5).max(2000) }).parse(req.body);
+  const body = z.object({
+    description: z.string().trim().max(2000).optional().default(''),
+    images: z.array(imageDataUrl).max(4, 'Até 4 imagens por vez').optional().default([]),
+  }).parse(req.body);
+  const { description, images } = body;
+  if (!images.length && description.length < 5) throw new AppError(400, 'Descreva o fluxo (pelo menos 5 letras) ou envie uma imagem.');
+  const userContent: string | ChatPart[] = images.length
+    ? [
+      { type: 'text', text: `${GENERATE_FROM_IMAGES}\n\n${description ? `Observações do usuário: ${description}` : 'Recrie o fluxo das imagens.'}` },
+      ...images.map((url) => ({ type: 'image_url' as const, image_url: { url } })),
+    ]
+    : description;
   const text = await aiCall(req.accountId!, [
     { role: 'system', content: GENERATE_SYSTEM },
-    { role: 'user', content: description },
-  ], { maxTokens: 3500, temperature: 0.4, usage: { kind: 'flow_generate', label: description.slice(0, 120) } });
+    { role: 'user', content: userContent },
+  ], {
+    maxTokens: images.length ? 6000 : 3500, temperature: images.length ? 0.2 : 0.4,
+    usage: { kind: 'flow_generate', label: (description || `Fluxo a partir de ${images.length} ${images.length === 1 ? 'imagem' : 'imagens'}`).slice(0, 120) },
+  });
   let raw: unknown;
   try { raw = extractJson(text); }
-  catch { throw new AppError(502, 'A IA não devolveu um fluxo válido. Tente descrever de outro jeito.'); }
+  catch { throw new AppError(502, images.length ? 'A IA não conseguiu ler um fluxo nessa imagem. Tente uma imagem mais nítida ou com menos coisas na tela.' : 'A IA não devolveu um fluxo válido. Tente descrever de outro jeito.'); }
   const graph = sanitizeGeneratedGraph(raw);
-  if (graph.nodes.length < 2) throw new AppError(502, 'A IA não gerou blocos. Tente detalhar mais o que o fluxo deve fazer.');
+  if (graph.nodes.length < 2) throw new AppError(502, images.length ? 'A IA não encontrou blocos de fluxo na imagem. Envie um print do fluxo, um fluxograma ou um roteiro.' : 'A IA não gerou blocos. Tente detalhar mais o que o fluxo deve fazer.');
   res.json({ graph });
 }));
 

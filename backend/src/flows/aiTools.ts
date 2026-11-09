@@ -25,7 +25,7 @@ Crie um fluxo para o Converza e responda SOMENTE com JSON no formato:
 
 Blocos disponíveis (campo "type") e seus "data":
 - trigger: {"type":"any_message"|"keyword"|"first_message","keywords":"preço, valor"} — sempre exatamente um, com id "trigger".
-- message: {"items":[{"id":"i1","type":"text","text":"..."},{"id":"i2","type":"interval","amount":3,"unit":"seconds"}]} — mensagens em sequência; "interval" é uma pausa entre elas.
+- message: {"items":[{"id":"i1","type":"text","text":"...","typingSeconds":3},{"id":"i2","type":"interval","amount":3,"unit":"seconds"},{"id":"i3","type":"file","fileName":"Guia.pdf"}]} — conteúdos em sequência; "interval" é uma pausa entre eles ("unit": "seconds" ou "minutes"); "typingSeconds" (0 a 60) mostra "digitando…" antes do texto; "file", "image", "video" e "audio" só com o nome do arquivo ("fileName") — o usuário anexa o arquivo depois.
 - menu: {"text":"...","style":"buttons"|"list","options":[{"id":"o1","title":"até 20 caracteres"}],"expireAmount":0,"expireUnit":"days"} — saídas: o id de cada opção e "fallback" (respondeu outra coisa).
 - ask: {"text":"pergunta","saveAs":"nome_variavel","timeoutAmount":1,"timeoutUnit":"days"} — espera a resposta; saídas: null (respondeu) e "timeout" (não respondeu).
 - condition: {"logic":"all"|"any","rules":[{"id":"r1","field":"lastMessage"|"var","varName":"...","op":"contains"|"equals"|"not_empty"|"greater_than","value":"sim, quero"}]} — saídas "true" e "false".
@@ -39,6 +39,17 @@ Blocos disponíveis (campo "type") e seus "data":
 Regras: use "sourceHandle": null para a saída padrão. Use variáveis como {{nome}}, {{primeiro_nome}} e as salvas por "ask" (ex.: {{email}}).
 Mensagens em português do Brasil, curtas, amigáveis, com emojis com moderação. Não invente preços ou links.`;
 
+/** Instruções extras quando o pedido vem com imagens (print de outro sistema, rascunho, roteiro de conversa…). */
+export const GENERATE_FROM_IMAGES = `As imagens anexadas mostram o fluxo que deve ser recriado. Podem ser: um print de um construtor de fluxos (de outra ferramenta ou do próprio Converza),
+um fluxograma, um rascunho à mão, um roteiro em texto ou prints de uma conversa de WhatsApp.
+- Recrie a MESMA sequência e as MESMAS ramificações que aparecem, usando só os blocos listados acima (escolha o bloco mais parecido).
+- Copie os textos das mensagens exatamente como estão na imagem quando forem legíveis (inclusive emojis); se um texto estiver cortado ou ilegível, escreva uma versão curta coerente.
+- Pausas/"delay"/"aguardar X segundos" entre mensagens viram itens "interval"; "digitando" vira "typingSeconds"; esperas longas (minutos, horas, dias) viram o bloco "delay".
+- Arquivos, PDFs, imagens e áudios que aparecem como conteúdo enviado viram itens do bloco message com o nome do arquivo.
+- Botões ou opções numeradas viram "menu"; perguntas que esperam resposta viram "ask"; "se/então", "comprovante válido", "respondeu sim" viram "condition"; etiquetas viram "tags".
+- Se houver mais de uma imagem, elas são partes do mesmo fluxo, na ordem enviada.
+- Ignore o que for da tela e não do fluxo (menus do sistema, contadores de entradas/avanços/taxa, botões de editar).`;
+
 function sanitizeData(type: string, raw: unknown): Dict {
   const d = (raw && typeof raw === 'object' ? raw : {}) as Dict;
   switch (type) {
@@ -48,9 +59,18 @@ function sanitizeData(type: string, raw: unknown): Dict {
     }
     case 'message': {
       const raw = Array.isArray(d.items) ? d.items : [{ type: 'text', text: d.text }];
-      const items = raw.slice(0, 15).map((it: Dict) => (it?.type === 'interval'
-        ? { id: `it_${rid()}`, type: 'interval', amount: Math.min(60, Math.max(1, Math.round(Number(it.amount ?? 3)) || 3)), unit: 'seconds' }
-        : { id: `it_${rid()}`, type: 'text', text: str(it?.text, 4000) }))
+      const items = raw.slice(0, 20).map((it: Dict) => {
+        if (it?.type === 'interval') {
+          const unit = it.unit === 'minutes' ? 'minutes' : 'seconds';
+          return { id: `it_${rid()}`, type: 'interval', amount: Math.min(unit === 'minutes' ? 60 : 300, Math.max(1, Math.round(Number(it.amount ?? 3)) || 3)), unit };
+        }
+        if (['file', 'image', 'video', 'audio'].includes(it?.type)) {
+          const name = str(it.fileName ?? it.filename ?? it.name, 200);
+          return { id: `it_${rid()}`, type: it.type, url: '', fileId: '', fileName: name, filename: it.type === 'file' ? name : '', caption: str(it.caption, 1000) };
+        }
+        const typing = Math.min(60, Math.max(0, Math.round(Number(it?.typingSeconds ?? 0)) || 0));
+        return { id: `it_${rid()}`, type: 'text', text: str(it?.text, 4000), ...(typing ? { typingSeconds: typing } : {}) };
+      })
         .filter((it: Dict) => it.type !== 'text' || it.text.trim());
       return { items: items.length ? items : [{ id: `it_${rid()}`, type: 'text', text: 'Olá! 👋' }] };
     }

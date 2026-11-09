@@ -2083,3 +2083,20 @@ html.dark .fbm-plat.tiktok{background:#333;outline:1px solid #555}
 .susp-card .row{gap:8px;margin-top:6px;flex-wrap:wrap;justify-content:center}
 .pf-bars{position:relative}
 .pf-bars-empty{position:absolute;inset:0 0 26px;display:flex;align-items:center;justify-content:center;text-align:center;padding:0 24px;font-size:12.5px;color:var(--faint);font-weight:600}
+
+/* criar fluxo com IA: a partir de imagens */
+.gen-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:3px;border-radius:11px;background:var(--surface-2);border:1px solid var(--border)}
+.gen-tabs button{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:0;background:transparent;color:var(--muted);font:inherit;font-size:12.5px;font-weight:700;padding:8px 10px;border-radius:8px;cursor:pointer}
+.gen-tabs button.on{background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
+.gen-drop{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;padding:22px 18px;border:2px dashed var(--border-strong);border-radius:14px;background:var(--surface-2);cursor:pointer;transition:border-color .15s, background .15s}
+.gen-drop:hover,.gen-drop.drag{border-color:var(--primary);background:var(--primary-50)}
+.gen-drop.full{cursor:default;opacity:.7}
+.gen-drop b{font-size:13.5px}
+.gen-drop small{font-size:11.5px;color:var(--muted);max-width:420px;line-height:1.45}
+.gen-drop-ic{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:var(--primary-50);color:var(--primary)}
+.gen-shots{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.gen-shots figure{position:relative;margin:0;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)}
+.gen-shots img{display:block;width:100%;height:84px;object-fit:cover;object-position:top}
+.gen-shots figcaption{display:flex;gap:5px;align-items:center;padding:4px 7px;font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gen-shots figcaption b{flex:none;width:16px;height:16px;border-radius:50%;background:var(--primary);color:#fff;font-size:10px;display:inline-flex;align-items:center;justify-content:center}
+.gen-shots button{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}

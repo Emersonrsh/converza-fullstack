@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { Icon } from '../icons';
 import { Modal, toast, cx, useBackdrop } from '../components/ui';
@@ -113,37 +113,153 @@ const EXAMPLES = [
   'Qualificar leads: perguntar o faturamento da empresa; acima de 50 mil, transferir para um vendedor; abaixo, enviar material gratuito.',
 ];
 
+const MAX_IMAGES = 4;
+const MAX_SIDE = 1800;
+
+/** Reduz a imagem no navegador (lado maior até 1800 px, JPEG) para mandar leve para a IA. */
+async function shrinkImage(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error(`Não deu para abrir ${file.name || 'a imagem'}`));
+      el.src = url;
+    });
+    const k = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * k));
+    const h = Math.max(1, Math.round(img.naturalHeight * k));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h); // PNG transparente vira fundo branco (lê melhor)
+    ctx.drawImage(img, 0, 0, w, h);
+    return canvas.toDataURL('image/jpeg', 0.88);
+  } finally { URL.revokeObjectURL(url); }
+}
+
+type Shot = { id: string; name: string; data: string };
+
 export function GenerateModal({ replacing, onClose, onGenerated }: {
   replacing?: boolean; onClose: () => void; onGenerated: (graph: { nodes: any[]; edges: any[] }, description: string) => void | Promise<void>;
 }) {
+  const [mode, setMode] = useState<'text' | 'image'>('text');
   const [desc, setDesc] = useState('');
+  const [notes, setNotes] = useState('');
+  const [shots, setShots] = useState<Shot[]>([]);
+  const [drag, setDrag] = useState(false);
+  const [reading, setReading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function addFiles(list: FileList | File[]) {
+    const files = Array.from(list).filter((f) => /^image\/(png|jpe?g|webp|gif)$/i.test(f.type));
+    if (!files.length) { toast('Envie imagens em PNG, JPG, WEBP ou GIF'); return; }
+    const room = MAX_IMAGES - shots.length;
+    if (room <= 0) { toast(`Até ${MAX_IMAGES} imagens por vez`); return; }
+    if (files.length > room) toast(`Só cabem mais ${room} — as outras ficaram de fora`);
+    setReading(true);
+    try {
+      const out: Shot[] = [];
+      for (const f of files.slice(0, room)) out.push({ id: Math.random().toString(36).slice(2), name: f.name || 'imagem colada', data: await shrinkImage(f) });
+      setShots((cur) => [...cur, ...out].slice(0, MAX_IMAGES));
+    } catch (e) { toast(errMsg(e)); }
+    setReading(false);
+  }
+
+  // Ctrl+V com um print copiado
+  useEffect(() => {
+    if (mode !== 'image') return;
+    const onPaste = (e: ClipboardEvent) => {
+      const files = Array.from(e.clipboardData?.files ?? []);
+      if (files.length) { e.preventDefault(); void addFiles(files); }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function run() {
-    if (desc.trim().length < 15) { toast('Descreva com um pouco mais de detalhe o que o fluxo deve fazer'); return; }
+    let body: { description: string; images?: string[] };
+    let label: string;
+    if (mode === 'image') {
+      if (!shots.length) { toast('Envie pelo menos uma imagem do fluxo'); return; }
+      body = { description: notes.trim(), images: shots.map((x) => x.data) };
+      label = notes.trim() || `Fluxo a partir de ${shots.length === 1 ? 'imagem' : `${shots.length} imagens`}`;
+    } else {
+      if (desc.trim().length < 15) { toast('Descreva com um pouco mais de detalhe o que o fluxo deve fazer'); return; }
+      body = { description: desc.trim() };
+      label = desc.trim();
+    }
     setBusy(true);
     try {
-      const r = await api.post<{ graph: { nodes: any[]; edges: any[] } }>('/flows/generate', { description: desc.trim() });
-      await onGenerated(r.graph, desc.trim());
+      const r = await api.post<{ graph: { nodes: any[]; edges: any[] } }>('/flows/generate', body);
+      await onGenerated(r.graph, label);
     } catch (e) { toast(errMsg(e)); setBusy(false); }
   }
 
   return (
-    <Modal title="Criar fluxo com IA" onClose={() => !busy && onClose()}
+    <Modal title="Criar fluxo com IA" width={560} onClose={() => !busy && onClose()}
       footer={<><button className="btn" disabled={busy} onClick={onClose}>Cancelar</button>
-        <button className="btn primary" disabled={busy} onClick={run}><Icon name="sparkles" size={15} />{busy ? 'Montando os blocos…' : 'Gerar fluxo'}</button></>}>
+        <button className="btn primary" disabled={busy || reading} onClick={run} data-testid="gen-run"><Icon name="sparkles" size={15} />
+          {busy ? (mode === 'image' ? 'Lendo a imagem e montando…' : 'Montando os blocos…') : 'Gerar fluxo'}</button></>}>
       <div className="grid" style={{ gap: 12 }}>
-        <div>
-          <label className="label">O que o fluxo deve fazer?</label>
-          <textarea className="input" rows={5} autoFocus maxLength={2000} value={desc} disabled={busy}
-            placeholder="Conte o seu negócio, o que perguntar ao cliente, quais opções oferecer e quando chamar um humano."
-            onChange={(e) => setDesc(e.target.value)} />
-          <div className="examples">
-            {EXAMPLES.map((ex) => <button type="button" key={ex} disabled={busy} onClick={() => setDesc(ex)}>{ex.split(':')[0]}</button>)}
-          </div>
+        <div className="gen-tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={mode === 'text'} className={cx(mode === 'text' && 'on')} disabled={busy} onClick={() => setMode('text')} data-testid="gen-tab-text"><Icon name="edit" size={15} />Descrever</button>
+          <button type="button" role="tab" aria-selected={mode === 'image'} className={cx(mode === 'image' && 'on')} disabled={busy} onClick={() => setMode('image')} data-testid="gen-tab-image"><Icon name="image" size={15} />A partir de imagens</button>
         </div>
+
+        {mode === 'text' ? (
+          <div>
+            <label className="label">O que o fluxo deve fazer?</label>
+            <textarea className="input" rows={5} autoFocus maxLength={2000} value={desc} disabled={busy}
+              placeholder="Conte o seu negócio, o que perguntar ao cliente, quais opções oferecer e quando chamar um humano."
+              onChange={(e) => setDesc(e.target.value)} data-testid="gen-desc" />
+            <div className="examples">
+              {EXAMPLES.map((ex) => <button type="button" key={ex} disabled={busy} onClick={() => setDesc(ex)}>{ex.split(':')[0]}</button>)}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div
+              className={cx('gen-drop', drag && 'drag', shots.length >= MAX_IMAGES && 'full')}
+              onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+              onDragLeave={() => setDrag(false)}
+              onDrop={(e) => { e.preventDefault(); setDrag(false); if (!busy) void addFiles(e.dataTransfer.files); }}
+              onClick={() => !busy && shots.length < MAX_IMAGES && fileRef.current?.click()}
+              role="button" tabIndex={0} data-testid="gen-drop"
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileRef.current?.click(); }}
+            >
+              <span className="gen-drop-ic"><Icon name="upload" size={22} /></span>
+              <b>{reading ? 'Preparando as imagens…' : shots.length >= MAX_IMAGES ? `Limite de ${MAX_IMAGES} imagens` : 'Arraste, clique para escolher ou cole (Ctrl+V)'}</b>
+              <small>Print de um fluxo (de outra ferramenta ou do Converza), fluxograma, rascunho no papel, roteiro ou prints de uma conversa · até {MAX_IMAGES} imagens</small>
+              <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden
+                onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ''; }} data-testid="gen-file" />
+            </div>
+            {shots.length > 0 && (
+              <div className="gen-shots" data-testid="gen-shots">
+                {shots.map((x, i) => (
+                  <figure key={x.id}>
+                    <img src={x.data} alt={x.name} />
+                    <figcaption><b>{i + 1}</b>{x.name}</figcaption>
+                    <button type="button" aria-label={`Tirar ${x.name}`} disabled={busy} onClick={() => setShots((cur) => cur.filter((y) => y.id !== x.id))}><Icon name="close" size={13} /></button>
+                  </figure>
+                ))}
+              </div>
+            )}
+            <div>
+              <label className="label">Observações (opcional)</label>
+              <textarea className="input" rows={2} maxLength={2000} value={notes} disabled={busy} data-testid="gen-notes"
+                placeholder="Ex.: troque o nome da loja para Doce Sabor; a pergunta do CPF pode sair; adicione uma etiqueta Lead no fim." onChange={(e) => setNotes(e.target.value)} />
+            </div>
+          </>
+        )}
+
         {replacing && <div className="note warn"><Icon name="alert" size={15} /><span>Os blocos atuais deste fluxo serão substituídos (dá para desfazer com Ctrl+Z).</span></div>}
-        <div className="cf-hint">A IA monta os blocos e conexões; revise os textos e teste no Simulador antes de ativar. Usa tokens de IA da conta.</div>
+        <div className="cf-hint">
+          {mode === 'image'
+            ? 'A IA copia os textos e a ordem dos blocos da imagem. Arquivos (PDFs, fotos, áudios) entram com o nome — anexe os arquivos depois. Revise e teste no Simulador antes de ativar. Usa tokens de IA da conta.'
+            : 'A IA monta os blocos e conexões; revise os textos e teste no Simulador antes de ativar. Usa tokens de IA da conta.'}
+        </div>
       </div>
     </Modal>
   );

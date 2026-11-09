@@ -32,7 +32,7 @@ const TUTORIALS: Tutorial[] = [
   {
     id: 'fluxo', icon: 'flow', title: 'Criar seu primeiro fluxo', module: 'Fluxos', route: '/flows', minutes: 5,
     steps: [
-      'Em **Fluxos**, clique em **Novo fluxo** — ou em **Criar com IA** e descreva o que o fluxo deve fazer.',
+      'Em **Fluxos**, clique em **Novo fluxo** — ou em **Criar com IA** e descreva o que o fluxo deve fazer (ou, na aba **A partir de imagens**, envie um print de um fluxo, um fluxograma ou um rascunho: a IA monta os blocos iguais).',
       'Clique duas vezes no bloco **Início** e escolha quando o fluxo começa: qualquer mensagem, palavra-chave ou primeira mensagem do contato.',
       'Com o Início selecionado, clique nos blocos da barra **Ferramentas** (ou busque: “pix”, “menu”, “IA”…): cada bloco novo já sai conectado no anterior e abre o editor.',
       'No editor, preencha o bloco e clique em **Salvar** (para editar de novo, clique duas vezes no bloco). Use o botão {} para inserir variáveis como {{primeiro_nome}}.',

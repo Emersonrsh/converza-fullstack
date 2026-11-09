@@ -54,6 +54,8 @@ import { startAgentWorker, startDispatchWorker, startFlowWorker, startPixelWorke
 
 const app = express();
 app.use(cors({ origin: config.appOrigin, credentials: true, exposedHeaders: ['Content-Disposition'] }));
+// gerar fluxo a partir de imagens: até 4 imagens (já reduzidas no navegador)
+app.use('/api/v1/flows/generate', express.json({ limit: '10mb' }));
 app.use(express.json({
   limit: '2mb',
   // guarda o corpo original para conferir a assinatura dos webhooks da Meta
