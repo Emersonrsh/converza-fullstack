@@ -33,6 +33,8 @@ export interface Summary {
   dispatchPacks: { id: string; quantity: number; price: number; priceUSD: number }[];
   supportUrl: string | null;
   canEdit: boolean;
+  /** conta da casa (HOUSE_EMAILS no servidor): sem cobrança e tokens de IA sem limite */
+  house?: boolean;
 }
 
 export interface CheckoutResult { url: string | null; invoiceId?: string; applied?: boolean; scheduled?: boolean; message?: string; instances?: number }

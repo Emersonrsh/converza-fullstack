@@ -108,7 +108,14 @@ export async function instanceUSD() {
  * Assinar (ou assinar de novo). Sem assinatura ativa: a primeira mensalidade vence hoje. Com assinatura que não
  * renova (cancelada, mas ainda dentro do período): a nova começa no fim do período já pago.
  */
+/** Conta da casa (HOUSE_EMAILS): tudo já está liberado, nada a pagar. */
+async function assertNotHouse(accountId: string) {
+  const sub = await subRow(accountId);
+  if (sub.house) throw new AppError(409, 'Esta é uma conta da casa: tudo já está liberado, sem cobrança.', { code: 'house' });
+}
+
 export async function startSubscription(accountId: string, input: { instances: unknown; country: Country; method?: 'pix' | 'card' } & Payer): Promise<CheckoutResult> {
+  await assertNotHouse(accountId);
   const n = instanceCount(input.instances);
   const sub = await subRow(accountId);
   const now = new Date();
@@ -171,6 +178,7 @@ export async function startSubscription(accountId: string, input: { instances: u
 
 /** Mais instâncias: paga só o proporcional até o próximo vencimento. Menos: vale na próxima renovação. */
 export async function changeInstances(accountId: string, value: unknown): Promise<CheckoutResult & { instances?: number }> {
+  await assertNotHouse(accountId);
   const n = instanceCount(value);
   const sub = await subRow(accountId);
   if (sub.status === 'past_due') throw new AppError(409, 'Pague a mensalidade em aberto antes de mudar as instâncias.', { code: 'past_due' });
@@ -242,6 +250,7 @@ async function asaasDrop(id: string) {
 
 /** Cancelar: segue funcionando até o fim do período pago. Com a mensalidade atrasada, acaba na hora. */
 export async function cancelSubscription(accountId: string): Promise<CheckoutResult> {
+  await assertNotHouse(accountId);
   const sub = await subRow(accountId);
   const now = new Date();
   const subId = sub.gatewaySubscriptionId;
@@ -293,6 +302,7 @@ async function oneOff(accountId: string, gateway: Gateway, o: {
 
 /** Tokens de IA: compra avulsa, para a conta inteira (não muda a mensalidade). */
 export async function buyTokens(accountId: string, input: { tokens: unknown; gateway: Gateway } & Payer) {
+  await assertNotHouse(accountId);
   const t = Number(input.tokens);
   if (!Number.isInteger(t) || t < TOKENS_MIN || t > TOKENS_MAX || t % TOKENS_STEP !== 0) {
     throw new AppError(422, `Escolha de ${plural(TOKENS_MIN, 'token', 'tokens')} a ${plural(TOKENS_MAX, 'token', 'tokens')}, de 1.000 em 1.000.`, { code: 'invalid_tokens' });
@@ -305,6 +315,7 @@ export async function buyTokens(accountId: string, input: { tokens: unknown; gat
 
 /** Pacote de disparos extras (entra no saldo extra e não vence; só vale com a assinatura ativa). */
 export async function buyDispatchPack(accountId: string, input: { packId: unknown; gateway: Gateway } & Payer) {
+  await assertNotHouse(accountId);
   const pack = DISPATCH_PACKS.find((p) => p.id === input.packId);
   if (!pack) throw new AppError(422, 'Pacote inválido.');
   const sub = await subRow(accountId);

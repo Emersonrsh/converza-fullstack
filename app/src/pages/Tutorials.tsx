@@ -20,6 +20,16 @@ const TUTORIALS: Tutorial[] = [
     tip: 'Já tem um app na Meta for Developers? Use **Manual** com o Phone Number ID, o WABA ID, o token permanente e a chave secreta do app. Se um número cair, o card fica vermelho na hora e mostra o motivo.',
   },
   {
+    id: 'qrcode', icon: 'qr', title: 'Conectar pelo QR Code (API não oficial)', module: 'Conexões', route: '/connections', minutes: 2,
+    steps: [
+      'Em **Conexões**, clique em **Nova Conexão** e escolha **QR Code**. Leia o aviso: essa conexão não é autorizada pela Meta e o WhatsApp pode banir o número.',
+      'Dê um nome, marque que entendeu os riscos e clique em **Gerar QR Code**.',
+      'No celular, abra o WhatsApp (ou WhatsApp Business) › **Aparelhos conectados** › **Conectar um aparelho** e aponte a câmera para o QR. Sem câmera? Use **Conectar com um código** e digite o código no celular.',
+      'Pronto: chats, fluxos, agentes e disparos funcionam por esse número. Botões e listas chegam como opções numeradas (o cliente responde 1, 2, 3…) e não existe a janela de 24h nem modelos da Meta.',
+    ],
+    tip: 'Disparos pelo QR Code saem devagar de propósito (intervalo aleatório e limite por dia) para diminuir o risco de banimento. Desligue a mensagem de saudação/ausência do WhatsApp Business no celular — o que o celular manda sozinho pausa a automação da conversa.',
+  },
+  {
     id: 'fluxo', icon: 'flow', title: 'Criar seu primeiro fluxo', module: 'Fluxos', route: '/flows', minutes: 5,
     steps: [
       'Em **Fluxos**, clique em **Novo fluxo** — ou em **Criar com IA** e descreva o que o fluxo deve fazer.',

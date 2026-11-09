@@ -3,9 +3,10 @@ import { ApiError, api } from '../api';
 import { Icon } from '../icons';
 import { Modal, cx, toast } from '../components/ui';
 import { launchEmbeddedSignup, loadFbSdk } from '../metaSdk';
-import type { ConnectionFull, SignupConfig, WebhookInfo } from './types';
+import { QrRiskNotice } from './QrConnect';
+import type { ConnectionFull, QrCodeInfo, SignupConfig, WebhookInfo } from './types';
 
-type Method = 'meta' | 'coexistence' | 'manual';
+type Method = 'meta' | 'coexistence' | 'manual' | 'qr';
 
 export function CopyField({ label, value, testId }: { label: string; value: string; testId?: string }) {
   return (
@@ -41,14 +42,27 @@ export async function connectViaMeta(signup: SignupConfig, coexistence: boolean)
   });
 }
 
-export function NewConnectionModal({ signup, webhook, onClose, onDone }: {
-  signup: SignupConfig; webhook: WebhookInfo | null; onClose: () => void; onDone: (c: ConnectionFull, msg?: string) => void;
+export function NewConnectionModal({ signup, webhook, qrCode, onClose, onDone, onQr }: {
+  signup: SignupConfig; webhook: WebhookInfo | null; qrCode?: QrCodeInfo; onClose: () => void; onDone: (c: ConnectionFull, msg?: string) => void;
+  /** conexão por QR Code criada: abre a janela do QR */
+  onQr?: (c: ConnectionFull) => void;
 }) {
   const [method, setMethod] = useState<Method>(signup.configured ? 'meta' : 'manual');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [needSecret, setNeedSecret] = useState(false);
   const [f, setF] = useState({ name: '', phoneNumberId: '', wabaId: '', accessToken: '', appSecret: '' });
+  const [qrName, setQrName] = useState('');
+  const [qrAccept, setQrAccept] = useState(false);
+
+  async function viaQr() {
+    setBusy(true); setErr(null);
+    try {
+      const r = await api.post<{ connection: ConnectionFull }>('/connections/web', { name: qrName.trim(), acceptRisk: true });
+      onQr?.(r.connection);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Não foi possível criar a conexão'); }
+    setBusy(false);
+  }
 
   async function viaMeta(coexistence: boolean) {
     setBusy(true); setErr(null);
@@ -74,11 +88,14 @@ export function NewConnectionModal({ signup, webhook, onClose, onDone }: {
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
   const manualOk = f.name.trim() && /^\d{6,}$/.test(f.phoneNumberId.trim()) && f.accessToken.trim().length >= 20;
   return (
-    <Modal title="Nova conexão" subtitle="Conecte um número de WhatsApp pela API oficial da Meta" icon="plug" width={640} onClose={onClose} footer={method === 'manual' ? <>
+    <Modal title="Nova conexão" subtitle={method === 'qr' ? 'Conecte qualquer WhatsApp ou WhatsApp Business lendo um QR Code' : 'Conecte um número de WhatsApp pela API oficial da Meta'} icon="plug" width={qrCode?.enabled ? 720 : 640} onClose={onClose} footer={method === 'manual' ? <>
       <button type="button" className="btn" onClick={onClose}>Cancelar</button>
       <button type="button" className="btn primary" disabled={!manualOk || busy} onClick={() => void manual()} data-testid="manual-save">{busy ? 'Conferindo na Meta…' : 'Conectar'}</button>
+    </> : method === 'qr' ? <>
+      <button type="button" className="btn" onClick={onClose}>Cancelar</button>
+      <button type="button" className="btn primary" disabled={!qrName.trim() || !qrAccept || busy} onClick={() => void viaQr()} data-testid="qr-create"><Icon name="qr" size={15} />{busy ? 'Preparando…' : 'Gerar QR Code'}</button>
     </> : undefined}>
-      <div className="cn-methods">
+      <div className={cx('cn-methods', qrCode?.enabled && 'four')}>
         <button type="button" className={cx(method === 'meta' && 'on')} disabled={!signup.configured} onClick={() => setMethod('meta')} data-testid="method-meta">
           <span className="cn-m-ic"><Icon name="bolt" size={17} /></span><b>Conectar com a Meta</b><small>Login com o Facebook, sem copiar token. Para número novo na API.</small>
           {signup.configured && <span className="pill teal mini">recomendado</span>}
@@ -89,6 +106,12 @@ export function NewConnectionModal({ signup, webhook, onClose, onDone }: {
         <button type="button" className={cx(method === 'manual' && 'on')} onClick={() => setMethod('manual')} data-testid="method-manual">
           <span className="cn-m-ic"><Icon name="gear" size={17} /></span><b>Manual</b><small>Já tem um app na Meta for Developers e o token de acesso.</small>
         </button>
+        {qrCode?.enabled && (
+          <button type="button" className={cx('cn-m-qr', method === 'qr' && 'on')} onClick={() => setMethod('qr')} data-testid="method-qr">
+            <span className="cn-m-ic"><Icon name="qr" size={17} /></span><b>QR Code</b><small>Leia o QR com o celular, como no WhatsApp Web. Sem Meta e sem aprovação.</small>
+            <span className="pill amber mini">não oficial</span>
+          </button>
+        )}
       </div>
       {!signup.configured && <div className="hint" style={{ marginTop: 12 }}><Icon name="info" size={14} />A conexão em 1 clique precisa das credenciais de Tech Provider da Meta no servidor (META_APP_ID e META_EMBEDDED_SIGNUP_CONFIG_ID). Por enquanto, use a conexão manual.</div>}
 
@@ -130,6 +153,21 @@ export function NewConnectionModal({ signup, webhook, onClose, onDone }: {
           </div>
           <small className="faint">Use um token de usuário do sistema (permanente): Gerenciador de Negócios › Usuários do sistema › Gerar token com <code>whatsapp_business_messaging</code> e <code>whatsapp_business_management</code>. O token temporário da página de testes vence em 24 horas.</small>
           {webhook && <WebhookHelp webhook={webhook} />}
+        </div>
+      )}
+      {method === 'qr' && (
+        <div className="cn-step stack" style={{ gap: 12 }}>
+          <QrRiskNotice qr={qrCode} />
+          {qrCode?.simulator && <div className="hint"><Icon name="info" size={14} />Servidor de testes: o “celular” é simulado (WA_WEB_DRIVER=mock).</div>}
+          <div>
+            <label className="label">Nome da conexão</label>
+            <input className="input" maxLength={60} value={qrName} onChange={(e) => setQrName(e.target.value)} placeholder="Ex.: Atendimento loja" data-testid="qr-name"
+              onKeyDown={(e) => { if (e.key === 'Enter' && qrName.trim() && qrAccept) void viaQr(); }} />
+          </div>
+          <label className="qr-accept">
+            <input type="checkbox" checked={qrAccept} onChange={(e) => setQrAccept(e.target.checked)} data-testid="qr-accept" />
+            <span>Entendi que a conexão por QR Code não é oficial, que o WhatsApp pode banir o número e que a responsabilidade pelo uso é minha.</span>
+          </label>
         </div>
       )}
       {err && <div className="hint bad" style={{ marginTop: 12 }} data-testid="new-conn-error"><Icon name="alert" size={14} />{err}</div>}

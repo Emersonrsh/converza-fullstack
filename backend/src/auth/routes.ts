@@ -8,6 +8,10 @@ import { authRequired } from './middleware';
 import { accountsFor } from './accounts';
 import { asyncHandler, AppError } from '../utils/http';
 import { acceptPlatformInviteOnSignup } from '../modules/invites';
+import { config } from '../config';
+import { syncHouseAccounts } from '../billing/house';
+import { TERMS_VERSION } from '../modules/legal';
+import { recordAccessLater } from './accessLog';
 
 export const authRouter = Router();
 
@@ -25,13 +29,16 @@ const registerSchema = z.object({
   ref: z.string().trim().max(20).optional().nullable(),
   // convite para a plataforma (?convite= no link do e-mail)
   inviteToken: z.string().trim().max(80).optional().nullable(),
+  // aceite dos Termos de Uso e da Política de Privacidade (obrigatório: fica registrado com a data e a versão)
+  acceptTerms: z.boolean().optional(),
 });
 
 export function slugifyName(s: string) { return slugify(s); }
 
 authRouter.post('/register', asyncHandler(async (req, res) => {
-  const { name, password, companyName, ref, inviteToken } = registerSchema.parse(req.body);
+  const { name, password, companyName, ref, inviteToken, acceptTerms } = registerSchema.parse(req.body);
   const email = registerSchema.shape.email.parse(req.body.email).trim().toLowerCase();
+  if (acceptTerms !== true) throw new AppError(422, 'Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.', { field: 'acceptTerms' });
 
   const [existing] = await db.select().from(schema.users).where(sql`lower(${schema.users.email}) = ${email}`).limit(1);
   if (existing) throw new AppError(409, 'E-mail já cadastrado');
@@ -39,7 +46,9 @@ authRouter.post('/register', asyncHandler(async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
 
   const result = await db.transaction(async (tx) => {
-    const [user] = await tx.insert(schema.users).values({ name, email, passwordHash }).returning();
+    const [user] = await tx.insert(schema.users).values({
+      name, email, passwordHash, termsAcceptedAt: new Date(), termsVersion: TERMS_VERSION,
+    }).returning();
     const baseSlug = slugify(companyName ?? name);
     const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
     const code = String(ref ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -58,7 +67,11 @@ authRouter.post('/register', asyncHandler(async (req, res) => {
     return { user, account };
   });
 
+  // dono que está em HOUSE_EMAILS: a empresa nova já nasce como conta da casa
+  if (config.house.emails.includes(email)) await syncHouseAccounts().catch((err) => console.error('[conta da casa]', (err as Error).message));
+
   const token = signToken({ userId: result.user.id, email: result.user.email });
+  recordAccessLater(req, result.user, 'register');
   res.status(201).json({
     token,
     user: { id: result.user.id, name: result.user.name, email: result.user.email },
@@ -77,6 +90,7 @@ authRouter.post('/login', asyncHandler(async (req, res) => {
   if (!ok) throw new AppError(401, 'Credenciais inválidas');
 
   const token = signToken({ userId: user.id, email: user.email });
+  recordAccessLater(req, user, 'login');
   res.json({ token, user: { id: user.id, name: user.name, email: user.email }, accounts: await accountsFor(user.id, user.email) });
 }));
 

@@ -9,15 +9,18 @@ type Conv = typeof schema.conversations.$inferSelect;
 const WINDOW_MS = 24 * 3600_000;
 
 export async function sendTextInConversation(accountId: string, conv: Conv, text: string) {
-  const [lastIn] = await db.select({ at: schema.messages.createdAt }).from(schema.messages)
-    .where(and(eq(schema.messages.conversationId, conv.id), eq(schema.messages.direction, 'in')))
-    .orderBy(desc(schema.messages.createdAt)).limit(1);
-  if (!lastIn || Date.now() - new Date(lastIn.at).getTime() >= WINDOW_MS) {
-    throw new ToolError('Fora da janela de 24h: o cliente não escreve há mais de 24 horas. A Meta só deixa mandar um modelo aprovado (use os Disparos ou um fluxo com modelo).');
-  }
   const [conn] = conv.connectionId
     ? await db.select().from(schema.connections).where(eq(schema.connections.id, conv.connectionId)).limit(1) : [];
   if (!conn) throw new ToolError('Esta conversa não tem um número de WhatsApp conectado.');
+  // QR Code (WhatsApp Web) não tem a regra das 24h da Cloud API
+  if (conn.provider !== 'web') {
+    const [lastIn] = await db.select({ at: schema.messages.createdAt }).from(schema.messages)
+      .where(and(eq(schema.messages.conversationId, conv.id), eq(schema.messages.direction, 'in')))
+      .orderBy(desc(schema.messages.createdAt)).limit(1);
+    if (!lastIn || Date.now() - new Date(lastIn.at).getTime() >= WINDOW_MS) {
+      throw new ToolError('Fora da janela de 24h: o cliente não escreve há mais de 24 horas. A Meta só deixa mandar um modelo aprovado (use os Disparos ou um fluxo com modelo).');
+    }
+  }
   const [contact] = await db.select().from(schema.contacts).where(eq(schema.contacts.id, conv.contactId)).limit(1);
   if (!contact) throw new ToolError('Contato não encontrado.');
   const to = contact.waId ?? contact.phone.replace(/\D/g, '');

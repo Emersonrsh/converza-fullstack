@@ -13,7 +13,7 @@ import { firePixels } from '../pixels/sender';
 import { ensureConversation } from './conversationStore';
 import { webhookQuotaFor } from './plans';
 import { onPaymentApproved, startFlowForContact, triggerFlowsForInbound } from '../flows/runner';
-import { sendTemplate } from '../whatsapp/cloud-api';
+import { sendTemplate, sendText } from '../whatsapp/cloud-api';
 import {
   brl, buildTemplate, conditionText, conditionsMatch, detectMapping, flowVars, resolve, SALE_STATUS_LABEL,
   type Resolved, type WebhookActions, type WebhookCondition, type WebhookMapping,
@@ -125,6 +125,13 @@ export async function markWebhookEventFailed(eventId: string, message: string) {
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 const fmtPhone = (p: string) => (p.startsWith('55') && p.length >= 12 ? `+55 ${p.slice(2, 4)} ${p.slice(4, -4)}-${p.slice(-4)}` : `+${p}`);
 
+/** Conexão por QR Code: não há janela de 24h (dá para escrever a qualquer momento). */
+async function isWebConnection(connectionId: string | null | undefined) {
+  if (!connectionId || !isUuid(connectionId)) return false;
+  const [c] = await db.select({ provider: schema.connections.provider }).from(schema.connections).where(eq(schema.connections.id, connectionId)).limit(1);
+  return c?.provider === 'web';
+}
+
 async function windowOpen(contactId: string) {
   const [r] = await rows<{ at: Date | null }>(sql`
     select max(m.created_at) as at from messages m join conversations v on v.id = m.conversation_id
@@ -209,19 +216,24 @@ async function sendTemplateAction(w: WebhookRow, contact: ContactRow, a: NonNull
   let status: 'sent' | 'failed' = 'sent';
   let waMessageId: string | null = null;
   let error: string | null = null;
+  // QR Code não tem modelos da Meta: o texto do modelo (com as variáveis) vai como mensagem normal
+  const web = conn.provider === 'web';
   try {
-    const res = await sendTemplate({ phoneNumberId: conn.phoneNumberId, accessToken: conn.accessToken }, contact.waId ?? contact.phone, {
-      name: plan.name, language: plan.language, body: plan.body, header: plan.header, buttons: plan.buttons,
-    });
+    const wa = { phoneNumberId: conn.phoneNumberId, accessToken: conn.accessToken };
+    const res = web
+      ? await sendText(wa, contact.waId ?? contact.phone, plan.preview)
+      : await sendTemplate(wa, contact.waId ?? contact.phone, {
+        name: plan.name, language: plan.language, body: plan.body, header: plan.header, buttons: plan.buttons,
+      });
     waMessageId = res.waMessageId;
     if (res.waId && res.waId !== contact.waId) await db.update(schema.contacts).set({ waId: res.waId }).where(eq(schema.contacts.id, contact.id));
   } catch (err) {
     status = 'failed';
     error = (err as Error).message;
   }
-  const media = plan.header && plan.header.type !== 'text' ? plan.header : null;
+  const media = !web && plan.header && plan.header.type !== 'text' ? plan.header : null;
   const [msg] = await db.insert(schema.messages).values({
-    accountId: w.accountId, conversationId: conv.id, direction: 'out', type: 'template', body: plan.preview,
+    accountId: w.accountId, conversationId: conv.id, direction: 'out', type: web ? 'text' : 'template', body: plan.preview,
     mediaUrl: media?.link ?? null, mimeType: media ? `${media.type}/*` : null, status, waMessageId, error,
   }).returning();
   await db.update(schema.conversations).set({ lastMessageAt: new Date() }).where(eq(schema.conversations.id, conv.id));
@@ -238,7 +250,7 @@ async function flowAction(w: WebhookRow, contact: ContactRow, flowId: string, r:
   if (!flow) return { kind: 'flow', ok: false, text: 'Fluxo não iniciado: o fluxo escolhido não existe mais.' };
   if (flow.status !== 'active' || flow.archivedAt) return { kind: 'flow', ok: false, text: `Fluxo “${flow.name}” não iniciado: ele está pausado.` };
   const vars = flowVars(r);
-  const open = await windowOpen(contact.id);
+  const open = (await isWebConnection(w.connectionId)) || await windowOpen(contact.id);
   if (!open && templateSent) {
     // fora da janela: o fluxo começa quando o cliente responder o modelo
     await db.insert(schema.flowPending).values({
@@ -432,7 +444,7 @@ export async function dryRun(w: WebhookRow, payload: Record<string, unknown>, cf
     if (!flow) steps.push({ kind: 'flow', ok: false, text: 'O fluxo escolhido não existe mais' });
     else if (flow.status !== 'active') steps.push({ kind: 'flow', ok: false, text: `O fluxo “${flow.name}” está pausado` });
     else {
-      const open = known ? await windowOpen(known.id) : false;
+      const open = (await isWebConnection(cfg.connectionId)) || (known ? await windowOpen(known.id) : false);
       steps.push(open ? { kind: 'flow', ok: true, text: `Iniciar o fluxo “${flow.name}” agora` }
         : a.template?.name && cfg.connectionId ? { kind: 'flow', ok: true, text: `Iniciar o fluxo “${flow.name}” quando o cliente responder o modelo` }
           : { kind: 'flow', ok: true, warn: true, text: `Iniciar o fluxo “${flow.name}” — sem conversa nas últimas 24h, as mensagens de texto só chegam se o cliente responder` });

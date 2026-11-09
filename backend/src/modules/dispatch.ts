@@ -8,7 +8,8 @@ import { DISPATCH_PACKS } from './plans';
 import { asaasConfigured, paddleConfigured } from '../billing/gateways';
 import { filtersSchema } from './contacts';
 import { dispatchQuota } from './dispatchQuota';
-import { audiencePreview, campaignStats, normalizeAudience, pauseText, publicCampaign, type CampaignRow } from './dispatchRunner';
+import { audiencePreview, campaignStats, normalizeAudience, pauseText, publicCampaign, webDispatchedLast24h, type CampaignRow } from './dispatchRunner';
+import { config } from '../config';
 import { checkTemplate, templateSchema } from './webhooks';
 
 /**
@@ -81,7 +82,19 @@ dispatchRouter.post('/preview', asyncHandler(async (req, res) => {
   const accountId = req.accountId!;
   const p = audienceSchema.safeParse((req.body ?? {}).audience ?? {});
   if (!p.success) throw new AppError(422, 'Filtro do público inválido');
-  res.json({ preview: await audiencePreview(accountId, { filters: p.data.filters, excludeRecentDays: p.data.excludeRecentDays ?? null }), quota: await dispatchQuota(accountId) });
+  // conexão escolhida (opcional): no QR Code todos recebem o fluxo direto, com o limite diário de segurança
+  const connectionId = typeof req.body?.connectionId === 'string' && isUuid(req.body.connectionId) ? req.body.connectionId : null;
+  const [conn] = connectionId ? await db.select().from(schema.connections)
+    .where(and(eq(schema.connections.id, connectionId), eq(schema.connections.accountId, accountId))).limit(1) : [];
+  const isWeb = conn?.provider === 'web';
+  res.json({
+    preview: await audiencePreview(accountId, { filters: p.data.filters, excludeRecentDays: p.data.excludeRecentDays ?? null }, { web: isWeb }),
+    quota: await dispatchQuota(accountId),
+    web: isWeb ? {
+      dailyLimit: config.waWeb.dailyLimit, usedLast24h: await webDispatchedLast24h(conn!.id),
+      minGapSec: config.waWeb.dispatchMinGapSec, maxGapSec: config.waWeb.dispatchMaxGapSec,
+    } : null,
+  });
 }));
 
 /* ------------------------------------------------------------------ criar */
@@ -113,15 +126,17 @@ dispatchRouter.post('/', asyncHandler(async (req, res) => {
   const [flow] = await db.select().from(schema.flows).where(and(eq(schema.flows.id, d.flowId), eq(schema.flows.accountId, accountId))).limit(1);
   if (!flow) throw new AppError(422, 'Fluxo não encontrado');
   if (flow.status !== 'active' || flow.archivedAt) throw new AppError(422, `O fluxo “${flow.name}” está pausado. Ative o fluxo antes de disparar.`);
+  const isWeb = conn.provider === 'web';
+  if (isWeb && d.template) throw new AppError(422, 'Na conexão por QR Code não existe modelo de mensagem da Meta: o disparo começa o fluxo direto. Tire o modelo e tente de novo.');
   if (d.template) checkTemplate(d.template);
 
   const quota = await dispatchQuota(accountId);
   if (!quota.active) throw new AppError(403, 'Sua assinatura está inativa. Assine para fazer disparos em massa.', { code: 'no_plan' });
   if (quota.remaining <= 0) throw new AppError(403, 'Os disparos do ciclo acabaram. A cota renova no próximo ciclo da assinatura (ou com disparos extras).', { code: 'no_quota' });
   const audience = { filters: d.audience.filters, excludeRecentDays: d.audience.excludeRecentDays ?? null };
-  const preview = await audiencePreview(accountId, audience);
+  const preview = await audiencePreview(accountId, audience, { web: isWeb });
   if (!preview.total) throw new AppError(422, 'Nenhum contato no público escolhido.');
-  if (!d.template && !preview.windowOpen) {
+  if (!isWeb && !d.template && !preview.windowOpen) {
     throw new AppError(422, 'Nenhum desses contatos falou com você nas últimas 24h: escolha um modelo de mensagem para abrir a conversa (regra da Meta).');
   }
 

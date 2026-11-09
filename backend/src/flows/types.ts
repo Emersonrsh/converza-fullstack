@@ -51,6 +51,28 @@ export function carouselReplyButtons(d: Dict): { id: string; title: string }[] {
   return out;
 }
 
+/**
+ * Botões de resposta na ordem em que o cliente os vê (como o carrossel é enviado: até 10 cartões; cartão com
+ * botão de link mostra só o link; senão até 2 botões de resposta). Pelo QR Code eles viram opções numeradas.
+ */
+export function carouselVisibleReplies(d: Dict): { id: string; title: string }[] {
+  const out: { id: string; title: string }[] = [];
+  for (const c of (Array.isArray(d.cards) ? d.cards : []).slice(0, 10)) {
+    const btns: Dict[] = Array.isArray(c?.buttons) ? c.buttons : [];
+    if (btns.some((b) => b?.type === 'url')) continue;
+    for (const b of btns.filter((x) => x?.id && (x.type ?? 'reply') === 'reply').slice(0, 2)) out.push({ id: String(b.id), title: String(b.title ?? '') });
+  }
+  return out;
+}
+
+/** "2", "2.", "2)" ou "2 - Quero esse" → 2 (resposta pelo número da opção). */
+export function numberReply(text: unknown): number | null {
+  const m = String(text ?? '').trim().match(/^(\d{1,2})(?:\s*[.)\-–:]|\s|$)/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 1 ? n : null;
+}
+
 /** Botões de resposta rápida do modelo escolhido no bloco Template (guardados ao escolher o modelo). */
 export function templateReplyButtons(d: Dict): { id: string; title: string }[] {
   return (Array.isArray(d.buttons) ? d.buttons : [])

@@ -211,10 +211,13 @@ export const TOOLS: ToolDef[] = [
       const lastIn = [...list].reverse().find((m) => m.direction === 'in');
       const [li] = lastIn ? [lastIn] : await db.select({ createdAt: schema.messages.createdAt }).from(schema.messages)
         .where(and(eq(schema.messages.conversationId, conv.id), eq(schema.messages.direction, 'in'))).orderBy(desc(schema.messages.createdAt)).limit(1);
+      const [cn] = conv.connectionId ? await db.select({ provider: schema.connections.provider }).from(schema.connections)
+        .where(eq(schema.connections.id, conv.connectionId)).limit(1) : [];
       return {
         result: {
           conversation_id: conv.id,
-          window_open: !!li && Date.now() - new Date(li.createdAt).getTime() < WINDOW_MS,
+          // QR Code não tem a janela de 24h
+          window_open: cn?.provider === 'web' || (!!li && Date.now() - new Date(li.createdAt).getTime() < WINDOW_MS),
           messages: list.map((m) => ({
             from: m.type === 'note' ? 'internal_note' : m.direction === 'in' ? 'customer' : m.agentId ? 'ai_agent' : m.senderUserId ? 'team' : 'automation',
             type: m.type,

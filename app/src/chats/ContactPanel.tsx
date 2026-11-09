@@ -179,7 +179,7 @@ export function ContactPanel({ detail, tags, refreshKey, onContact, onAutomation
           <div><span>Conexão</span><b>{detail.connection ? `${detail.connection.name}${detail.connection.displayPhone ? ` · ${detail.connection.displayPhone}` : ''}` : '—'}</b></div>
           <div><span>Responsável</span><b>{conv.status === 'resolved' ? 'Conversa resolvida' : detail.assignedName ?? 'Ninguém (na fila)'}</b></div>
           <div><span>Janela de 24h</span>
-            <b className={detail.windowOpen ? 'ok' : 'off'}>{detail.windowOpen && closes ? `aberta até ${closes.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${closes.toDateString() !== new Date().toDateString() ? ` de ${closes.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}` : ''}` : 'fechada'}</b>
+            {detail.connection?.provider === 'web' ? <b className="ok" data-testid="window-web">não se aplica (QR Code)</b> : <b className={detail.windowOpen ? 'ok' : 'off'}>{detail.windowOpen && closes ? `aberta até ${closes.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${closes.toDateString() !== new Date().toDateString() ? ` de ${closes.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}` : ''}` : 'fechada'}</b>}
           </div>
           <div><span>Lead desde</span><b>{dateBR(c.createdAt)}</b></div>
           <div><span>Origem</span><b>{c.sourceId ? (c.sourceUrl ? <a href={c.sourceUrl} target="_blank" rel="noreferrer">Anúncio (Meta) ↗</a> : 'Anúncio (Meta)') : 'Orgânico / direto'}</b></div>

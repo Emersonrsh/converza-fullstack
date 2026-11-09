@@ -99,6 +99,8 @@ billingRouter.get('/summary', asyncHandler(async (req, res) => {
     },
     openInvoices: canEdit ? open.map(publicInvoice) : [],
     tokens: { balance: tokens.balance, used: tokens.used, lastPurchaseAt: tokens.lastPurchaseAt },
+    // conta da casa (HOUSE_EMAILS): sem cobrança e sem desconto de tokens
+    house: !!sub.house,
     account: {
       number: account?.number ?? null, name: account?.name ?? '', createdAt: account?.createdAt ?? null,
       ownerName: owner?.name ?? null, ownerEmail: canEdit ? owner?.email ?? null : null,

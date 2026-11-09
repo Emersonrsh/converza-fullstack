@@ -19,6 +19,7 @@ import { Webhooks } from './pages/Webhooks';
 import { Meta } from './pages/Meta';
 import { Billing } from './pages/Billing';
 import { PaddleCheckout } from './pages/PaddleCheckout';
+import { LegalPage } from './pages/Legal';
 import { SettingsLayout } from './settings/SettingsLayout';
 import { Tutorials } from './pages/Tutorials';
 import { AgentEditor } from './agents/AgentEditor';
@@ -33,6 +34,10 @@ export default function App() {
   const loc = useLocation();
   // página de pagamento da Paddle: pública (o link pode ser aberto sem login)
   if (loc.pathname === '/pagamento') return <PaddleCheckout />;
+  // Termos, Privacidade e Exclusão de dados: públicas (a Meta e os clientes abrem sem login)
+  if (loc.pathname === '/termos') return <LegalPage doc="termos" />;
+  if (loc.pathname === '/privacidade') return <LegalPage doc="privacidade" />;
+  if (loc.pathname === '/exclusao-de-dados') return <LegalPage doc="exclusao" />;
   if (loading) return <div style={{ height: '100vh' }}><Spinner /></div>;
   if (!user && offline) {
     return (

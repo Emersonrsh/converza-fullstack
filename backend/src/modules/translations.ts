@@ -33,7 +33,7 @@ export async function translationEstimate(accountId: string, flow: FlowRow) {
   const st = await getTokenState(accountId);
   return {
     texts: est.texts, tokens: est.tokens, balance: st.balance,
-    active: st.status === 'active', enough: st.status === 'active' && st.balance >= est.tokens,
+    active: st.status === 'active', enough: st.status === 'active' && (st.house || st.balance >= est.tokens), house: st.house,
     aiEnabled: aiEnabled(),
   };
 }
@@ -163,7 +163,7 @@ translationsRouter.get('/', asyncHandler(async (req, res) => {
       running: list.filter((t) => t.status === 'running').length,
       tokens: list.reduce((a, t) => a + t.charged, 0),
     },
-    balance: st.balance, active: st.status === 'active', aiEnabled: aiEnabled(),
+    balance: st.balance, house: st.house, active: st.status === 'active', aiEnabled: aiEnabled(),
     languages: TRANSLATE_LANGS.map((code) => ({ code, label: LANGUAGE_LABEL[code] })),
   });
 }));

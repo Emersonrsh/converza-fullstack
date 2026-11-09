@@ -6,13 +6,35 @@ function required(name: string, fallback?: string): string {
   return v;
 }
 
+/** Segredos de exemplo (do .env.example e do código): em produção, não servem. */
+const WEAK_SECRETS = new Set(['dev-secret-change-me', 'troque-isto-por-um-segredo-forte', 'secret', 'changeme', 'converza']);
+
+/**
+ * Chave que assina os logins. Em produção a API não sobe sem uma chave forte: com a chave padrão (que está no
+ * código), qualquer pessoa conseguiria criar um login falso e entrar em qualquer conta.
+ */
+function jwtSecret(): string {
+  const v = process.env.JWT_SECRET?.trim();
+  if (process.env.NODE_ENV === 'production' && (!v || WEAK_SECRETS.has(v) || v.length < 24)) {
+    throw new Error('JWT_SECRET ausente ou fraco. No Render, abra converza-api › Environment e crie a variável JWT_SECRET '
+      + 'com pelo menos 32 letras e números aleatórios. Ao trocar, todo mundo precisa entrar de novo.');
+  }
+  return v || 'dev-secret-change-me';
+}
+
+const list = (raw: string | undefined) => (raw ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+const num = (raw: string | undefined, def: number, min: number, max: number) => {
+  const n = Number(raw);
+  return Number.isFinite(n) && raw !== undefined && raw !== '' ? Math.min(max, Math.max(min, n)) : def;
+};
+
 export const config = {
   port: Number(process.env.PORT ?? 4000),
   env: process.env.NODE_ENV ?? 'development',
   appOrigin: process.env.APP_ORIGIN ?? 'http://localhost:5173',
   databaseUrl: required('DATABASE_URL', 'postgres://converza:converza@localhost:5432/converza'),
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
-  jwtSecret: required('JWT_SECRET', 'dev-secret-change-me'),
+  jwtSecret: jwtSecret(),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '30d',
   whatsapp: {
     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? 'converza-verify',
@@ -69,7 +91,37 @@ export const config = {
     from: process.env.EMAIL_FROM ?? '',
   },
   // equipe de suporte do Converza: e-mails (com conta no app) que podem entrar numa empresa quando ela libera o acesso
-  supportEmails: (process.env.SUPPORT_EMAILS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
+  supportEmails: list(process.env.SUPPORT_EMAILS),
+  // conta da casa: empresas cujo dono tem um destes e-mails usam tudo sem pagar (e sem descontar tokens de IA)
+  house: {
+    emails: list(process.env.HOUSE_EMAILS),
+    instances: num(process.env.HOUSE_INSTANCES, 10, 1, 500),
+  },
+  // dados da empresa nas páginas públicas de Termos de Uso, Privacidade e Exclusão de dados
+  legal: {
+    tradeName: process.env.LEGAL_TRADE_NAME?.trim() || 'Converza',
+    companyName: process.env.LEGAL_COMPANY_NAME?.trim() ?? '',
+    cnpj: process.env.LEGAL_CNPJ?.trim() ?? '',
+    address: process.env.LEGAL_ADDRESS?.trim() ?? '',
+    email: process.env.LEGAL_EMAIL?.trim() ?? '',
+    dpoName: process.env.LEGAL_DPO_NAME?.trim() ?? '',
+    dpoEmail: process.env.LEGAL_DPO_EMAIL?.trim() ?? '',
+    city: process.env.LEGAL_CITY?.trim() ?? '',
+  },
+  // WhatsApp por QR Code (API não oficial: sessão do WhatsApp Web dentro da API)
+  waWeb: {
+    enabled: process.env.WA_WEB_ENABLED !== 'false',
+    // baileys = WhatsApp de verdade | mock = simulador para testes (nunca em produção)
+    driver: process.env.WA_WEB_DRIVER === 'mock' && process.env.NODE_ENV !== 'production' ? 'mock' as const : 'baileys' as const,
+    // disparos em massa por QR Code: intervalo aleatório entre contatos (segundos) e limite diário por número
+    dispatchMinGapSec: num(process.env.WA_WEB_DISPATCH_MIN_GAP, 15, 3, 600),
+    dispatchMaxGapSec: num(process.env.WA_WEB_DISPATCH_MAX_GAP, 45, 5, 900),
+    dailyLimit: num(process.env.WA_WEB_DAILY_LIMIT, 250, 1, 5000),
+    // arquivos recebidos maiores que isso não são baixados (ficam guardados no banco por 31 dias)
+    mediaMaxMb: num(process.env.WA_WEB_MEDIA_MAX_MB, 16, 1, 100),
+    // nome que aparece em "Aparelhos conectados" no celular
+    deviceName: (process.env.WA_WEB_DEVICE_NAME ?? process.env.LEGAL_TRADE_NAME ?? 'Converza').trim().slice(0, 30) || 'Converza',
+  },
   // API de Eventos do TikTok (pixel)
   tiktok: {
     apiBase: (process.env.TIKTOK_API_BASE ?? 'https://business-api.tiktok.com').replace(/\/+$/, ''),

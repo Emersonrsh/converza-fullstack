@@ -89,7 +89,8 @@ whatsappWebhookRouter.post('/', asyncHandler(async (req, res) => {
   }
 }));
 
-async function processWebhook(payload: any) {
+/** Também recebe o que chega pelas conexões de QR Code (já convertido para o formato da Cloud API). */
+export async function processWebhook(payload: any) {
   const entries = payload?.entry ?? [];
   for (const entry of entries) {
     for (const change of entry.changes ?? []) {

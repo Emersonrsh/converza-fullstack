@@ -8,6 +8,7 @@ import { db, schema } from '../db';
 import { config } from '../config';
 import { asyncHandler } from '../utils/http';
 import * as gw from './gateways';
+import { syncHouseAccounts } from './house';
 import {
   billingSweep, createInvoice, describeInstances, failedEvents, invoiceByPayment, markInvoiceCanceled, markInvoiceOverdue, markInvoicePaid,
   markInvoiceRefunded, patchSub, plural, recordPartialRefund, subByGatewayId, updateInvoice, upsertInvoiceByPayment, type InvoiceMeta,
@@ -72,6 +73,8 @@ export async function retryFailedEvents() {
 export function startBillingJobs() {
   const run = async () => {
     try {
+      // conta da casa primeiro (HOUSE_EMAILS): renova o mês e libera as empresas novas do operador
+      await syncHouseAccounts();
       await billingSweep();
       await retryFailedEvents();
     } catch (err) {

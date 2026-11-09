@@ -13,6 +13,8 @@ export function publicConnection(c: ConnRow) {
     coexistence: c.coexistence, webhookSubscribed: c.webhookSubscribed, lastCheckedAt: c.lastCheckedAt, lastError: c.lastError,
     lastInboundAt: c.lastInboundAt, syncRequestedAt: c.syncRequestedAt, historyProgress: c.historyProgress, createdAt: c.createdAt, onboardedAt: c.onboardedAt,
     hasToken: !!c.accessToken, hasAppSecret: !!c.appSecret, hasPin: !!c.pin,
+    /** cloud = API oficial da Meta | web = QR Code (API não oficial) */
+    provider: c.provider, webState: c.webState,
     warnings: warningsOf(c),
     labels: {
       quality: c.qualityRating ? QUALITY_LABEL[c.qualityRating] ?? c.qualityRating : null,

@@ -148,6 +148,20 @@
       "when": 1794032942474,
       "tag": "0020_flow_blocks",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794033542474,
+      "tag": "0021_house_qr",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1794034142474,
+      "tag": "0022_access_logs",
+      "breakpoints": true
     }
   ]
 }

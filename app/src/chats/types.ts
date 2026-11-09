@@ -40,7 +40,7 @@ export interface ChatContact {
 export interface ChatDetail {
   conversation: { id: string; status: 'open' | 'pending' | 'resolved'; botPaused: boolean; assignedUserId: string | null; connectionId: string | null; contactId: string; unreadCount: number; departmentId?: string | null };
   contact: ChatContact;
-  connection: { id: string; name: string; displayPhone: string | null; status: string; hasWaba: boolean } | null;
+  connection: { id: string; name: string; displayPhone: string | null; status: string; hasWaba: boolean; provider?: 'cloud' | 'web' } | null;
   assignedName: string | null;
   lastInboundAt: string | null;
   windowOpen: boolean;

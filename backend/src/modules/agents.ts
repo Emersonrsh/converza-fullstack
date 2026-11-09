@@ -233,7 +233,7 @@ agentsRouter.get('/', asyncHandler(async (req, res) => {
   const accountId = req.accountId!;
   const list = await db.select().from(schema.agents).where(eq(schema.agents.accountId, accountId)).orderBy(asc(schema.agents.createdAt));
   const [agents, limit, tokens] = await Promise.all([present(accountId, list), limitInfo(accountId), getTokenState(accountId)]);
-  res.json({ agents, limit, aiEnabled: aiEnabled(), voiceEnabled: voiceEnabled(), balance: tokens.balance });
+  res.json({ agents, limit, aiEnabled: aiEnabled(), voiceEnabled: voiceEnabled(), balance: tokens.balance, house: tokens.house });
 }));
 
 /** Tudo o que o editor precisa escolher: fluxos, conexões, vozes aceitas, etiquetas e modelos. */
@@ -253,7 +253,7 @@ agentsRouter.get('/options', asyncHandler(async (req, res) => {
   ]);
   res.json({
     flows, connections, voices, tags, departments, models: models(), defaultModel: config.ai.defaultModel,
-    aiEnabled: aiEnabled(), voiceEnabled: voiceEnabled(), balance: tokens.balance,
+    aiEnabled: aiEnabled(), voiceEnabled: voiceEnabled(), balance: tokens.balance, house: tokens.house,
     voiceCost: { perChar: config.voice.tokensPerChar, perMinute: config.voice.tokensPerMinute },
     languages: Object.entries(LANGS).map(([id, l]) => ({ id, label: l.label })),
   });

@@ -36,7 +36,7 @@ const TITLES: Record<string, [string, string]> = {
   '/contacts': ['Contatos', 'Sua base de leads e clientes'],
   '/flows': ['Fluxos', 'Automações de conversa'],
   '/agents': ['Agentes de IA', 'Atendentes no WhatsApp que tiram dúvidas e disparam o fluxo'],
-  '/connections': ['Conexões', 'Seus números de WhatsApp na API oficial da Meta'],
+  '/connections': ['Conexões', 'Seus números de WhatsApp: API oficial da Meta ou QR Code'],
   '/webhooks': ['Webhooks de entrada', 'Gerencie múltiplos webhooks, cada um com sua conexão e mapeamento'],
   '/dispatch': ['Disparos em massa', 'Envie um fluxo para muitos contatos de uma vez, com cota por ciclo da assinatura'],
   '/meta': ['Facebook', 'Meta Ads, pixel e perfis conectados'],
@@ -67,8 +67,9 @@ export function Layout() {
   }, [theme]);
 
   const [tokens, setTokens] = useState<number | null>(null);
+  const [house, setHouse] = useState(false);
   useEffect(() => {
-    api.get<{ balance: number }>('/billing/tokens').then((r) => setTokens(r.balance)).catch(() => setTokens(0));
+    api.get<{ balance: number; house?: boolean }>('/billing/tokens').then((r) => { setTokens(r.balance); setHouse(!!r.house); }).catch(() => setTokens(0));
   }, [loc.pathname, accountId]);
 
   useEffect(() => {
@@ -123,7 +124,7 @@ export function Layout() {
         <div className="sidefoot">
           <div className="tokens">
             <Icon name="bolt" size={18} />
-            <div><div className="n">{tokens === null ? '—' : num(tokens)}</div><small>tokens de IA</small></div>
+            <div><div className="n" data-testid="side-tokens">{house ? '∞' : tokens === null ? '—' : num(tokens)}</div><small>{house ? 'tokens de IA · conta da casa' : 'tokens de IA'}</small></div>
           </div>
           <button className="navitem" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} style={{ marginTop: 6 }}>
             <Icon name={theme === 'dark' ? 'sun' : 'moon'} /><span>{theme === 'dark' ? 'Tema claro' : 'Tema escuro'}</span>

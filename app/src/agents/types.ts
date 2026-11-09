@@ -49,7 +49,7 @@ export interface Agent extends AgentDraft {
 
 export interface AgentLimit { used: number; max: number | null; instances: number; scheduledInstances: number | null; active: boolean; perConnection: number }
 
-export interface AgentListResp { agents: Agent[]; limit: AgentLimit; aiEnabled: boolean; voiceEnabled: boolean; balance: number }
+export interface AgentListResp { agents: Agent[]; limit: AgentLimit; aiEnabled: boolean; voiceEnabled: boolean; balance: number; house?: boolean }
 
 export interface AgentOptions {
   flows: { id: string; name: string; status: string }[];

@@ -224,7 +224,7 @@ export function Inbox() {
         if (p.message.direction === 'in') {
           const at = p.message.createdAt;
           setDetail((d) => (d && d.conversation.id === p.conversationId ? {
-            ...d, lastInboundAt: at, windowOpen: true, windowClosesAt: new Date(Date.parse(at) + 864e5).toISOString(),
+            ...d, lastInboundAt: at, windowOpen: true, windowClosesAt: d.connection?.provider === 'web' ? null : new Date(Date.parse(at) + 864e5).toISOString(),
             conversation: { ...d.conversation, unreadCount: d.conversation.unreadCount + 1 },
           } : d));
           if (document.visibilityState === 'visible') {

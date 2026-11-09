@@ -75,12 +75,16 @@ export interface WarnInput {
   coexistence: boolean; syncRequestedAt: Date | string | null; historyProgress: number | null; lastInboundAt: Date | string | null;
   /** quando foi conectado (ou reconectado pela Meta) */
   onboardedAt: Date | string;
+  /** cloud = API oficial | web = QR Code */
+  provider?: string;
 }
 
 /** Avisos para mostrar no card/detalhe da conexão. */
 export function warningsOf(c: WarnInput, now = Date.now()): string[] {
   const w: string[] = [];
   if (c.status !== 'connected') return w; // o erro principal já aparece
+  // QR Code: não há qualidade, nome em análise nem webhook da Meta — o risco de banimento aparece na tela
+  if (c.provider === 'web') return w;
   if (c.qualityRating === 'RED') w.push('Qualidade baixa: muitos clientes bloquearam ou denunciaram. Reduza envios em massa para não perder o número.');
   else if (c.qualityRating === 'YELLOW') w.push('Qualidade média: atenção às denúncias e bloqueios dos clientes.');
   if (c.nameStatus === 'DECLINED') w.push('O nome de exibição foi recusado pela Meta — ajuste no Gerenciador do WhatsApp.');

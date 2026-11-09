@@ -1,5 +1,7 @@
 export type ConnStatus = 'connected' | 'disconnected' | 'pending';
-export type ConnSource = 'manual' | 'embedded' | 'coexistence';
+export type ConnSource = 'manual' | 'embedded' | 'coexistence' | 'web';
+/** QR Code: estado da sessão do WhatsApp Web */
+export type WebState = 'starting' | 'qr' | 'connecting' | 'open' | 'closed' | 'logged_out' | 'qr_expired' | 'replaced';
 
 export interface ConnectionFull {
   id: string; name: string; displayPhone: string | null; phoneNumberId: string | null; wabaId: string | null;
@@ -8,6 +10,8 @@ export interface ConnectionFull {
   coexistence: boolean; webhookSubscribed: boolean | null; lastCheckedAt: string | null; lastError: string | null;
   lastInboundAt: string | null; syncRequestedAt: string | null; historyProgress: number | null; createdAt: string; onboardedAt: string;
   hasToken: boolean; hasAppSecret: boolean; hasPin: boolean;
+  /** cloud = API oficial da Meta | web = QR Code (API não oficial) */
+  provider: 'cloud' | 'web'; webState: WebState | null;
   warnings: string[];
   labels: { quality: string | null; limit: string | null; name: string | null };
   conversations?: number;
@@ -18,13 +22,30 @@ export interface ConnPlan { active: boolean; status: string; instances: number; 
 export interface SignupConfig { configured: boolean; appId: string; configId: string; graphVersion: string }
 export interface WebhookInfo { url: string; verifyToken: string; signatureCheck: boolean }
 
+export interface QrCodeInfo {
+  enabled: boolean; simulator: boolean;
+  dispatch: { minGapSec: number; maxGapSec: number; dailyLimit: number };
+}
+
 export interface ConnListResp {
   connections: ConnectionFull[];
   counts: { connected: number; disconnected: number };
   plan: ConnPlan;
   signup: SignupConfig;
   webhook: WebhookInfo | null;
+  qrCode?: QrCodeInfo;
 }
+
+/** GET /connections/:id/web */
+export interface WebStatusResp {
+  connection: ConnectionFull;
+  running: boolean; qr: string | null; pairingCode: string | null; qrState: WebState | null; attempt: number; maxAttempts: number;
+}
+
+export const WEB_STATE_LABEL: Record<WebState, string> = {
+  starting: 'Preparando…', qr: 'Esperando a leitura do QR Code', connecting: 'Conectando…', open: 'Conectado',
+  closed: 'Sem conexão com o WhatsApp', logged_out: 'Desconectado', qr_expired: 'QR Code expirado', replaced: 'Aberto em outro lugar',
+};
 
 export interface ConnDetailResp {
   connection: ConnectionFull;
@@ -38,7 +59,7 @@ export interface BusinessProfile {
 
 export const STATUS_LABEL: Record<ConnStatus, string> = { connected: 'Conectada', disconnected: 'Desconectada', pending: 'Aguardando' };
 export const STATUS_TONE: Record<ConnStatus, string> = { connected: 'green', disconnected: 'red', pending: 'amber' };
-export const SOURCE_LABEL: Record<ConnSource, string> = { manual: 'Manual', embedded: 'Meta em 1 clique', coexistence: 'WhatsApp Business do celular' };
+export const SOURCE_LABEL: Record<ConnSource, string> = { manual: 'Manual', embedded: 'Meta em 1 clique', coexistence: 'WhatsApp Business do celular', web: 'QR Code' };
 export const QUALITY_TONE: Record<string, string> = { GREEN: 'green', YELLOW: 'amber', RED: 'red' };
 export const VERTICAL_LABEL: Record<string, string> = {
   UNDEFINED: 'Não definido', OTHER: 'Outro', AUTO: 'Automotivo', BEAUTY: 'Beleza, estética e cuidados pessoais', APPAREL: 'Roupas e acessórios',

@@ -215,7 +215,7 @@ conversationsRouter.get('/:id', asyncHandler(async (req, res) => {
   const [[contact], [conn], [last]] = await Promise.all([
     db.select().from(schema.contacts).where(eq(schema.contacts.id, conv.contactId)).limit(1),
     conv.connectionId
-      ? db.select({ id: schema.connections.id, name: schema.connections.name, displayPhone: schema.connections.displayPhone, status: schema.connections.status, wabaId: schema.connections.wabaId })
+      ? db.select({ id: schema.connections.id, name: schema.connections.name, displayPhone: schema.connections.displayPhone, status: schema.connections.status, wabaId: schema.connections.wabaId, provider: schema.connections.provider })
         .from(schema.connections).where(eq(schema.connections.id, conv.connectionId)).limit(1)
       : Promise.resolve([]),
     rows<{ at: Date | null }>(sql`select max(created_at) as at from messages where conversation_id = ${conv.id} and direction = 'in'`),
@@ -224,15 +224,16 @@ conversationsRouter.get('/:id', asyncHandler(async (req, res) => {
   res.json({
     conversation: conv,
     contact,
-    connection: conn ? { id: conn.id, name: conn.name, displayPhone: conn.displayPhone, status: conn.status, hasWaba: !!conn.wabaId } : null,
+    connection: conn ? { id: conn.id, name: conn.name, displayPhone: conn.displayPhone, status: conn.status, hasWaba: !!conn.wabaId, provider: conn.provider } : null,
     assignedName: conv.assignedUserId ? await userName(conv.assignedUserId) : null,
     department: conv.departmentId
       ? (await db.select({ id: schema.departments.id, name: schema.departments.name, color: schema.departments.color }).from(schema.departments)
         .where(eq(schema.departments.id, conv.departmentId)).limit(1))[0] ?? null
       : null,
     lastInboundAt,
-    windowOpen: !!lastInboundAt && Date.now() - lastInboundAt.getTime() < WINDOW_MS,
-    windowClosesAt: lastInboundAt ? new Date(lastInboundAt.getTime() + WINDOW_MS) : null,
+    // QR Code (WhatsApp Web) não tem a regra das 24h da Cloud API: dá para escrever a qualquer momento
+    windowOpen: conn?.provider === 'web' || (!!lastInboundAt && Date.now() - lastInboundAt.getTime() < WINDOW_MS),
+    windowClosesAt: conn?.provider === 'web' ? null : lastInboundAt ? new Date(lastInboundAt.getTime() + WINDOW_MS) : null,
   });
 }));
 
@@ -313,7 +314,14 @@ async function recipientOf(conv: Conv) {
   return contact.waId ?? contact.phone.replace(/\D/g, '');
 }
 
+async function isWebConversation(conv: Conv) {
+  if (!conv.connectionId) return false;
+  const [c] = await db.select({ provider: schema.connections.provider }).from(schema.connections).where(eq(schema.connections.id, conv.connectionId)).limit(1);
+  return c?.provider === 'web';
+}
+
 async function windowOpen(conv: Conv) {
+  if (await isWebConversation(conv)) return true; // QR Code: sem janela de 24h
   const [r] = await rows<{ at: Date | null }>(sql`select max(created_at) as at from messages where conversation_id = ${conv.id} and direction = 'in'`);
   return !!r?.at && Date.now() - new Date(r.at).getTime() < WINDOW_MS;
 }
@@ -500,6 +508,15 @@ conversationsRouter.post('/:id/template', asyncHandler(async (req, res) => {
     header: d.header, buttons: d.buttons,
   };
   let conv = await ownConversation(req.accountId!, req.params.id);
+  // QR Code não tem modelos da Meta: o texto do modelo (já com as variáveis) vai como mensagem normal
+  if (await isWebConversation(conv)) {
+    const text = (d.preview ?? '').trim();
+    if (!text) throw new AppError(422, 'Modelos de mensagem são da API oficial da Meta. Nesta conversa (QR Code), escreva a mensagem normalmente.');
+    conv = await autoAssign(req.accountId!, conv, req.user!.id);
+    const message = await deliver(req, conv, { type: 'text', body: text }, (c, to) => sendText(c, to, text));
+    res.status(201).json({ message });
+    return;
+  }
   conv = await autoAssign(req.accountId!, conv, req.user!.id);
   const media = d.header && d.header.type !== 'text' ? d.header : null;
   const message = await deliver(req, conv, {

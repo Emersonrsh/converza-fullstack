@@ -8,7 +8,7 @@
  */
 import { randomBytes } from 'crypto';
 import {
-  STAGE_LABEL, MAX_WAIT_SECONDS, carouselReplyButtons, durationSeconds, templateReplyButtons, templateWaits,
+  STAGE_LABEL, MAX_WAIT_SECONDS, carouselReplyButtons, carouselVisibleReplies, numberReply, durationSeconds, templateReplyButtons, templateWaits,
   type Dict, type FlowEdge, type FlowGraph, type FlowNode, type MenuOption,
 } from './types';
 import { META_KEY_TYPE, normalizePixKey, parseMoney, pixCode, type PixKeyType } from './pix';
@@ -1094,7 +1094,10 @@ export async function resumeInput(
     const btns = carouselReplyButtons(d);
     const byId = state.lastReplyId ? btns.find((b) => b.id === state.lastReplyId) : undefined;
     const byTitle = btns.filter((b) => norm(b.title) && norm(b.title) === norm(state.lastMessage));
-    const chosen = byId ?? (byTitle.length === 1 ? byTitle[0] : undefined);
+    // pelo QR Code os botões chegam como opções numeradas: "2" = 2º botão que o cliente viu
+    const n = !state.lastReplyId ? numberReply(state.lastMessage) : null;
+    const byNumber = n ? carouselVisibleReplies(d)[n - 1] : undefined;
+    const chosen = byId ?? (byTitle.length === 1 ? byTitle[0] : undefined) ?? byNumber;
     if (chosen) {
       state.vars.opcao = chosen.title;
       exec.note(`Botão do carrossel → ${chosen.title}`);
@@ -1114,8 +1117,9 @@ export async function resumeInput(
     const btns = templateReplyButtons(d);
     const t = norm(state.lastMessage);
     const r = norm(state.lastReplyId);
-    const chosen = btns.find((b) => norm(b.title) && (norm(b.title) === t || norm(b.title) === r));
-    state.vars.resposta_template = state.lastMessage;
+    const n = !state.lastReplyId ? numberReply(state.lastMessage) : null;
+    const chosen = btns.find((b) => norm(b.title) && (norm(b.title) === t || norm(b.title) === r)) ?? (n ? btns[n - 1] : undefined);
+    state.vars.resposta_template = chosen && n && norm(chosen.title) !== t ? chosen.title : state.lastMessage;
     state.waitToken = null;
     if (chosen && edgeFrom(graph, node.id, chosen.id)) {
       exec.note(`Botão do template → ${chosen.title}`);

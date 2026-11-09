@@ -17,5 +17,7 @@ RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/drizzle ./drizzle
 EXPOSE 4000
-# Aplica as migrations e sobe a API (o worker de disparo roda no mesmo processo)
-CMD ["sh", "-c", "node dist/db/migrate.js && node dist/index.js"]
+# Aplica as migrations e sobe a API (o worker de disparo roda no mesmo processo).
+# `exec`: o Node vira o processo principal e recebe o SIGTERM do deploy — assim ele fecha as sessões do
+# WhatsApp por QR Code com calma e a versão nova assume na hora (sem isso, o sh engolia o sinal).
+CMD ["sh", "-c", "node dist/db/migrate.js && exec node dist/index.js"]

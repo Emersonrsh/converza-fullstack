@@ -8,9 +8,10 @@ import { Modal, Spinner, TopbarActions, cx, toast } from '../components/ui';
 import { SubscriptionAlert } from '../components/SubscriptionAlert';
 import { NewConnectionModal } from '../connections/NewConnectionModal';
 import { ConnectionDrawer, DeleteConnectionModal } from '../connections/ConnectionDrawer';
-import { QUALITY_TONE, SOURCE_LABEL, STATUS_LABEL, STATUS_TONE, type ConnListResp, type ConnPlan, type ConnStatus, type ConnectionFull } from '../connections/types';
+import { QrConnectModal } from '../connections/QrConnect';
+import { QUALITY_TONE, SOURCE_LABEL, STATUS_LABEL, STATUS_TONE, WEB_STATE_LABEL, type ConnListResp, type ConnPlan, type ConnStatus, type ConnectionFull } from '../connections/types';
 
-const SOURCE_ICON: Record<string, string> = { manual: 'gear', embedded: 'bolt', coexistence: 'phone' };
+const SOURCE_ICON: Record<string, string> = { manual: 'gear', embedded: 'bolt', coexistence: 'phone', web: 'qr' };
 
 const ago = (iso: string | null) => {
   if (!iso) return 'nunca';
@@ -24,7 +25,7 @@ const ago = (iso: string | null) => {
 const digits = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '');
 
 type Gate = 'no_plan' | 'connection_limit';
-type ModalState = null | 'new' | { gate: Gate } | { rename: ConnectionFull } | { del: ConnectionFull };
+type ModalState = null | 'new' | { gate: Gate } | { rename: ConnectionFull } | { del: ConnectionFull } | { qr: ConnectionFull };
 
 function PlanGateModal({ gate, plan, onClose }: { gate: Gate; plan: ConnPlan; onClose: () => void }) {
   const nav = useNavigate();
@@ -66,10 +67,12 @@ function RenameModal({ c, onClose, onDone }: { c: ConnectionFull; onClose: () =>
   );
 }
 
-function ConnCard({ c, canEdit, checking, menuOpen, onCheck, onOpen, onMenu, onRename, onDelete }: {
+function ConnCard({ c, canEdit, checking, menuOpen, onCheck, onOpen, onMenu, onRename, onDelete, onQr }: {
   c: ConnectionFull; canEdit: boolean; checking: boolean; menuOpen: boolean;
-  onCheck: () => void; onOpen: () => void; onMenu: () => void; onRename: () => void; onDelete: () => void;
+  onCheck: () => void; onOpen: () => void; onMenu: () => void; onRename: () => void; onDelete: () => void; onQr: () => void;
 }) {
+  const web = c.provider === 'web';
+  const webDown = web && c.webState !== 'open' && c.webState !== 'connecting';
   const warn = c.lastError ?? c.warnings[0] ?? null;
   const more = c.warnings.length - (c.lastError ? 0 : 1);
   return (
@@ -78,12 +81,14 @@ function ConnCard({ c, canEdit, checking, menuOpen, onCheck, onOpen, onMenu, onR
         <span className={cx('cn-ic', c.status)}><Icon name="phone" size={19} /></span>
         <button type="button" className="cn-card-who" onClick={onOpen}>
           <b>{c.name}</b>
-          <span>{c.displayPhone ?? c.phoneNumberId ?? 'sem número'}{c.verifiedName ? ` · ${c.verifiedName}` : ''}</span>
+          <span>{c.displayPhone ?? (web ? 'o número aparece depois de ler o QR Code' : c.phoneNumberId ?? 'sem número')}{c.verifiedName ? ` · ${c.verifiedName}` : ''}</span>
         </button>
         <span className={cx('pill dot', STATUS_TONE[c.status])} data-testid="conn-status">{STATUS_LABEL[c.status]}</span>
       </div>
       <div className="ag-chips">
         <span className="ag-chip" title="Como foi conectada"><Icon name={SOURCE_ICON[c.source] ?? 'plug'} size={12} />{SOURCE_LABEL[c.source] ?? c.source}</span>
+        {web && <span className="ag-chip q-amber" title="Conexão pelo WhatsApp Web: não é autorizada pela Meta e o número pode ser banido" data-testid="conn-unofficial">API não oficial</span>}
+        {web && c.webState && c.webState !== 'open' && <span className="ag-chip" data-testid="conn-web-state">{WEB_STATE_LABEL[c.webState]}</span>}
         {c.labels.quality && <span className={cx('ag-chip', `q-${QUALITY_TONE[c.qualityRating ?? ''] ?? 'none'}`)} title="Qualidade do número na Meta" data-testid="conn-quality">Qualidade {c.labels.quality.toLowerCase()}</span>}
         {c.labels.limit && <span className="ag-chip" title="Conversas iniciadas por você por dia">{c.labels.limit}</span>}
       </div>
@@ -96,10 +101,13 @@ function ConnCard({ c, canEdit, checking, menuOpen, onCheck, onOpen, onMenu, onR
       <div className="cn-meta">
         <div><b>{(c.conversations ?? 0).toLocaleString('pt-BR')}</b><span>conversas</span></div>
         <div><b>{ago(c.lastInboundAt)}</b><span>última mensagem</span></div>
-        <div><b>{ago(c.lastCheckedAt)}</b><span>verificada</span></div>
+        <div><b>{web ? (c.webState === 'open' ? 'ao vivo' : '—') : ago(c.lastCheckedAt)}</b><span>{web ? 'sessão' : 'verificada'}</span></div>
       </div>
       <div className="ag-card-foot">
-        <button type="button" className="btn sm ghost" disabled={checking} onClick={onCheck} data-testid="conn-check"><Icon name="refresh" size={13} />{checking ? 'Verificando…' : 'Verificar'}</button>
+        {web ? (canEdit && webDown
+          ? <button type="button" className="btn sm primary" onClick={onQr} data-testid="conn-qr"><Icon name="qr" size={13} />Ler QR Code</button>
+          : <span className="faint" style={{ fontSize: 12 }}>{c.webState === 'connecting' ? 'Religando sozinho…' : 'Conectado pelo QR Code'}</span>)
+          : <button type="button" className="btn sm ghost" disabled={checking} onClick={onCheck} data-testid="conn-check"><Icon name="refresh" size={13} />{checking ? 'Verificando…' : 'Verificar'}</button>}
         <span className="spacer" />
         <button type="button" className="btn sm" onClick={onOpen} data-testid="conn-open"><Icon name="gear" size={14} />Detalhes</button>
         {canEdit && (
@@ -263,23 +271,27 @@ export function Connections() {
           {shown.map((c) => (
             <ConnCard key={c.id} c={c} canEdit={canEdit} checking={checking.has(c.id)} menuOpen={menu === c.id}
               onCheck={() => void check(c)} onOpen={() => setOpen(c.id)} onMenu={() => setMenu(menu === c.id ? null : c.id)}
-              onRename={() => { setMenu(null); setModal({ rename: c }); }} onDelete={() => { setMenu(null); setModal({ del: c }); }} />
+              onRename={() => { setMenu(null); setModal({ rename: c }); }} onDelete={() => { setMenu(null); setModal({ del: c }); }}
+              onQr={() => setModal({ qr: c })} />
           ))}
         </div>
       )}
 
       {modal === 'new' && (
-        <NewConnectionModal signup={data.signup} webhook={data.webhook} onClose={() => setModal(null)} onDone={(c, msg) => {
+        <NewConnectionModal signup={data.signup} webhook={data.webhook} qrCode={data.qrCode} onClose={() => setModal(null)} onDone={(c, msg) => {
           setModal(null); merge(c); toast(msg ?? 'Conexão adicionada');
           if (c.lastError || c.warnings.length) setOpen(c.id);
-        }} />
+        }} onQr={(c) => { merge(c); setModal({ qr: c }); }} />
+      )}
+      {modal && typeof modal === 'object' && 'qr' in modal && (
+        <QrConnectModal connection={modal.qr} onClose={() => setModal(null)} onConnected={(c) => { merge(c); toast(`${c.name}: WhatsApp conectado ✓`); }} />
       )}
       {modal && typeof modal === 'object' && 'gate' in modal && <PlanGateModal gate={modal.gate} plan={plan} onClose={() => setModal(null)} />}
       {modal && typeof modal === 'object' && 'rename' in modal && <RenameModal c={modal.rename} onClose={() => setModal(null)} onDone={(c) => { merge(c); setModal(null); }} />}
       {modal && typeof modal === 'object' && 'del' in modal && <DeleteConnectionModal c={modal.del} onClose={() => setModal(null)} onDeleted={() => { drop(modal.del.id); setModal(null); }} />}
       {open && (
-        <ConnectionDrawer id={open} live={list.find((x) => x.id === open)} canEdit={canEdit} webhook={data.webhook} signup={data.signup} onClose={() => setOpen(null)} onChanged={merge}
-          onDeleted={() => { drop(open); setOpen(null); }} />
+        <ConnectionDrawer id={open} live={list.find((x) => x.id === open)} canEdit={canEdit} webhook={data.webhook} signup={data.signup} qrCode={data.qrCode} onClose={() => setOpen(null)} onChanged={merge}
+          onDeleted={() => { drop(open); setOpen(null); }} onQr={(c) => setModal({ qr: c })} />
       )}
     </div>
   );

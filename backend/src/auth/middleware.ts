@@ -4,6 +4,7 @@ import { db, schema } from '../db';
 import { config } from '../config';
 import { verifyToken } from './jwt';
 import { AppError } from '../utils/http';
+import { recordAccessLater } from './accessLog';
 
 export const isSupportEmail = (email: string | undefined | null) => !!email && config.supportEmails.includes(email.toLowerCase());
 
@@ -33,6 +34,7 @@ export function authRequired(req: Request, _res: Response, next: NextFunction) {
   try {
     const payload = verifyToken(header.slice(7));
     req.user = { id: payload.userId, email: payload.email };
+    recordAccessLater(req, req.user, 'session');
     next();
   } catch {
     throw new AppError(401, 'Token inválido ou expirado');

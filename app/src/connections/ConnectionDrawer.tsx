@@ -5,7 +5,11 @@ import { Icon } from '../icons';
 import { Spinner, cx, toast, useBackdrop } from '../components/ui';
 import { ConfirmModal } from '../kanban/modals';
 import { WebhookHelp, connectViaMeta } from './NewConnectionModal';
-import { QUALITY_TONE, SOURCE_LABEL, STATUS_LABEL, STATUS_TONE, VERTICAL_LABEL, type BusinessProfile, type ConnDetailResp, type ConnectionFull, type SignupConfig, type WebhookInfo } from './types';
+import { QrRiskNotice } from './QrConnect';
+import {
+  QUALITY_TONE, SOURCE_LABEL, STATUS_LABEL, STATUS_TONE, VERTICAL_LABEL, WEB_STATE_LABEL,
+  type BusinessProfile, type ConnDetailResp, type ConnectionFull, type QrCodeInfo, type SignupConfig, type WebhookInfo,
+} from './types';
 
 const ago = (iso: string | null) => {
   if (!iso) return 'nunca';
@@ -43,15 +47,17 @@ export function DeleteConnectionModal({ c, agents, onClose, onDeleted }: {
         onDeleted();
       } catch (e) { toast(e instanceof Error ? e.message : 'Erro'); }
     }}>
-      Excluir <b>{c.name}</b>? O número para de receber e enviar pelo Converza. As conversas e o histórico continuam no Chats ao vivo.{c.coexistence ? ' O app do celular continua funcionando normalmente.' : ''}
+      Excluir <b>{c.name}</b>? O número para de receber e enviar pelo Converza. As conversas e o histórico continuam no Chats ao vivo.{c.coexistence ? ' O app do celular continua funcionando normalmente.' : ''}{c.provider === 'web' ? ' O Converza também sai de “Aparelhos conectados” no celular.' : ''}
       {exclusive.length > 0 && <p style={{ margin: '10px 0 0' }} data-testid="delete-agents-note">{exclusive.length === 1 ? 'O agente' : 'Os agentes'} <b>{exclusive.map((a) => a.name).join(', ')}</b> {exclusive.length === 1 ? 'atende' : 'atendem'} só este número e {exclusive.length === 1 ? 'será pausado' : 'serão pausados'}.</p>}
     </ConfirmModal>
   );
 }
 
-export function ConnectionDrawer({ id, live, canEdit, webhook, signup, onClose, onChanged, onDeleted }: {
-  id: string; live?: ConnectionFull; canEdit: boolean; webhook: WebhookInfo | null; signup: SignupConfig;
-  onClose: () => void; onChanged: (c: ConnectionFull) => void; onDeleted: () => void;
+const WEB_TONE: Record<string, string> = { open: 'green', connecting: 'amber', qr: 'amber', starting: 'amber' };
+
+export function ConnectionDrawer({ id, live, canEdit, webhook, signup, qrCode, onClose, onChanged, onDeleted, onQr }: {
+  id: string; live?: ConnectionFull; canEdit: boolean; webhook: WebhookInfo | null; signup: SignupConfig; qrCode?: QrCodeInfo;
+  onClose: () => void; onChanged: (c: ConnectionFull) => void; onDeleted: () => void; onQr?: (c: ConnectionFull) => void;
 }) {
   const [d, setD] = useState<ConnDetailResp | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -64,6 +70,7 @@ export function ConnectionDrawer({ id, live, canEdit, webhook, signup, onClose, 
   const [profileErr, setProfileErr] = useState<string | null>(null);
   const [verticals, setVerticals] = useState<string[]>([]);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const bg = useBackdrop(onClose);
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.modal-bg')) onClose(); };
@@ -71,8 +78,11 @@ export function ConnectionDrawer({ id, live, canEdit, webhook, signup, onClose, 
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
-  const load = () => api.get<ConnDetailResp>(`/connections/${id}`).then((r) => { setD(r); setName(r.connection.name); setToken((t) => ({ ...t, wabaId: r.connection.wabaId ?? '' })); })
-    .catch((e) => setErr(e instanceof Error ? e.message : 'Erro'));
+  const load = () => api.get<ConnDetailResp>(`/connections/${id}`).then((r) => {
+    setD(r); setName(r.connection.name); setToken((t) => ({ ...t, wabaId: r.connection.wabaId ?? '' }));
+    // QR Code: não há perfil comercial na Meta (edita-se no próprio app)
+    if (r.connection.provider !== 'web') void loadProfile();
+  }).catch((e) => setErr(e instanceof Error ? e.message : 'Erro'));
   // tempo real (verificação, histórico do celular, desconexão): a versão da lista entra no detalhe
   useEffect(() => {
     if (live) setD((cur) => (cur && cur.connection.id === live.id ? { ...cur, connection: { ...cur.connection, ...live, pin: cur.connection.pin } } : cur));
@@ -82,7 +92,6 @@ export function ConnectionDrawer({ id, live, canEdit, webhook, signup, onClose, 
     .catch((e) => setProfileErr(e instanceof Error ? e.message : 'Não foi possível ler o perfil'));
   useEffect(() => {
     void load();
-    void loadProfile();
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function act(key: string, fn: () => Promise<{ connection: ConnectionFull }>, ok: string) {
@@ -97,7 +106,9 @@ export function ConnectionDrawer({ id, live, canEdit, webhook, signup, onClose, 
   }
 
   const c = d?.connection;
-  const canReconnect = canEdit && signup.configured && !!c && c.source !== 'manual';
+  const web = c?.provider === 'web';
+  const webLive = web && (c?.webState === 'open' || c?.webState === 'connecting');
+  const canReconnect = canEdit && signup.configured && !!c && c.source !== 'manual' && !web;
   /** Entrar de novo pela Meta (token caiu, desconectado pelo app…): atualiza esta mesma conexão. */
   async function reconnect() {
     if (!c) return;
@@ -118,7 +129,7 @@ export function ConnectionDrawer({ id, live, canEdit, webhook, signup, onClose, 
           <>
             <header className="cd-hd">
               <span className={cx('cn-ic', c.status)}><Icon name="phone" size={18} /></span>
-              <div className="cd-who"><b>{c.name}</b><span>{c.displayPhone ?? c.phoneNumberId}{c.verifiedName ? ` · ${c.verifiedName}` : ''}</span></div>
+              <div className="cd-who"><b>{c.name}</b><span>{c.displayPhone ?? (web ? 'QR Code ainda não lido' : c.phoneNumberId)}{c.verifiedName ? ` · ${c.verifiedName}` : ''}</span></div>
               <span className="spacer" />
               <span className={cx('pill dot', STATUS_TONE[c.status])} data-testid="drawer-status">{STATUS_LABEL[c.status]}</span>
               <button type="button" className="btn icon sm ghost" onClick={onClose} aria-label="Fechar"><Icon name="close" size={16} /></button>
@@ -129,11 +140,35 @@ export function ConnectionDrawer({ id, live, canEdit, webhook, signup, onClose, 
                   <Icon name="alert" size={14} />
                   <span style={{ flex: 1 }}>{c.lastError}</span>
                   {canReconnect && c.status === 'disconnected' && <button type="button" className="btn sm primary" disabled={busy === 'reconnect'} onClick={() => void reconnect()} data-testid="drawer-reconnect">{busy === 'reconnect' ? 'Conectando…' : 'Conectar de novo'}</button>}
+                  {web && canEdit && !webLive && onQr && <button type="button" className="btn sm primary" onClick={() => onQr(c)} data-testid="drawer-qr">Ler QR Code</button>}
                 </div>
               )}
               {c.warnings.map((w) => <div key={w} className="hint warn"><Icon name="info" size={14} />{w}</div>)}
 
-              <Sec title="Saúde do número" icon="checkCircle" right={<button type="button" className="btn sm" disabled={busy === 'check'} onClick={() => void act('check', () => api.post(`/connections/${id}/check`), 'Conexão verificada')} data-testid="drawer-check"><Icon name="refresh" size={13} />{busy === 'check' ? 'Verificando…' : 'Verificar agora'}</button>}>
+              {web && (
+                <Sec title="WhatsApp por QR Code" icon="qr">
+                  <Row k="Sessão" testId="drawer-web-state"><span className={cx('pill dot', WEB_TONE[c.webState ?? ''] ?? 'red')}>{c.webState ? WEB_STATE_LABEL[c.webState] : 'Não iniciada'}</span></Row>
+                  <Row k="Número">{c.displayPhone ?? <span className="faint">aparece depois de ler o QR</span>}</Row>
+                  <Row k="Nome no WhatsApp">{c.verifiedName ?? '—'}</Row>
+                  <Row k="Última mensagem recebida">{ago(c.lastInboundAt)}</Row>
+                  <Row k="Conectado em">{c.displayPhone ? new Date(c.onboardedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}</Row>
+                  {canEdit && (
+                    <div className="cn-web-actions">
+                      {!webLive && onQr && <button type="button" className="btn sm primary" onClick={() => onQr(c)} data-testid="drawer-web-qr"><Icon name="qr" size={14} />Ler QR Code</button>}
+                      {c.webState === 'connecting' && (
+                        <button type="button" className="btn sm" disabled={busy === 'web-start'} onClick={() => void act('web-start', () => api.post(`/connections/${id}/web/start`, {}), 'Religando a sessão…')} data-testid="drawer-web-restart">
+                          <Icon name="refresh" size={13} />{busy === 'web-start' ? 'Religando…' : 'Religar agora'}
+                        </button>
+                      )}
+                      {webLive && <button type="button" className="btn sm danger" onClick={() => setConfirmLogout(true)} data-testid="drawer-web-logout"><Icon name="logout" size={13} />Desconectar aparelho</button>}
+                    </div>
+                  )}
+                  <small className="faint">O Converza aparece em “Aparelhos conectados” no celular, como um WhatsApp Web. Se cair a internet ou o servidor reiniciar, ele religa sozinho — não precisa ler o QR de novo.</small>
+                  <QrRiskNotice qr={qrCode} />
+                </Sec>
+              )}
+
+              {!web && <Sec title="Saúde do número" icon="checkCircle" right={<button type="button" className="btn sm" disabled={busy === 'check'} onClick={() => void act('check', () => api.post(`/connections/${id}/check`), 'Conexão verificada')} data-testid="drawer-check"><Icon name="refresh" size={13} />{busy === 'check' ? 'Verificando…' : 'Verificar agora'}</button>}>
                 <Row k="Qualidade" testId="drawer-quality">{c.labels.quality ? <span className={cx('pill dot', QUALITY_TONE[c.qualityRating ?? ''] ?? '')}>{c.labels.quality}</span> : '—'}</Row>
                 <Row k="Limite para iniciar conversas">{c.labels.limit ?? '—'}</Row>
                 <Row k="Nome de exibição">{c.verifiedName ?? '—'}{c.labels.name ? <small className="faint"> · {c.labels.name}</small> : null}</Row>
@@ -145,7 +180,7 @@ export function ConnectionDrawer({ id, live, canEdit, webhook, signup, onClose, 
                 <Row k="Última verificação">{ago(c.lastCheckedAt)}</Row>
                 <Row k="Como foi conectada">{SOURCE_LABEL[c.source] ?? c.source}{c.coexistence && c.source !== 'coexistence' ? ' · usa o app do celular' : ''}</Row>
                 <Row k="IDs"><small className="faint">número {c.phoneNumberId ?? '—'} · WABA {c.wabaId ?? '—'}</small></Row>
-              </Sec>
+              </Sec>}
 
               {c.coexistence && (
                 <Sec title="WhatsApp Business do celular" icon="phone">
@@ -157,7 +192,7 @@ export function ConnectionDrawer({ id, live, canEdit, webhook, signup, onClose, 
                 </Sec>
               )}
 
-              {canEdit && !c.coexistence && (
+              {canEdit && !c.coexistence && !web && (
                 <Sec title="Registro do número" icon="lock">
                   <Row k="PIN de duas etapas">{c.pin ? <><code>{showPin ? c.pin : '••••••'}</code><button type="button" className="linkbtn" onClick={() => setShowPin((x) => !x)}>{showPin ? 'esconder' : 'mostrar'}</button></> : <span className="faint">não definido pelo Converza</span>}</Row>
                   <div className="cn-inline">
@@ -172,7 +207,11 @@ export function ConnectionDrawer({ id, live, canEdit, webhook, signup, onClose, 
                 </Sec>
               )}
 
-              <Sec title="Perfil do WhatsApp" icon="user">
+              {web ? (
+                <Sec title="Perfil do WhatsApp" icon="user">
+                  <small className="faint" data-testid="profile-web">Na conexão por QR Code, a foto, o recado e os dados da empresa são editados no próprio app do WhatsApp no celular.</small>
+                </Sec>
+              ) : <Sec title="Perfil do WhatsApp" icon="user">
                 {profileErr ? <small className="faint" data-testid="profile-error">{profileErr}</small> : !profile ? <Spinner /> : (
                   <fieldset className="cn-profile" disabled={!canEdit}>
                     {profile.profile_picture_url && <img src={profile.profile_picture_url} alt="" className="cn-photo" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
@@ -209,7 +248,7 @@ export function ConnectionDrawer({ id, live, canEdit, webhook, signup, onClose, 
                     <small className="faint">É o que os clientes veem ao tocar no nome da empresa no WhatsApp. A foto se troca pelo Gerenciador do WhatsApp.</small>
                   </fieldset>
                 )}
-              </Sec>
+              </Sec>}
 
               <Sec title="Uso nos últimos 30 dias" icon="trend">
                 <Row k="Conversas neste número">{d.stats.conversations.toLocaleString('pt-BR')}</Row>
@@ -224,7 +263,7 @@ export function ConnectionDrawer({ id, live, canEdit, webhook, signup, onClose, 
                     <input className="input" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} data-testid="drawer-name" />
                     <button type="button" className="btn sm" disabled={!name.trim() || name === c.name || busy === 'name'} onClick={() => void act('name', () => api.patch(`/connections/${id}`, { name }), 'Nome salvo')} data-testid="drawer-rename">Salvar</button>
                   </div>
-                  {c.source === 'manual' ? (
+                  {web ? null : c.source === 'manual' ? (
                     <>
                       <label className="label" style={{ marginTop: 10 }}>Trocar token de acesso</label>
                       <div className="cn-inline">
@@ -263,6 +302,19 @@ export function ConnectionDrawer({ id, live, canEdit, webhook, signup, onClose, 
           </>
         )}
         {confirmDel && c && <DeleteConnectionModal c={c} agents={d?.agents} onClose={() => setConfirmDel(false)} onDeleted={onDeleted} />}
+        {confirmLogout && c && (
+          <ConfirmModal title="Desconectar aparelho" confirm="Desconectar" danger onClose={() => setConfirmLogout(false)} onConfirm={async () => {
+            try {
+              const r = await api.post<{ connection: ConnectionFull }>(`/connections/${id}/web/logout`);
+              setD((cur) => (cur ? { ...cur, connection: { ...cur.connection, ...r.connection } } : cur));
+              onChanged(r.connection);
+              toast('Aparelho desconectado');
+            } catch (e) { toast(e instanceof Error ? e.message : 'Erro'); }
+            setConfirmLogout(false);
+          }}>
+            O Converza sai de “Aparelhos conectados” no celular e para de receber e enviar por <b>{c.displayPhone ?? c.name}</b>. A conexão continua aqui: para voltar, é só ler o QR Code de novo.
+          </ConfirmModal>
+        )}
       </aside>
     </div>
   );

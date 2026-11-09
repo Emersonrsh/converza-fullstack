@@ -45,6 +45,9 @@ import { metaRouter } from './modules/meta';
 import { pixelsRouter } from './modules/pixels';
 import { startMetaAdsSync } from './meta/adsSync';
 import { whatsappWebhookRouter } from './whatsapp/webhook';
+import { legalRouter } from './modules/legal';
+import { startWebSessions, stopWebSessions } from './whatsapp/web/manager';
+import { purgeAccessLogs } from './auth/accessLog';
 import { initIO } from './realtime/io';
 import { startAgentWorker, startDispatchWorker, startFlowWorker, startPixelWorker, startWebhookWorker } from './queue/worker';
 
@@ -70,6 +73,15 @@ app.use('/mcp', mcpRouter);
 app.use('/t', trackingPublicRouter);
 // avisos de pagamento da Asaas e da Paddle (sem login — token / assinatura de cada gateway)
 app.use('/api/v1/billing-hooks', billingHooksRouter);
+
+// dados públicos das páginas de Termos, Privacidade e Exclusão de dados
+app.use('/api/v1/public', legalRouter);
+
+// celular simulado da conexão por QR Code (só nos testes automáticos; nunca em produção)
+if (config.waWeb.driver === 'mock') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  app.use('/api/v1/__wa_mock', (require('./whatsapp/web/mockRoutes') as typeof import('./whatsapp/web/mockRoutes')).waMockRouter);
+}
 
 // Autenticação
 app.use('/api/v1/auth', authRouter);
@@ -128,6 +140,11 @@ if (process.env.START_WORKER !== 'false') {
   startMetaAdsSync();
   startBillingJobs();
   startTranslationSweep();
+  // registros de acesso (Marco Civil): apaga os que passaram de 6 meses, uma vez por dia
+  const purgeAccess = () => purgeAccessLogs().then((n) => { if (n) console.log(`[acessos] ${n} registros com mais de 6 meses apagados`); })
+    .catch((err) => console.error('[acessos] limpeza:', (err as Error).message));
+  setTimeout(purgeAccess, 90_000).unref();
+  setInterval(purgeAccess, 24 * 3600_000).unref();
   // anexos de blocos apagados dos fluxos: limpeza de hora em hora
   const sweepFiles = () => sweepFlowFiles().catch((err) => console.error('[fluxos] limpeza de anexos:', (err as Error).message));
   setTimeout(sweepFiles, 60_000).unref();
@@ -137,6 +154,9 @@ if (process.env.START_WORKER !== 'false') {
 // execuções que ficaram presas em "running" por reinício do servidor viram "erro"
 cleanupOrphanRuns().catch((err) => console.error('[flows] limpeza de execuções:', (err as Error).message));
 
+// WhatsApp por QR Code: as sessões salvas religam sozinhas (só no processo da API)
+startWebSessions();
+
 server.listen(config.port, () => {
   console.log(`Converza API em http://localhost:${config.port}  (env: ${config.env})`);
 });
@@ -145,3 +165,20 @@ server.listen(config.port, () => {
 process.on('unhandledRejection', (err) => {
   console.error('[unhandledRejection]', err instanceof Error ? err.stack ?? err.message : err);
 });
+
+// deploy/reinício (o Render manda SIGTERM): fecha as sessões do QR Code sem desconectar os celulares,
+// solta as travas para a instância nova assumir e só então sai
+let closing = false;
+const shutdown = (signal: string) => {
+  if (closing) return;
+  closing = true;
+  console.log(`${signal} recebido: encerrando…`);
+  const force = setTimeout(() => process.exit(0), 8000);
+  force.unref();
+  stopWebSessions().catch(() => undefined).finally(() => {
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 1500).unref();
+  });
+};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

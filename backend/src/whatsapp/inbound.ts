@@ -34,6 +34,6 @@ export function extractContent(m: any): Extracted {
     case 'reaction':
       return { body: m.reaction?.emoji ? `Reagiu com ${m.reaction.emoji}` : 'Removeu a reação', replyId: null, mediaType: 'text', silent: true };
     default:
-      return { body: 'Mensagem não suportada pelo WhatsApp Cloud API (ex.: enquete ou mensagem de visualização única).', replyId: null, mediaType: 'unsupported', silent: true };
+      return { body: m.unsupported?.text ? String(m.unsupported.text) : 'Mensagem não suportada pelo WhatsApp Cloud API (ex.: enquete ou mensagem de visualização única).', replyId: null, mediaType: 'unsupported', silent: true };
   }
 }

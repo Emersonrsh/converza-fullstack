@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { ApiError, api } from '../api';
 import { Icon } from '../icons';
@@ -43,6 +43,7 @@ export function Login() {
   const [company, setCompany] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [terms, setTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -56,6 +57,7 @@ export function Login() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (mode === 'register' && !terms) { setError('Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.'); return; }
     setError(null); setBusy(true);
     try {
       if (mode === 'login') await login(email, password);
@@ -102,12 +104,23 @@ export function Login() {
           </>}
           <div><label className="label">E-mail</label><input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required data-testid="login-email" /></div>
           <div><label className="label">Senha</label><input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} data-testid="login-password" /></div>
+          {mode === 'register' && (
+            <label className="auth-terms">
+              <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} data-testid="reg-terms" />
+              <span>Li e aceito os <Link to="/termos" target="_blank">Termos de Uso</Link> e a <Link to="/privacidade" target="_blank">Política de Privacidade</Link>.</span>
+            </label>
+          )}
           {error && <div className="pill red dot" style={{ height: 'auto', padding: '8px 12px' }}>{error}</div>}
           <button className="btn primary" style={{ width: '100%', height: 42 }} disabled={busy} data-testid="login-submit">
             {busy ? 'Aguarde…' : mode === 'login' ? 'Entrar' : 'Criar conta'}
           </button>
         </form>
-        <div className="faint" style={{ fontSize: 11.5, textAlign: 'center', marginTop: 14 }}>© 2026 Converza</div>
+        <div className="faint auth-foot">
+          <span>© {new Date().getFullYear()} Converza</span>
+          <Link to="/termos" data-testid="foot-terms">Termos</Link>
+          <Link to="/privacidade" data-testid="foot-privacy">Privacidade</Link>
+          <Link to="/exclusao-de-dados">Exclusão de dados</Link>
+        </div>
       </div>
     </div>
   );

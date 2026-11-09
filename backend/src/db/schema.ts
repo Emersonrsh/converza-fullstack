@@ -47,6 +47,9 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
+  /** aceite dos Termos de Uso e da Política de Privacidade no cadastro (e a versão aceita) */
+  termsAcceptedAt: timestamp('terms_accepted_at', { withTimezone: true }),
+  termsVersion: text('terms_version'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -74,8 +77,12 @@ export const connections = pgTable('connections', {
   displayPhone: text('display_phone'),
   accessToken: text('access_token'),
   status: connStatusEnum('status').notNull().default('pending'),
-  // como foi conectada: manual (token próprio) | embedded (Meta em 1 clique) | coexistence (WhatsApp Business do celular)
+  // como foi conectada: manual (token próprio) | embedded (Meta em 1 clique) | coexistence (WhatsApp Business do celular) | web (QR Code)
   source: text('source').notNull().default('manual'),
+  /** cloud = API oficial da Meta | web = QR Code (API não oficial, sessão do WhatsApp Web) */
+  provider: text('provider').notNull().default('cloud'),
+  /** QR Code: qr | connecting | open | closed | logged_out */
+  webState: text('web_state'),
   // saúde do número (última verificação na Meta)
   verifiedName: text('verified_name'),
   nameStatus: text('name_status'),
@@ -589,6 +596,8 @@ export const subscriptions = pgTable('subscriptions', {
   cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
   canceledAt: timestamp('canceled_at', { withTimezone: true }),
   aiTokensUsed: integer('ai_tokens_used').notNull().default(0),
+  /** conta da casa (HOUSE_EMAILS): tudo liberado, sem cobrança e sem desconto de tokens */
+  house: boolean('house').notNull().default(false),
   lastTokenPurchaseAt: timestamp('last_token_purchase_at', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -957,6 +966,48 @@ export const storedFileMedia = pgTable('stored_file_media', {
   pk: primaryKey({ columns: [t.fileId, t.connectionId] }),
 }));
 
+/** QR Code (API não oficial): chaves da sessão do WhatsApp Web (credenciais e chaves de criptografia). */
+export const waWebAuth = pgTable('wa_web_auth', {
+  connectionId: uuid('connection_id').notNull().references(() => connections.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),
+  keyId: text('key_id').notNull(),
+  value: text('value').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.connectionId, t.kind, t.keyId] }),
+}));
+
+/** QR Code: arquivos recebidos e enviados (o WhatsApp Web não guarda a mídia para baixar depois). Ficam 31 dias. */
+export const waWebMedia = pgTable('wa_web_media', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  connectionId: uuid('connection_id').notNull().references(() => connections.id, { onDelete: 'cascade' }),
+  mime: text('mime').notNull(),
+  fileName: text('file_name'),
+  size: integer('size').notNull(),
+  data: bytea('data').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  byCreated: index('wa_web_media_created_idx').on(t.createdAt),
+}));
+
+/**
+ * Registros de acesso (data, hora e IP de quem entrou no app): o Marco Civil da Internet (art. 15) exige guardar
+ * por 6 meses. Ficam mesmo se o usuário for excluído (user_id vira nulo, o e-mail fica).
+ */
+export const accessLogs = pgTable('access_logs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  email: text('email').notNull(),
+  /** login | register | session (uso com login já feito, no máximo 1 registro a cada 6 h por IP) */
+  event: text('event').notNull(),
+  ip: text('ip'),
+  userAgent: text('user_agent'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  byCreated: index('access_logs_created_idx').on(t.createdAt),
+  byUser: index('access_logs_user_idx').on(t.userId),
+}));
+
 /** Variáveis da conta usadas nos fluxos como {{g_nome}} (os fluxos também podem mudar o valor). */
 export const globalVariables = pgTable('global_variables', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -1097,4 +1148,5 @@ export const schema = {
   campaignRecipients, dispatchUsage, metaProfiles, metaAdAccounts, pixels, pixelEvents, invoices, billingEvents,
   departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, storedFiles, storedFileMedia,
   globalVariables, flowTranslations, aiUsage, trackingLinks, trackingClicks, apiKeys, mcpCalls, flowDistributions,
+  waWebAuth, waWebMedia, accessLogs,
 };

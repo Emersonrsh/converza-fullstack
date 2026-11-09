@@ -15,6 +15,9 @@ import {
 import { errorPatch, healthPatch } from '../whatsapp/health';
 import { emitConnection, publicConnection, type ConnRow } from './connectionView';
 import { connectionLimitFor } from './plans';
+import { WEB_PREFIX } from '../whatsapp/web/convert';
+/** sessões do QR Code (carregado só quando usado: importar este módulo não abre conexões) */
+const qr = () => import('../whatsapp/web/manager');
 
 /**
  * Conexões de WhatsApp (Cloud API oficial): limite do plano, Meta em 1 clique (Embedded Signup),
@@ -80,6 +83,8 @@ const emit = emitConnection;
 
 /** Consulta a Meta e grava a saúde do número. Não lança: problemas viram `lastError`. */
 export async function checkConnection(c: ConnRow): Promise<ConnRow> {
+  // QR Code: a saúde é a própria sessão (aberta ou não) — não há o que perguntar para a Meta
+  if (c.provider === 'web') return c;
   const patch: Partial<typeof schema.connections.$inferInsert> = { lastCheckedAt: new Date() };
   if (!c.phoneNumberId || !c.accessToken) {
     Object.assign(patch, { status: 'pending', lastError: 'Falta o Phone Number ID ou o token desta conexão.' });
@@ -110,7 +115,7 @@ const inflight = new Set<string>();
 function refreshStale(list: ConnRow[], maxAgeMs = 30 * 60_000) {
   const now = Date.now();
   for (const c of list) {
-    if (!c.accessToken || !c.phoneNumberId || inflight.has(c.id)) continue;
+    if (c.provider === 'web' || !c.accessToken || !c.phoneNumberId || inflight.has(c.id)) continue;
     if (c.lastCheckedAt && now - c.lastCheckedAt.getTime() < maxAgeMs) continue;
     inflight.add(c.id);
     checkConnection(c).catch(() => {}).finally(() => inflight.delete(c.id));
@@ -123,7 +128,7 @@ export function startConnectionHealthSweep() {
     try {
       const stale = await db.select().from(schema.connections)
         .where(or(isNull(schema.connections.lastCheckedAt), lt(schema.connections.lastCheckedAt, new Date(Date.now() - 3 * 3600_000)))).limit(200);
-      for (const c of stale) if (c.accessToken && c.phoneNumberId) await checkConnection(c);
+      for (const c of stale) if (c.provider !== 'web' && c.accessToken && c.phoneNumberId) await checkConnection(c);
     } catch (err) { console.error('[conexões] verificação periódica:', (err as Error).message); }
   };
   setInterval(run, 30 * 60_000).unref();
@@ -166,7 +171,96 @@ connectionsRouter.get('/', asyncHandler(async (req, res) => {
     plan,
     signup: { configured: Boolean(config.whatsapp.appId && config.whatsapp.configId), appId: config.whatsapp.appId, configId: config.whatsapp.configId, graphVersion: config.whatsapp.graphVersion },
     webhook: manager ? { url: `${publicBase(req, config.publicApiUrl)}/api/v1/webhooks/whatsapp`, verifyToken: config.whatsapp.verifyToken, signatureCheck: Boolean(config.whatsapp.appSecret) } : null,
+    qrCode: {
+      enabled: config.waWeb.enabled, simulator: config.waWeb.driver === 'mock',
+      dispatch: { minGapSec: config.waWeb.dispatchMinGapSec, maxGapSec: config.waWeb.dispatchMaxGapSec, dailyLimit: config.waWeb.dailyLimit },
+    },
   });
+}));
+
+/* ------------------------------------------------- QR Code (API não oficial) */
+
+function assertWebEnabled() {
+  if (!config.waWeb.enabled) throw new AppError(403, 'A conexão por QR Code está desligada neste servidor (WA_WEB_ENABLED=false).');
+}
+
+const webCreateSchema = z.object({
+  name: z.string().trim().min(1, 'Dê um nome para a conexão').max(60),
+  /** o dono confirma que leu o aviso de risco (API não oficial) */
+  acceptRisk: z.literal(true, { errorMap: () => ({ message: 'Confirme que entendeu os riscos da conexão por QR Code.' }) }),
+  phone: z.string().trim().max(30).optional(),
+});
+const phoneOk = (p?: string) => {
+  const d = (p ?? '').replace(/\D/g, '');
+  if (!d) return null;
+  if (d.length < 10 || d.length > 15) throw new AppError(422, 'Digite o número com DDI e DDD, ex.: 55 11 99999-0000');
+  return d;
+};
+
+/**
+ * Cria a conexão e liga a sessão: o QR Code chega pela tela (evento wa:qr) ou por GET /:id/web.
+ * Com `phone`, gera também o código de pareamento (para digitar no celular em vez de ler o QR).
+ */
+connectionsRouter.post('/web', asyncHandler(async (req, res) => {
+  managerOnly(req);
+  assertWebEnabled();
+  const accountId = req.accountId!;
+  const p = webCreateSchema.safeParse(req.body ?? {});
+  if (!p.success) throw new AppError(422, zodMsg(p.error));
+  const pairingPhone = phoneOk(p.data.phone);
+  await assertRoom(accountId);
+  const [created] = await db.insert(schema.connections).values({
+    accountId, name: p.data.name, provider: 'web', source: 'web', status: 'pending', webState: 'starting', accessToken: 'web', phoneNumberId: null,
+  }).returning();
+  const [row] = await db.update(schema.connections).set({ phoneNumberId: `${WEB_PREFIX}${created.id}` }).where(eq(schema.connections.id, created.id)).returning();
+  emit(row);
+  try { await (await qr()).webStart(row.id, { pairingPhone, fresh: true }); } catch (err) {
+    await db.update(schema.connections).set({ lastError: (err as Error).message }).where(eq(schema.connections.id, row.id));
+  }
+  res.status(201).json({ connection: publicConnection(row) });
+}));
+
+async function ownWeb(req: Request) {
+  const c = await ownConnection(req.accountId!, req.params.id);
+  if (c.provider !== 'web') throw new AppError(422, 'Esta conexão é da API oficial da Meta (não usa QR Code).');
+  return c;
+}
+
+/** Estado da sessão e o QR Code/código atual (a tela consulta enquanto espera a leitura). */
+connectionsRouter.get('/:id/web', asyncHandler(async (req, res) => {
+  managerOnly(req);
+  const c = await ownWeb(req);
+  const st = await (await qr()).webStatus(c.id);
+  res.json({ connection: publicConnection(c), ...st });
+}));
+
+/** Novo QR Code (ou código de pareamento, com `phone`) — também serve para reconectar. */
+connectionsRouter.post('/:id/web/start', asyncHandler(async (req, res) => {
+  managerOnly(req);
+  assertWebEnabled();
+  const c = await ownWeb(req);
+  const { phone } = z.object({ phone: z.string().trim().max(30).optional() }).parse(req.body ?? {});
+  const pairingPhone = phoneOk(phone);
+  const { hasSession } = await import('../whatsapp/web/auth');
+  const paired = await hasSession(c.id);
+  // aparelho pareado e sessão caída: só religa (sem QR). Sem pareamento: QR/código novo.
+  const m = await qr();
+  try { await m.webStart(c.id, { pairingPhone, fresh: !paired || !!pairingPhone }); } catch (err) {
+    throw new AppError(503, (err as Error).message);
+  }
+  const [row] = await db.select().from(schema.connections).where(eq(schema.connections.id, c.id)).limit(1);
+  res.json({ connection: publicConnection(row ?? c), ...(await m.webStatus(c.id)) });
+}));
+
+/** Desconecta o aparelho (some de "Aparelhos conectados" no celular). A conexão continua, para ler o QR de novo. */
+connectionsRouter.post('/:id/web/logout', asyncHandler(async (req, res) => {
+  managerOnly(req);
+  const c = await ownWeb(req);
+  await (await qr()).webLogout(c.id);
+  const [row] = await db.update(schema.connections).set({ status: 'disconnected', webState: 'logged_out', lastError: 'Desconectado por você no Converza. Leia o QR Code para conectar de novo.' })
+    .where(eq(schema.connections.id, c.id)).returning();
+  emit(row);
+  res.json({ connection: publicConnection(row) });
 }));
 
 /* ---------------------------------------------------------- manual */
@@ -351,6 +445,7 @@ connectionsRouter.patch('/:id', asyncHandler(async (req, res) => {
   const p = patchSchema.safeParse(req.body ?? {});
   if (!p.success) throw new AppError(422, zodMsg(p.error));
   const d = p.data;
+  if (c.provider === 'web' && (d.accessToken || d.wabaId || d.appSecret)) throw new AppError(422, 'Conexões por QR Code não usam token, WABA nem chave secreta da Meta.');
   if (d.accessToken && c.phoneNumberId) {
     try { await getPhoneHealth(c.phoneNumberId, d.accessToken); } catch (err) {
       throw new AppError(422, `Esse token não acessa o número desta conexão: ${(err as Error).message}`);
@@ -371,6 +466,7 @@ connectionsRouter.patch('/:id', asyncHandler(async (req, res) => {
 connectionsRouter.post('/:id/register', asyncHandler(async (req, res) => {
   managerOnly(req);
   const c = await ownConnection(req.accountId!, req.params.id);
+  if (c.provider === 'web') throw new AppError(422, 'Conexões por QR Code não são registradas na Cloud API.');
   if (c.coexistence) throw new AppError(422, 'Números do WhatsApp Business do celular já ficam registrados pelo próprio app.');
   const { pin } = z.object({ pin: z.string().regex(/^\d{6}$/, 'O PIN tem 6 números') }).parse(req.body ?? {});
   if (!c.phoneNumberId || !c.accessToken) throw new AppError(422, 'Falta o Phone Number ID ou o token desta conexão.');
@@ -409,6 +505,7 @@ const VERTICALS = ['UNDEFINED', 'OTHER', 'AUTO', 'BEAUTY', 'APPAREL', 'EDU', 'EN
 
 connectionsRouter.get('/:id/profile', asyncHandler(async (req, res) => {
   const c = await ownConnection(req.accountId!, req.params.id);
+  if (c.provider === 'web') { res.json({ profile: null, verticals: VERTICALS, error: 'Na conexão por QR Code, o perfil (foto, recado, endereço) é editado no próprio app do WhatsApp no celular.' }); return; }
   // número fora do ar não é erro da tela: o detalhe mostra o motivo no lugar do perfil
   if (!c.phoneNumberId || !c.accessToken) { res.json({ profile: null, verticals: VERTICALS, error: 'Conexão sem número ou token.' }); return; }
   try { res.json({ profile: await getBusinessProfile(c.phoneNumberId, c.accessToken), verticals: VERTICALS, error: null }); } catch (err) {
@@ -428,6 +525,7 @@ const profileSchema = z.object({
 connectionsRouter.put('/:id/profile', asyncHandler(async (req, res) => {
   managerOnly(req);
   const c = await ownConnection(req.accountId!, req.params.id);
+  if (c.provider === 'web') throw new AppError(422, 'Na conexão por QR Code, edite o perfil no app do WhatsApp do celular.');
   if (!c.phoneNumberId || !c.accessToken) throw new AppError(422, 'Conexão sem número/token.');
   const p = profileSchema.safeParse(req.body ?? {});
   if (!p.success) throw new AppError(422, zodMsg(p.error));
@@ -440,6 +538,7 @@ connectionsRouter.put('/:id/profile', asyncHandler(async (req, res) => {
 /** Modelos de mensagem aprovados do número (para iniciar conversas e falar fora das 24h). */
 connectionsRouter.get('/:id/templates', asyncHandler(async (req, res) => {
   const c = await ownConnection(req.accountId!, req.params.id);
+  if (c.provider === 'web') throw new AppError(422, 'Modelos de mensagem (templates) são da API oficial da Meta: a conexão por QR Code não tem.');
   if (!c.accessToken || !c.wabaId) throw new AppError(422, 'Esta conexão não tem a conta do WhatsApp Business (WABA) configurada.');
   try {
     res.json({ templates: await listTemplates(c.accessToken, c.wabaId) });
@@ -459,6 +558,8 @@ connectionsRouter.delete('/:id', asyncHandler(async (req, res) => {
     .returning({ id: schema.agents.id, name: schema.agents.name });
   await db.update(schema.agents).set({ connectionIds: sql`array_remove(${schema.agents.connectionIds}, ${c.id}::uuid)` })
     .where(and(eq(schema.agents.accountId, c.accountId), sql`${c.id}::uuid = any(${schema.agents.connectionIds})`));
+  // QR Code: tira o aparelho do celular antes (senão ele continua em "Aparelhos conectados")
+  if (c.provider === 'web') await (await qr()).webLogout(c.id).catch((err) => console.error('[qr] sair ao excluir:', (err as Error).message));
   await db.delete(schema.connections).where(eq(schema.connections.id, c.id));
   emitToAccount(c.accountId, 'connection:deleted', { id: c.id });
   res.json({ ok: true, pausedAgents: paused });

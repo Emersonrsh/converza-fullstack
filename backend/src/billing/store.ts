@@ -277,10 +277,10 @@ export async function markInvoiceCanceled(inv: InvRow) {
 /** A cada hora: fim do período de quem cancelou e mensalidade não paga 3 dias depois do vencimento. */
 export async function billingSweep(now = new Date()) {
   const ending = await db.select({ accountId: schema.subscriptions.accountId }).from(schema.subscriptions)
-    .where(and(eq(schema.subscriptions.status, 'active'), eq(schema.subscriptions.cancelAtPeriodEnd, true), lt(schema.subscriptions.currentPeriodEnd, now)));
+    .where(and(eq(schema.subscriptions.status, 'active'), eq(schema.subscriptions.house, false), eq(schema.subscriptions.cancelAtPeriodEnd, true), lt(schema.subscriptions.currentPeriodEnd, now)));
   for (const s of ending) await patchSub(s.accountId, { status: 'canceled', pendingInstances: null });
   const late = await db.select({ accountId: schema.subscriptions.accountId }).from(schema.subscriptions)
-    .where(and(eq(schema.subscriptions.status, 'active'), eq(schema.subscriptions.cancelAtPeriodEnd, false),
+    .where(and(eq(schema.subscriptions.status, 'active'), eq(schema.subscriptions.house, false), eq(schema.subscriptions.cancelAtPeriodEnd, false),
       lt(schema.subscriptions.currentPeriodEnd, new Date(now.getTime() - GRACE_DAYS * 86_400_000))));
   for (const s of late) await patchSub(s.accountId, { status: 'past_due' });
   // redução agendada + renovação paga adiantada: vale quando o mês que ela pagou começa

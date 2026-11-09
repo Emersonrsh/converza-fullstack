@@ -36,7 +36,7 @@ O Render faz deploy a partir de um repositório. Sem instalar Git pela linha de 
    |---|---|
    | `DATABASE_URL` | a Internal Database URL do Postgres |
    | `REDIS_URL` | a Internal URL do Key Value |
-   | `JWT_SECRET` | qualquer frase longa e secreta |
+   | `JWT_SECRET` | **obrigatório e forte**: pelo menos 32 letras e números aleatórios (gere com um gerenciador de senhas). A API **não sobe** em produção sem ele, com a chave de exemplo ou com menos de 24 caracteres — de propósito, porque com a chave padrão qualquer pessoa conseguiria forjar um login. Trocar a chave obriga todo mundo a entrar de novo. |
    | `APP_ORIGIN` | o endereço do frontend, ex.: `https://converza-fullstack.onrender.com` (veja Parte 4) |
    | `WHATSAPP_VERIFY_TOKEN` | um texto à sua escolha (anote, usa no Meta) |
    | `GRAPH_API_VERSION` | `v24.0` (a Meta desliga cada versão uns 2 anos depois do lançamento; a v24.0 vale até 18/02/2028 e a v21.0, até 21/01/2027) |
@@ -50,6 +50,9 @@ O Render faz deploy a partir de um repositório. Sem instalar Git pela linha de 
    | `PUBLIC_API_URL` | o endereço da própria API, ex.: `https://converza-api.onrender.com` (sem barra no fim). É o que aparece nos **links rastreáveis** (`/t/...`) e no endereço das **Ferramentas MCP**. |
    | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `EMAIL_FROM` | (opcional, mas recomendado) envio de e-mail — veja a Parte 9. Sem isso, os convites mostram um link para você copiar. |
    | `SUPPORT_EMAILS` | (opcional) e-mails da sua equipe de suporte, separados por vírgula — veja a Parte 9. |
+   | `HOUSE_EMAILS` / `HOUSE_INSTANCES` | (opcional) **conta da casa** — veja a Parte 10. |
+   | `LEGAL_TRADE_NAME` / `LEGAL_COMPANY_NAME` / `LEGAL_CNPJ` / `LEGAL_ADDRESS` / `LEGAL_EMAIL` / `LEGAL_DPO_NAME` / `LEGAL_DPO_EMAIL` / `LEGAL_CITY` | dados da sua empresa nos **Termos de Uso**, na **Política de Privacidade** e na **Exclusão de dados** — veja a Parte 10. |
+   | `WA_WEB_ENABLED` e demais `WA_WEB_*` | (opcional) **WhatsApp por QR Code** (API não oficial) — veja a Parte 11. |
 4. Crie o serviço. O Render builda a imagem, roda as migrations e sobe a API. A URL final será algo como `https://converza-api.onrender.com`.
 
 ## Parte 4 — Frontend (app)
@@ -155,6 +158,60 @@ Os convites de equipe e para a plataforma, o aviso de **número desconectado/res
 
 ### Links rastreáveis e MCP
 Os dois usam o endereço da API (`PUBLIC_API_URL`): o link rastreável fica `https://converza-api.onrender.com/t/<endereço>` e o servidor MCP, `https://converza-api.onrender.com/mcp`. Se você usar um domínio próprio para a API, coloque-o em `PUBLIC_API_URL`.
+
+## Parte 10 — Termos, Privacidade e conta da casa
+
+### Páginas legais (obrigatórias para vender e para a Meta)
+O app já tem três páginas públicas (abrem sem login):
+- `https://SEU-APP.onrender.com/termos` — Termos de Uso
+- `https://SEU-APP.onrender.com/privacidade` — Política de Privacidade (LGPD)
+- `https://SEU-APP.onrender.com/exclusao-de-dados` — instruções de exclusão de dados
+
+1. Na API (converza-api › Environment), preencha: `LEGAL_COMPANY_NAME` (razão social), `LEGAL_CNPJ`, `LEGAL_ADDRESS` (endereço completo), `LEGAL_EMAIL` (e-mail de contato), `LEGAL_DPO_NAME` e `LEGAL_DPO_EMAIL` (encarregado de dados — pode ser você), `LEGAL_CITY` (cidade do foro, ex.: `São Paulo/SP`) e, se a marca não for "Converza", `LEGAL_TRADE_NAME`. Enquanto faltar algo, a página mostra o dado marcado em amarelo e um aviso para você.
+2. No app da Meta (Meta for Developers › seu app › **Configurações do app › Básico**), cole o link de `/privacidade` em **URL da Política de Privacidade**, o de `/termos` em **URL dos Termos de Serviço** e o de `/exclusao-de-dados` em **Exclusão de dados do usuário › URL de instruções**. A Meta exige isso para publicar o app e para a Análise do App.
+3. O cadastro de conta agora exige marcar "Li e aceito os Termos de Uso e a Política de Privacidade"; a data e a versão do aceite ficam gravadas.
+4. **Registros de acesso:** o Converza guarda data, hora e IP de cada acesso por 6 meses (Marco Civil da Internet, art. 15) e apaga o que passar disso sozinho, uma vez por dia.
+
+> Os textos foram escritos com cuidado para o que o Converza realmente faz, mas **não substituem um advogado**: antes de vender em escala, peça para um advogado revisar (principalmente limitação de responsabilidade, reembolso e a cláusula do QR Code).
+
+### Conta da casa (suas próprias empresas sem pagar)
+`HOUSE_EMAILS=voce@seudominio.com` (pode ter vários, separados por vírgula) e `HOUSE_INSTANCES=10` (quantos números cada empresa sua pode conectar).
+- Toda empresa cujo **dono** tem um desses e-mails vira "conta da casa": assinatura ativa sem fatura, tokens de IA **sem limite** (o uso continua aparecendo em Configurações › Uso da IA) e as instâncias de `HOUSE_INSTANCES`.
+- Vale para empresas que já existem e para as que você criar depois: o servidor confere ao ligar (o Render reinicia a API quando você salva as variáveis, e em ~1 minuto já vale), a cada hora e na hora de criar a conta ou a empresa.
+- Tirou o e-mail da lista? A empresa volta a ser uma conta normal (sem assinatura) na próxima conferência.
+- Em Cobranças e assinaturas aparece "Conta da casa · sem cobrança", sem botões de compra.
+
+## Parte 11 — WhatsApp por QR Code (API não oficial)
+
+A conexão por QR Code liga qualquer **WhatsApp ou WhatsApp Business** ao Converza como um "aparelho conectado" (o mesmo caminho do WhatsApp Web), sem Meta, sem app aprovado e sem cobrança por mensagem. Chats, fluxos, agentes de IA e disparos funcionam por ela.
+
+> ⚠️ **Leia antes de oferecer:** isso **não é autorizado pela Meta** e vai contra os Termos do WhatsApp. O WhatsApp pode banir o número a qualquer momento, principalmente com disparos para quem não conhece a empresa. O app mostra esse aviso e exige que o dono marque que entendeu antes de conectar, e os Termos de Uso têm uma cláusula sobre isso. Para clientes que não podem perder o número, use a API oficial.
+
+**O que precisa no Render:**
+1. A API precisa ficar **sempre ligada**: use o plano **Starter (US$ 7/mês) ou maior**. No Free ela dorme depois de 15 minutos e a sessão do WhatsApp cai junto — as mensagens que chegarem nesse tempo só aparecem quando ela acordar (e até 3 dias depois).
+2. **Memória:** cada número conectado por QR Code fica com uma sessão aberta na API, e isso gasta memória (em geral algumas dezenas de MB por número, mais nos números com muito movimento). O Starter (512 MB) aguenta poucos números (uns 3 a 5); acompanhe o gráfico de memória do serviço no Render e suba o plano quando passar de ~80%.
+3. **Banco:** os arquivos que chegam pelo QR Code (fotos, áudios, PDFs) ficam guardados no Postgres por 31 dias (até 16 MB cada). Acompanhe o espaço do banco.
+
+**Variáveis (todas opcionais):**
+| Chave | Padrão | O que faz |
+|---|---|---|
+| `WA_WEB_ENABLED` | `true` | `false` esconde e desliga o QR Code no seu servidor |
+| `WA_WEB_DISPATCH_MIN_GAP` / `WA_WEB_DISPATCH_MAX_GAP` | `15` / `45` | intervalo aleatório (em segundos) entre um contato e outro nos disparos pelo QR Code |
+| `WA_WEB_DAILY_LIMIT` | `250` | máximo de contatos por dia (24 h) em disparos por número conectado por QR Code; ao bater, o disparo pausa e continua sozinho |
+| `WA_WEB_MEDIA_MAX_MB` | `16` | arquivos recebidos maiores que isso não são baixados (a conversa avisa "abra no celular") |
+| `WA_WEB_DEVICE_NAME` | `LEGAL_TRADE_NAME` ou `Converza` | nome que aparece em "Aparelhos conectados" no celular |
+| `WA_WEB_DEBUG` | — | `1` mostra o log detalhado do protocolo (só para investigar problema) |
+
+Nunca defina `WA_WEB_DRIVER` no Render: ele existe só para os testes automáticos (celular simulado) e é ignorado em produção.
+
+**Como funciona para o cliente:** Conexões › Nova Conexão › **QR Code** → nome + aceite do risco → QR na tela (ou "Conectar com um código", sem câmera). Depois de conectado:
+- o servidor guarda a sessão no banco: deploy ou reinício **não pede o QR de novo** (a API desliga com calma, solta a sessão e a nova versão religa sozinha em segundos);
+- queda de internet: religa sozinho; se ficar mais de 3 minutos fora, a conexão fica vermelha e o dono recebe o e-mail de "número desconectado";
+- botões, listas e carrosséis viram **opções numeradas** (o cliente responde 1, 2, 3…), o Pix vai como texto com a chave e o código copia e cola, e os modelos da Meta viram mensagem normal (não há janela de 24h no QR Code);
+- grupos, status e canais são ignorados; mensagem de visualização única fica só no celular;
+- o que for respondido pelo celular aparece no chat e pausa a automação daquela conversa (por isso: desligar a saudação/ausência automática do WhatsApp Business).
+
+**Manutenção:** o QR Code usa a biblioteca Baileys (versão fixa no `package.json`). Quando o WhatsApp muda o protocolo, pode ser preciso atualizar essa biblioteca — se as conexões por QR começarem a cair todas ao mesmo tempo, me chame.
 
 ## Atualizações futuras
 

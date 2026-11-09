@@ -17,6 +17,7 @@ import { CONNECTION_DOWN_CODES, sendTemplate, WhatsAppError } from '../whatsapp/
 import { buildTemplate, type Resolved, type TemplateAction } from './webhookEngine';
 import { enqueueCampaignChunk } from '../queue';
 import { redis } from '../redis';
+import { config } from '../config';
 
 export type CampaignRow = typeof schema.campaigns.$inferSelect;
 type ContactRow = typeof schema.contacts.$inferSelect;
@@ -55,8 +56,11 @@ async function audienceWhere(accountId: string, a: DispatchAudience, opts: { inc
 const windowSql = sql`exists (select 1 from messages m join conversations v on v.id = m.conversation_id
   where v.contact_id = c.id and m.direction = 'in' and m.created_at > now() - interval '24 hours')`;
 
-/** Quantos entram, quantos estão na janela de 24h (recebem o fluxo direto) e quantos ficam de fora. */
-export async function audiencePreview(accountId: string, a: DispatchAudience) {
+/**
+ * Quantos entram, quantos estão na janela de 24h (recebem o fluxo direto) e quantos ficam de fora.
+ * `web`: conexão por QR Code — não há janela de 24h nem modelo, todos recebem o fluxo direto.
+ */
+export async function audiencePreview(accountId: string, a: DispatchAudience, opts: { web?: boolean } = {}) {
   const base = await contactsWhere(accountId, a.filters);
   const where = await audienceWhere(accountId, a);
   const [r] = await rows<{ total: string; open: string; opted: string; matched: string }>(sql`
@@ -66,7 +70,23 @@ export async function audiencePreview(accountId: string, a: DispatchAudience) {
       (select count(*) from contacts c where ${base} and c.opted_out_at is null) as matched`);
   const total = Number(r?.total ?? 0);
   const matched = Number(r?.matched ?? 0);
-  return { total, windowOpen: Number(r?.open ?? 0), needTemplate: total - Number(r?.open ?? 0), optedOut: Number(r?.opted ?? 0), recentExcluded: Math.max(0, matched - total) };
+  const open = opts.web ? total : Number(r?.open ?? 0);
+  return { total, windowOpen: open, needTemplate: total - open, optedOut: Number(r?.opted ?? 0), recentExcluded: Math.max(0, matched - total) };
+}
+
+/** QR Code: contatos que receberam disparo por este número nas últimas 24h (limite de segurança contra banimento). */
+export async function webDispatchedLast24h(connectionId: string) {
+  const [r] = await rows<{ n: string }>(sql`
+    select count(*) as n from campaign_recipients r join campaigns c on c.id = r.campaign_id
+    where c.connection_id = ${connectionId} and r.status in ('started', 'sent') and r.processed_at > now() - interval '24 hours'`);
+  return Number(r?.n ?? 0);
+}
+
+/** QR Code: pausa aleatória entre um contato e outro (parece gente, não robô). */
+export function webGapMs() {
+  const min = Math.min(config.waWeb.dispatchMinGapSec, config.waWeb.dispatchMaxGapSec);
+  const max = Math.max(config.waWeb.dispatchMinGapSec, config.waWeb.dispatchMaxGapSec);
+  return Math.round((min + Math.random() * (max - min)) * 1000);
 }
 
 /* ------------------------------------------------------------------ formato */
@@ -132,10 +152,22 @@ function contactScope(c: ContactRow, campaignName: string): { resolved: Resolved
 type Outcome =
   | { status: 'started' | 'sent'; messageId?: string | null }
   | { status: 'failed' | 'skipped'; error: string }
-  | { pause: 'connection' | 'flow' | 'limit'; error: string };
+  | { pause: 'connection' | 'flow' | 'limit' | 'web_limit'; error: string };
 
 async function deliverOne(c: CampaignRow, conn: typeof schema.connections.$inferSelect, contact: ContactRow): Promise<Outcome> {
   const vars = { disparo: c.name };
+  if (conn.provider === 'web') {
+    // QR Code: sem janela de 24h e sem modelo — o fluxo começa direto, com a sessão no ar e dentro do limite diário
+    const [live] = await db.select({ webState: schema.connections.webState }).from(schema.connections).where(eq(schema.connections.id, conn.id)).limit(1);
+    if (live?.webState !== 'open') return { pause: 'connection', error: 'O WhatsApp por QR Code não está conectado.' };
+    if (await webDispatchedLast24h(conn.id) >= config.waWeb.dailyLimit) {
+      return { pause: 'web_limit', error: `Limite de segurança do QR Code: ${config.waWeb.dailyLimit} contatos a cada 24h por número.` };
+    }
+    const r = await startFlowForContact(c.accountId, c.flowId!, contact.id, { lastMessage: '', connectionId: conn.id, vars });
+    if (r === 'inactive') return { pause: 'flow', error: 'O fluxo do disparo foi pausado ou excluído.' };
+    if (r === 'running') return { status: 'skipped', error: 'O contato já estava neste fluxo.' };
+    return { status: 'started' };
+  }
   if (await windowOpen(contact.id)) {
     if (!c.flowId) return { status: 'skipped', error: 'Disparo sem fluxo.' };
     const r = await startFlowForContact(c.accountId, c.flowId, contact.id, { lastMessage: '', connectionId: conn.id, vars });
@@ -187,6 +219,7 @@ const PAUSE_TEXT: Record<string, string> = {
   quota: 'Os disparos do ciclo acabaram. Clique em Continuar quando tiver saldo de novo (novo ciclo ou disparos extras).',
   plan: 'A assinatura ficou inativa. Regularize em Cobranças e assinaturas e clique em Continuar.',
   limit: 'O número chegou ao limite diário da Meta. Continua sozinho quando liberar.',
+  web_limit: 'O número por QR Code chegou ao limite de segurança de disparos em 24h (para diminuir o risco de banimento). Continua sozinho quando liberar.',
   connection: 'A conexão de WhatsApp caiu. Reconecte o número e clique em Continuar.',
   flow: 'O fluxo do disparo foi pausado. Ative o fluxo e clique em Continuar.',
   flow_deleted: 'O fluxo deste disparo foi excluído. Duplique o disparo e escolha outro fluxo.',
@@ -233,7 +266,7 @@ async function chunk(campaignId: string, opts: { auto?: boolean }): Promise<{ de
   if (!c) return null;
   if (c.status === 'scheduled') c = await setCampaign(c.id, { status: 'sending' });
   // retomada automática depois do limite diário da Meta
-  if (opts.auto && c.status === 'paused' && c.pauseReason === 'limit') c = await setCampaign(c.id, { status: 'sending', pauseReason: null });
+  if (opts.auto && c.status === 'paused' && (c.pauseReason === 'limit' || c.pauseReason === 'web_limit')) c = await setCampaign(c.id, { status: 'sending', pauseReason: null });
   if (c.status !== 'sending') return null;
   // disparo antigo (só texto, sem fluxo) não roda neste motor: nunca reenviar para a base
   if (!c.flowId) {
@@ -300,7 +333,7 @@ async function chunk(campaignId: string, opts: { auto?: boolean }): Promise<{ de
       await requeue();
       await setCampaign(c.id, { status: 'paused', pauseReason: out.pause });
       // limite diário: tenta de novo em 1 hora
-      return out.pause === 'limit' ? { delay: 60 * 60_000, auto: true } : null;
+      return out.pause === 'limit' || out.pause === 'web_limit' ? { delay: 60 * 60_000, auto: true } : null;
     }
     const used = { [charge.from]: 1 } as { quota?: number; extra?: number };
     if (out.status === 'started') await finish('started', { charge: charge.from }, { started: 1, ...used });
@@ -310,7 +343,14 @@ async function chunk(campaignId: string, opts: { auto?: boolean }): Promise<{ de
       await refundDispatch(c.accountId, charge);
       await finish(out.status, { error: out.error.slice(0, 500) }, out.status === 'failed' ? { failed: 1 } : { skipped: 1 });
     }
-    await new Promise((r) => setTimeout(r, gap));
+    // QR Code: intervalo aleatório longo; se passar do fim desta parte, a próxima parte começa depois dele
+    const wait = conn.provider === 'web' ? webGapMs() : gap;
+    if (conn.provider === 'web' && Date.now() + wait > deadline) {
+      const [more] = await rows<{ n: string }>(sql`select count(*) as n from campaign_recipients where campaign_id = ${c.id} and status = 'queued'`);
+      if (Number(more?.n ?? 0) > 0) return { delay: wait };
+      break;
+    }
+    await new Promise((r) => setTimeout(r, wait));
   }
 
   const [left] = await rows<{ n: string }>(sql`select count(*) as n from campaign_recipients where campaign_id = ${c.id} and status = 'queued'`);

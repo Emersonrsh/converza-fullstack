@@ -24,6 +24,35 @@ function Info({ label, children, testId }: { label: string; children: ReactNode;
   return <div className="bl-info-row" data-testid={testId}><span>{label}</span><b>{children}</b></div>;
 }
 
+/** Conta da casa: a empresa do próprio dono do Converza (HOUSE_EMAILS) — nada a pagar, tokens sem limite. */
+function HouseOverview({ s }: { s: Summary }) {
+  const sub = s.subscription;
+  return (
+    <div className="fade bl-page" data-testid="billing-page">
+      <section className="card bl-sub" data-testid="bl-house">
+        <div className="bl-sub-head">
+          <span className="bl-sub-ic"><Icon name="building" size={20} /></span>
+          <div className="bl-sub-t">
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <b>Conta da casa</b>
+              <span className="pill dot green" data-testid="bl-status">Ativa · sem cobrança</span>
+            </div>
+            <p>Esta empresa é do dono do Converza (e-mail em HOUSE_EMAILS no servidor): não gera faturas, as instâncias são liberadas pelo servidor e os tokens de IA não acabam. O uso continua sendo contado em Configurações › Uso da IA.</p>
+          </div>
+          <div className="bl-price"><strong>{fmtMoney(0, sub.currency)}</strong><small>por mês</small></div>
+        </div>
+        <div className="bl-boxes">
+          <Box label="Instâncias liberadas" value={fmtInt(sub.instances)} testId="bl-box-instances" />
+          <Box label="Em uso" value={fmtInt(sub.inUse)} testId="bl-house-inuse" />
+          <Box label="Tokens de IA" value="Sem limite" testId="bl-house-tokens" />
+          <Box label="Tokens usados" value={fmtInt(s.tokens.used)} testId="bl-house-used" />
+        </div>
+        <div className="hint"><Icon name="info" size={14} />Precisa de mais números? Aumente HOUSE_INSTANCES no Render (converza-api › Environment): ao salvar, o Render reinicia a API e o novo limite vale em cerca de 1 minuto.</div>
+      </section>
+    </div>
+  );
+}
+
 export function Overview() {
   const { accountId } = useAuth();
   const [params, setParams] = useSearchParams();
@@ -78,6 +107,7 @@ export function Overview() {
       <button type="button" className="btn" onClick={() => void load()}>Tentar de novo</button></div>;
   }
   if (!s) return <Spinner />;
+  if (s.house) return <HouseOverview s={s} />;
 
   const sub = s.subscription;
   const cur = sub.currency;

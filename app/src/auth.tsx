@@ -82,7 +82,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register: AuthShape['register'] = async (name, email, password, companyName, inviteToken) => {
     // código do programa de parceiros guardado quando a pessoa abriu o link ?ref=
     const ref = localStorage.getItem('converza:ref');
-    applyAuth(await api.post<AuthResp>('/auth/register', { name, email, password, companyName, ...(ref ? { ref } : {}), ...(inviteToken ? { inviteToken } : {}) }));
+    // só chega aqui com a caixa "Li e aceito os Termos" marcada (a tela de cadastro exige)
+    applyAuth(await api.post<AuthResp>('/auth/register', { name, email, password, companyName, acceptTerms: true, ...(ref ? { ref } : {}), ...(inviteToken ? { inviteToken } : {}) }));
     localStorage.removeItem('converza:ref');
   };
   const logout = () => {

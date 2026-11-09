@@ -138,7 +138,7 @@ export function Agents() {
       {tab === 'vozes' ? <VoicesTab canEdit={canEdit} /> : (
         <>
           {!data.aiEnabled && <div className="hint" style={{ marginBottom: 14 }}><Icon name="alert" size={14} />A IA não está configurada no servidor (OPENAI_API_KEY): os agentes não vão responder até isso ser feito.</div>}
-          {data.aiEnabled && data.balance <= 0 && list.some((a) => a.enabled) && (
+          {data.aiEnabled && !data.house && data.balance <= 0 && list.some((a) => a.enabled) && (
             <div className="hint" style={{ marginBottom: 14 }}><Icon name="alert" size={14} />Sem saldo de tokens de IA: os agentes pararam de responder.
               <button type="button" className="linkbtn" onClick={() => nav('/billing')}>Comprar tokens</button></div>
           )}

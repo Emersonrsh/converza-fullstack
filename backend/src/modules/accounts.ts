@@ -1,4 +1,6 @@
 /** Criar outra empresa (conta) — quem cria vira o proprietário. Cada empresa tem a sua assinatura. */
+import { config } from '../config';
+import { syncHouseAccounts } from '../billing/house';
 import { Router } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
@@ -31,6 +33,10 @@ accountsRouter.post('/', asyncHandler(async (req, res) => {
     await tx.insert(schema.subscriptions).values({ accountId: acc.id, status: 'inactive' });
     return acc;
   });
+  // dono que está em HOUSE_EMAILS: a empresa nova já nasce como conta da casa
+  if (config.house.emails.includes(String(req.user!.email ?? '').toLowerCase())) {
+    await syncHouseAccounts().catch((err) => console.error('[conta da casa]', (err as Error).message));
+  }
   res.status(201).json({ account: { id: account.id, name: account.name, slug: account.slug, role: 'owner' } });
 }));
 

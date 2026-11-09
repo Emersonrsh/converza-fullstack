@@ -16,7 +16,7 @@ interface Resp {
   totals: { tokens: number; calls: number; conversations: number; conversationTokens: number; toolTokens: number; perConversation: number };
   byKind: { kind: string; label: string; tokens: number; calls: number; inConversation: boolean }[];
   byDay: { day: string; tokens: number }[];
-  sessions: Session[]; balance: number; usedTotal: number;
+  sessions: Session[]; balance: number; usedTotal: number; house?: boolean;
 }
 interface Detail {
   key: string; type: string; title: string; conversationId: string | null; tokens: number;
@@ -86,7 +86,7 @@ export function AiUsagePage() {
         <StatTile icon="bolt" tone="amber" value={fmtNum(t.tokens)} label={`Tokens em ${days} dias`} testId="usage-total" />
         <StatTile icon="chats" value={fmtNum(t.conversations)} label="Conversas com IA" />
         <StatTile icon="trend" tone="blue" value={fmtNum(t.perConversation)} label="Média por conversa" />
-        <StatTile icon="sparkles" tone="green" value={fmtNum(data.balance)} label="Saldo atual" />
+        <StatTile icon="sparkles" tone="green" value={data.house ? '∞' : fmtNum(data.balance)} label={data.house ? 'Saldo (conta da casa)' : 'Saldo atual'} />
       </div>
 
       <div className="st-grid2" style={{ marginBottom: 16 }}>

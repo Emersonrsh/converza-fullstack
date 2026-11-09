@@ -14,7 +14,7 @@ interface Translation {
 }
 interface Resp {
   translations: Translation[]; stats: { total: number; done: number; failed: number; running: number; tokens: number };
-  balance: number; active: boolean; aiEnabled: boolean; languages: { code: string; label: string }[];
+  balance: number; active: boolean; aiEnabled: boolean; languages: { code: string; label: string }[]; house?: boolean;
 }
 interface Estimate { texts: number; tokens: number; balance: number; active: boolean; enough: boolean; aiEnabled: boolean }
 
@@ -102,7 +102,7 @@ export function TranslationsPage() {
         <StatTile icon="check" tone="green" value={s.done} label="Concluídas" />
         <StatTile icon="alert" tone="red" value={s.failed} label="Falharam" />
         <StatTile icon="bolt" tone="amber" value={fmtNum(s.tokens)} label="Tokens gastos" testId="tr-tokens" />
-        <StatTile icon="sparkles" tone="blue" value={fmtNum(data.balance)} label="Saldo de tokens" />
+        <StatTile icon="sparkles" tone="blue" value={data.house ? '∞' : fmtNum(data.balance)} label={data.house ? 'Tokens (conta da casa)' : 'Saldo de tokens'} />
       </div>
       {data.translations.length === 0 ? (
         <div className="st-card"><EmptyBox icon="translate" title="Nenhuma tradução ainda" text="Traduza um fluxo para inglês, espanhol, francês, italiano ou alemão: a IA cria uma cópia em rascunho com todos os textos traduzidos. Cada tradução aparece aqui com os tokens reservados, gastos e devolvidos."

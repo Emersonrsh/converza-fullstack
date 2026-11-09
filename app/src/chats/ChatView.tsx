@@ -207,7 +207,7 @@ export function ChatView({
               {!resolved && c.assignedUserId && <button type="button" onClick={onRelease}><Icon name="inbox" size={15} />Devolver para a fila</button>}
               {!resolved && !c.assignedUserId && <button type="button" onClick={onTransfer} data-testid="menu-transfer"><Icon name="userArrow" size={15} />Transferir (pessoa ou setor)</button>}
               {!resolved && !c.assignedUserId && <button type="button" onClick={onResolve}><Icon name="check" size={15} />Resolver sem atender</button>}
-              <button type="button" onClick={onTemplate} disabled={!detail.connection}><Icon name="file" size={15} />Enviar modelo de mensagem</button>
+              {detail.connection?.provider !== 'web' && <button type="button" onClick={onTemplate} disabled={!detail.connection}><Icon name="file" size={15} />Enviar modelo de mensagem</button>}
               <button type="button" onClick={onManageQuick}><Icon name="bolt" size={15} />Respostas rápidas</button>
             </div>
           )}

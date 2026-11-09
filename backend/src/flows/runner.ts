@@ -24,6 +24,7 @@ import {
   sendInteractive, sendTemplate as waSendTemplate, pixOrderInteractive, carouselInteractive, downloadMedia,
   type WaConnection, type SendResult,
 } from '../whatsapp/cloud-api';
+import { templateAsText } from '../whatsapp/web/convert';
 import { safeHttpRequest } from './http';
 import { flowExtras, setGlobalValue } from './globals';
 import { openNow } from '../modules/businessHours';
@@ -373,7 +374,8 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
       const image = await imageOf(pix.image);
       const conn = await connection();
       let sentCard = false;
-      if (conn) {
+      // QR Code não tem o cartão de pagamento da Meta: vai direto o texto com a chave e o código
+      if (conn && conn.provider !== 'web') {
         try {
           const r = await sendInteractive({ phoneNumberId: conn.phoneNumberId, accessToken: conn.accessToken }, await recipient(), pixOrderInteractive({
             referenceId: pix.referenceId, code: pix.code, merchantName: pix.merchantName, key: pix.key, keyType: pix.keyType,
@@ -410,8 +412,14 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
       const values = t.body.map((b) => b.value).join(' · ');
       const { preview, replyButtons, ...send } = t;
       takeQuote();
+      const conn = await connection();
+      if (conn?.provider === 'web') {
+        // QR Code: não existem modelos da Meta — vai o texto do modelo, com os botões como opções numeradas
+        const text = templateAsText(preview || values || t.name, replyButtons ?? []);
+        await deliver((c, to) => sendText(c, to, text), text, 'text', null);
+        return;
+      }
       await deliver((conn, to) => waSendTemplate(conn, to, send), preview || `📄 Template “${t.name}”${values ? ` — ${values}` : ''}`, 'template', null);
-      void replyButtons;
     },
     async setChatStatus(status, assignUserId, pause) {
       let assigned: string | null = null;
@@ -435,8 +443,9 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
       }
       const wa = { phoneNumberId: conn.phoneNumberId, accessToken: conn.accessToken };
       // janela de 24h aberta com quem vai receber? (só dá para mandar texto livre se a pessoa falou com o número)
-      let windowOpen = false;
-      const person = await findContactByPhone(p.accountId, n.phone);
+      // QR Code não tem essa regra: o texto sai sempre
+      let windowOpen = conn.provider === 'web';
+      const person = windowOpen ? null : await findContactByPhone(p.accountId, n.phone);
       if (person) {
         const [last] = await db.select({ at: schema.messages.createdAt }).from(schema.messages)
           .innerJoin(schema.conversations, eq(schema.conversations.id, schema.messages.conversationId))

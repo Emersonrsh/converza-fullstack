@@ -1,6 +1,11 @@
 import { sql } from 'drizzle-orm';
 import { config } from '../config';
 import { db } from '../db';
+import { connectionIdOf, isWebMediaId, isWebPhoneId } from './web/convert';
+
+/** Conexão por QR Code (API não oficial): carregado só quando usado, e sem ciclo entre os módulos. */
+const web = () => require('./web/manager') as typeof import('./web/manager');
+const asWaError = (err: unknown) => new WhatsAppError((err as Error).message, (err as { code?: number | null }).code ?? null);
 
 export interface WaConnection {
   phoneNumberId: string | null;
@@ -106,6 +111,13 @@ async function post(conn: WaConnection, payload: Record<string, unknown>): Promi
   }
   if (!(await sendingAllowed(conn.phoneNumberId))) {
     throw new WhatsAppError('A assinatura da conta não está ativa: os números não enviam mensagens até ela ser regularizada em Cobranças e assinaturas. As mensagens recebidas continuam chegando.');
+  }
+  // QR Code: o mesmo payload vira envio pelo WhatsApp Web (botões e listas viram opções numeradas)
+  if (isWebPhoneId(conn.phoneNumberId)) {
+    try {
+      const r = await web().webSend(connectionIdOf(conn.phoneNumberId), String(payload.to ?? ''), payload as Record<string, any>);
+      return { waMessageId: r.waMessageId, waId: r.waId, raw: { provider: 'web' } };
+    } catch (err) { throw asWaError(err); }
   }
   let resp: Response;
   try {
@@ -289,6 +301,7 @@ export function sendSticker(conn: WaConnection, to: string, mediaId: string): Pr
 /** Sobe um arquivo para a Meta e devolve o ID da mídia (válido por ~30 dias). */
 export async function uploadMedia(conn: WaConnection, data: Buffer, mime: string, filename: string): Promise<string> {
   if (!conn.phoneNumberId || !conn.accessToken) throw new WhatsAppError('Conexão sem número/token configurados.');
+  if (isWebPhoneId(conn.phoneNumberId)) return web().webUpload(connectionIdOf(conn.phoneNumberId), data, mime, filename);
   const form = new FormData();
   form.append('messaging_product', 'whatsapp');
   form.append('type', mime);
@@ -310,6 +323,9 @@ export async function uploadMedia(conn: WaConnection, data: Buffer, mime: string
 
 /** Baixa uma mídia (recebida ou enviada) pelo ID. */
 export async function downloadMedia(accessToken: string, mediaId: string): Promise<{ data: Buffer; mime: string }> {
+  if (isWebMediaId(mediaId)) {
+    try { return await web().webDownload(mediaId); } catch (err) { throw asWaError(err); }
+  }
   const meta = await fetch(graph(mediaId), { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(15_000) });
   const info = await meta.json().catch(() => ({})) as { url?: string; mime_type?: string };
   if (!meta.ok || !info.url) throw friendlyWaError(info, meta.status);
@@ -364,6 +380,15 @@ export function sendTemplate(conn: WaConnection, to: string, t: TemplateSend): P
 /** Marca a mensagem do cliente como lida (tique azul no WhatsApp dele). */
 export async function markRead(conn: WaConnection, waMessageId: string): Promise<void> {
   if (!conn.phoneNumberId || !conn.accessToken) return;
+  if (isWebPhoneId(conn.phoneNumberId)) {
+    const r = await db.execute(sql`
+      select coalesce(ct.wa_id, ct.phone) as "to" from messages m
+      join conversations v on v.id = m.conversation_id join contacts ct on ct.id = v.contact_id
+      where m.wa_message_id = ${waMessageId} and m.direction = 'in' limit 1`).catch(() => null);
+    const to = (r?.rows[0] as { to?: string } | undefined)?.to;
+    if (to) await web().webMarkRead(connectionIdOf(conn.phoneNumberId), to, [waMessageId]);
+    return;
+  }
   await fetch(graph(`${conn.phoneNumberId}/messages`), {
     method: 'POST',
     headers: { Authorization: `Bearer ${conn.accessToken}`, 'Content-Type': 'application/json' },

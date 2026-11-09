@@ -88,6 +88,11 @@ settingsRouter.delete('/account', asyncHandler(async (req, res) => {
   if (charging) {
     throw new AppError(409, 'A assinatura desta empresa ainda está sendo cobrada. Cancele em Cobranças e assinaturas antes de excluir.', { code: 'subscription_active' });
   }
+  // QR Code: tira os aparelhos do celular antes (senão continuariam em "Aparelhos conectados")
+  const web = await db.select({ id: schema.connections.id }).from(schema.connections)
+    .where(and(eq(schema.connections.accountId, accountId), eq(schema.connections.provider, 'web')));
+  const { webLogout } = web.length ? await import('../whatsapp/web/manager') : { webLogout: async (_id: string) => undefined };
+  for (const c of web) await webLogout(c.id).catch((err) => console.error('[qr] sair ao excluir empresa:', (err as Error).message));
   await db.delete(schema.accounts).where(eq(schema.accounts.id, accountId));
   res.status(204).end();
 }));

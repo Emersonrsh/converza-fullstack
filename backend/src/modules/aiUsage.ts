@@ -98,7 +98,7 @@ aiUsageRouter.get('/', asyncHandler(async (req, res) => {
         calls: Number(s.calls), tokens: Number(s.tokens), firstAt: s.first_at, lastAt: s.last_at,
       };
     }),
-    balance: st.balance, usedTotal: st.used,
+    balance: st.balance, house: st.house, usedTotal: st.used,
   });
 }));
 
