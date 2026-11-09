@@ -92,6 +92,8 @@ export const config = {
   },
   // equipe de suporte do Converza: e-mails (com conta no app) que podem entrar numa empresa quando ela libera o acesso
   supportEmails: list(process.env.SUPPORT_EMAILS),
+  /** donos da plataforma: veem o Painel da plataforma (todas as empresas, receita, suspender, cortesia) */
+  platformAdmins: list(process.env.PLATFORM_ADMIN_EMAILS),
   // conta da casa: empresas cujo dono tem um destes e-mails usam tudo sem pagar (e sem descontar tokens de IA)
   house: {
     emails: list(process.env.HOUSE_EMAILS),

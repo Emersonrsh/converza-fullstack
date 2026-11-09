@@ -1,3 +1,4 @@
+import { Platform } from './pages/Platform';
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth';
@@ -89,6 +90,7 @@ export default function App() {
         <Route path="/settings" element={<SettingsLayout />} />
         <Route path="/settings/:page" element={<SettingsLayout />} />
         <Route path="/tutorials" element={<Tutorials />} />
+        <Route path="/platform" element={<Platform />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

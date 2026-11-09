@@ -1,9 +1,10 @@
+import { platformRouter } from './modules/platform';
 import http from 'http';
 import express from 'express';
 import cors from 'cors';
 import { config } from './config';
 import { errorHandler } from './utils/http';
-import { authRequired, requireAccount } from './auth/middleware';
+import { authRequired, requireAccount, platformAdminRequired } from './auth/middleware';
 import { authRouter } from './auth/routes';
 import { contactsRouter } from './modules/contacts';
 import { connectionsRouter } from './modules/connections';
@@ -89,6 +90,8 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/invites', invitesRouter);
 // criar outra empresa e ver convites recebidos (só precisa estar logado)
 app.use('/api/v1/accounts', authRequired, accountsRouter);
+// painel do dono da plataforma (PLATFORM_ADMIN_EMAILS); para os outros responde 404
+app.use('/api/v1/platform', authRequired, platformAdminRequired, platformRouter);
 
 // Rotas protegidas e isoladas por conta (tenant)
 const guard = [authRequired, requireAccount()];

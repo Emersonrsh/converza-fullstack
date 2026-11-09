@@ -51,6 +51,7 @@ O Render faz deploy a partir de um repositório. Sem instalar Git pela linha de 
    | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `EMAIL_FROM` | (opcional, mas recomendado) envio de e-mail — veja a Parte 9. Sem isso, os convites mostram um link para você copiar. |
    | `SUPPORT_EMAILS` | (opcional) e-mails da sua equipe de suporte, separados por vírgula — veja a Parte 9. |
    | `HOUSE_EMAILS` / `HOUSE_INSTANCES` | (opcional) **conta da casa** — veja a Parte 10. |
+   | `PLATFORM_ADMIN_EMAILS` | seu e-mail (pode ter vários, separados por vírgula): libera o **Painel da plataforma** — veja a Parte 12. |
    | `LEGAL_TRADE_NAME` / `LEGAL_COMPANY_NAME` / `LEGAL_CNPJ` / `LEGAL_ADDRESS` / `LEGAL_EMAIL` / `LEGAL_DPO_NAME` / `LEGAL_DPO_EMAIL` / `LEGAL_CITY` | dados da sua empresa (ou seus, se vende com CPF: `LEGAL_CNPJ` aceita CPF) nos **Termos de Uso**, na **Política de Privacidade** e na **Exclusão de dados** — veja a Parte 10. |
    | `WA_WEB_ENABLED` e demais `WA_WEB_*` | (opcional) **WhatsApp por QR Code** (API não oficial) — veja a Parte 11. |
 4. Crie o serviço. O Render builda a imagem, roda as migrations e sobe a API. A URL final será algo como `https://converza-api.onrender.com`.
@@ -90,7 +91,7 @@ Sem esta parte, seus clientes só conseguem a conexão **manual** (token própri
    - `smb_message_echoes`, `history` e `smb_app_state_sync` (WhatsApp Business do celular: respostas feitas pelo app, histórico e contatos);
    - `account_update` (avisa quando o número é desconectado pelo app ou restrito pela Meta).
 6. Salve as variáveis no Render (a API redeploya sozinha) e teste: **Conexões › Nova Conexão**.
-7. **Publique o app (modo Ao vivo / Live).** Em desenvolvimento, a Meta pode não mandar os webhooks das mensagens de clientes de verdade — só de quem tem função no app ou é número de teste. Para publicar, em **Configurações do app › Básico** ela pede a URL da sua **Política de Privacidade** (e dos Termos de Uso) — o Converza ainda não tem essas páginas, então use as do seu site.
+7. **Publique o app (modo Ao vivo / Live).** Em desenvolvimento, a Meta pode não mandar os webhooks das mensagens de clientes de verdade — só de quem tem função no app ou é número de teste. Para publicar, em **Configurações do app › Básico** ela pede a URL da **Política de Privacidade**, dos **Termos de Uso** e das **instruções de exclusão de dados**: use `https://converza-fullstack.onrender.com/privacidade`, `/termos` e `/exclusao-de-dados` (Parte 10).
 
 > O número conectado pelo WhatsApp Business do celular tem limite de 20 mensagens por segundo e não recebe grupos, listas de transmissão nem chamadas — eles continuam só no app. O pedido de contatos e histórico só funciona nas primeiras 24 horas depois de conectar (o Converza pede sozinho na hora).
 
@@ -226,3 +227,20 @@ Nunca defina `WA_WEB_DRIVER` no Render: ele existe só para os testes automátic
 Toda vez que você (ou eu) mudar o código, é só dar **commit + push** no GitHub Desktop: o Render redeploya sozinho.
 
 **Quando chegar um zip completo novo:** no GitHub Desktop, **Repository › Show in Explorer**. Apague tudo o que aparece na pasta (a pasta `.git` fica escondida e continua lá — é ela que guarda o histórico) e extraia o conteúdo do zip ali dentro, de forma que `backend`, `app` e `DEPLOY.md` fiquem direto na pasta. Assim nenhum arquivo antigo sobra para quebrar o build. Se você usa `backend/.env` para rodar no seu computador, copie-o para fora antes e devolva depois. Deixe o zip fora da pasta do repositório. Depois: **commit + push**.
+
+## Parte 12 — Painel da plataforma (só para você, dono do Converza)
+
+Um painel com **todas as empresas** cadastradas, a receita e as assinaturas — fica no menu, em **Plataforma › Painel da plataforma**, e só aparece para os e-mails liberados.
+
+1. Na API (converza-api › Environment), adicione `PLATFORM_ADMIN_EMAILS` com o e-mail com que você entra no Converza (vários? separe por vírgula). Salve com deploy e, depois de ~1 minuto, saia e entre de novo no Converza.
+2. Quem não está na lista não vê o item no menu, e o endereço do painel responde "não encontrado".
+
+O que tem nele:
+- **Números do negócio:** recebido no mês (comparado com o mês passado), receita recorrente estimada (números pagos × preço da instância), empresas pagando, faturas atrasadas, receita dos últimos 6 meses, empresas por situação, números conectados, pessoas que entraram nos últimos 7 dias e tokens de IA usados.
+- **Empresas:** busca por nome, dono, e-mail ou ID da conta e filtro por situação (pagando, cancelando, atrasadas, cortesia, da casa, sem assinatura, canceladas, suspensas). Clicando numa empresa: dono, equipe, números, assinatura, faturas, se o acesso de suporte está liberado e o histórico do que foi feito no painel.
+- **Dar cortesia:** libera a empresa por alguns dias (até 90 por vez) sem cobrança. Se ela já estiver ativa, os dias são somados. No fim, **não renova sozinha**. Não vale para quem tem assinatura paga renovando (aí o desconto é feito no painel da Asaas ou da Paddle).
+- **Suspender / reativar:** com um motivo, que a empresa vê. Suspensa, ninguém da empresa entra (aparece um aviso) e os números param de enviar; nada é apagado. A cobrança no gateway **não** é cancelada — se for o caso, cancele na Asaas ou na Paddle.
+- **Registro de ações:** cada cortesia, suspensão e reativação fica guardada com quem fez e quando.
+
+> O painel **não** mostra conversas, contatos nem configurações das empresas: isso só com o **acesso de suporte**, que a própria empresa libera (Parte 9) — é o que os Termos de Uso garantem a ela.
+

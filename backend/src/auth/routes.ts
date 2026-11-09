@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { eq, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { signToken } from './jwt';
-import { authRequired } from './middleware';
+import { authRequired, isPlatformAdmin } from './middleware';
 import { accountsFor } from './accounts';
 import { asyncHandler, AppError } from '../utils/http';
 import { acceptPlatformInviteOnSignup } from '../modules/invites';
@@ -74,7 +74,7 @@ authRouter.post('/register', asyncHandler(async (req, res) => {
   recordAccessLater(req, result.user, 'register');
   res.status(201).json({
     token,
-    user: { id: result.user.id, name: result.user.name, email: result.user.email },
+    user: { id: result.user.id, name: result.user.name, email: result.user.email, platformAdmin: isPlatformAdmin(result.user.email) },
     accounts: [{ id: result.account.id, name: result.account.name, slug: result.account.slug, role: 'owner' }],
   });
 }));
@@ -91,12 +91,12 @@ authRouter.post('/login', asyncHandler(async (req, res) => {
 
   const token = signToken({ userId: user.id, email: user.email });
   recordAccessLater(req, user, 'login');
-  res.json({ token, user: { id: user.id, name: user.name, email: user.email }, accounts: await accountsFor(user.id, user.email) });
+  res.json({ token, user: { id: user.id, name: user.name, email: user.email, platformAdmin: isPlatformAdmin(user.email) }, accounts: await accountsFor(user.id, user.email) });
 }));
 
 authRouter.get('/me', authRequired, asyncHandler(async (req, res) => {
   const [user] = await db.select({ id: schema.users.id, name: schema.users.name, email: schema.users.email })
     .from(schema.users).where(eq(schema.users.id, req.user!.id)).limit(1);
   if (!user) throw new AppError(404, 'Usuário não encontrado');
-  res.json({ user, accounts: await accountsFor(user.id, user.email) });
+  res.json({ user: { ...user, platformAdmin: isPlatformAdmin(user.email) }, accounts: await accountsFor(user.id, user.email) });
 }));

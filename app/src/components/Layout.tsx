@@ -46,10 +46,30 @@ const TITLES: Record<string, [string, string]> = {
   '/billing/reembolsos': ['Reembolsos', 'Consulte reembolsos processados na sua conta'],
   '/settings': ['Configurações', 'Empresa, equipe, automação e integrações'],
   '/tutorials': ['Tutoriais', 'Aprenda a usar cada parte do Converza'],
+  '/platform': ['Painel da plataforma', 'Todas as empresas, receita e assinaturas do Converza'],
 };
 
+/** Empresa suspensa no painel da plataforma: ninguém da empresa usa até reativar. */
+function Suspended({ name, reason, others, onSwitch, onLogout }: { name: string; reason: string | null | undefined; others: { id: string; name: string }[]; onSwitch: (id: string) => void; onLogout: () => void }) {
+  return (
+    <div className="susp-wrap" data-testid="suspended-screen">
+      <div className="card susp-card">
+        <span className="susp-ic"><Icon name="alert" size={26} /></span>
+        <h2>{name} está suspensa</h2>
+        <p>O acesso a esta empresa foi pausado pela equipe do Converza. Nada foi apagado: assim que a situação for resolvida, tudo volta como estava.</p>
+        {reason && <div className="susp-why"><b>Motivo:</b> {reason}</div>}
+        <p>Os números desta empresa não enviam mensagens enquanto ela estiver suspensa (as recebidas continuam chegando). Para resolver, fale com o suporte.</p>
+        <div className="row">
+          {others.map((o) => <button key={o.id} type="button" className="btn" onClick={() => onSwitch(o.id)}>Ir para {o.name}</button>)}
+          <button type="button" className="btn" onClick={onLogout}><Icon name="logout" size={15} />Sair</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Layout() {
-  const { user, accounts, accountId, switchAccount, logout } = useAuth();
+  const { user, accounts, accountId, switchAccount, logout, reloadAccounts } = useAuth();
   const loc = useLocation();
   const nav = useNavigate();
   // convites de equipe esperando resposta (aviso no topo)
@@ -81,6 +101,17 @@ export function Layout() {
     return () => { sock.off('tokens:update', onTokens); };
   }, [accountId]);
 
+  // suspensa/reativada agora (painel da plataforma): relê as empresas para mostrar (ou tirar) o aviso
+  useEffect(() => {
+    const again = () => { void reloadAccounts(accountId); };
+    window.addEventListener('converza:suspended', again);
+    const sock = getSocket();
+    sock?.on('account:suspended', again);
+    sock?.on('account:reactivated', again);
+    return () => { window.removeEventListener('converza:suspended', again); sock?.off('account:suspended', again); sock?.off('account:reactivated', again); };
+  }, [accountId, reloadAccounts]);
+
+  const navGroups: typeof NAV = user?.platformAdmin ? [...NAV, ['Plataforma', [['shield', 'Painel da plataforma', '/platform']]]] : NAV;
   const [t, s] = TITLES[loc.pathname] ?? TITLES[`/${loc.pathname.split('/')[1]}`] ?? ['Converza', ''];
   // construtor de fluxos, quadro do Kanban e chats ao vivo ocupam a tela inteira (sem a barra do topo)
   const fullscreen = /^\/(flows|kanban)\/[^/]+/.test(loc.pathname) || loc.pathname === '/inbox' || /^\/settings(\/|$)/.test(loc.pathname);
@@ -106,7 +137,7 @@ export function Layout() {
           </div>
         )}
 
-        {NAV.map(([group, items]) => (
+        {navGroups.map(([group, items]) => (
           <div key={group}>
             <div className="navgroup">{group}</div>
             {items.map(([ic, label, to]) => (
@@ -147,7 +178,9 @@ export function Layout() {
             {user && <div className="row" style={{ gap: 9 }}><Avatar name={user.name} size={34} /></div>}
           </header>
         )}
-        <div className={cx('content', fullscreen && 'flush')}><Outlet /></div>
+        {account?.suspended && !(user?.platformAdmin && loc.pathname === '/platform')
+          ? <Suspended name={account.name} reason={account.suspendedReason} others={accounts.filter((a) => a.id !== account.id && !a.suspended)} onSwitch={switchAccount} onLogout={logout} />
+          : <div className={cx('content', fullscreen && 'flush')}><Outlet /></div>}
       </div>
       <Toaster />
       <AppNotices accountId={accountId} />

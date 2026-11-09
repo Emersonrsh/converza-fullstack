@@ -84,13 +84,17 @@ export function launchEmbeddedSignup(configId: string, opts: { coexistence?: boo
 export function loginForAds(configId: string | null): Promise<{ code?: string; accessToken?: string }> {
   return new Promise((resolve, reject) => {
     if (!window.FB) { reject(new Error('O login da Meta não carregou')); return; }
+    // a configuração "token de acesso do usuário" já devolve o token no próprio login: pedir um code aqui fazia
+    // a troca no servidor falhar ("Error validating verification code… redirect_uri"), porque o code do SDK
+    // do JavaScript não tem um redirect_uri que o servidor consiga repetir
     const opts: Record<string, unknown> = configId
-      ? { config_id: configId, response_type: 'code', override_default_response_type: true, auth_type: 'reauthenticate' }
+      ? { config_id: configId, auth_type: 'reauthenticate' }
       : { scope: 'ads_read,business_management', auth_type: 'reauthenticate', return_scopes: true };
     window.FB.login((r) => {
       const code = r?.authResponse?.code;
       const accessToken = r?.authResponse?.accessToken;
-      if (code || accessToken) resolve({ code: code || undefined, accessToken: code ? undefined : accessToken });
+      // o token tem preferência; o code só se a Meta não mandar o token
+      if (accessToken || code) resolve(accessToken ? { accessToken } : { code: code! });
       else reject(new Error('Login cancelado antes de terminar'));
     }, opts);
   });

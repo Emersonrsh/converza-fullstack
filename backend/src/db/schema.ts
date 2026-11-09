@@ -39,6 +39,9 @@ export const accounts = pgTable('accounts', {
   description: text('description').notNull().default(''),
   /** e-mail ao dono quando um número desconecta ou fica restrito */
   notifyInstanceEmail: boolean('notify_instance_email').notNull().default(true),
+  /** suspensa pelo dono da plataforma (painel da plataforma): ninguém da empresa entra e os números não enviam */
+  suspendedAt: timestamp('suspended_at', { withTimezone: true }),
+  suspendedReason: text('suspended_reason'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -1008,6 +1011,21 @@ export const accessLogs = pgTable('access_logs', {
   byUser: index('access_logs_user_idx').on(t.userId),
 }));
 
+/** O que o dono da plataforma fez no painel da plataforma (suspender, reativar, cortesia…). */
+export const platformAudit = pgTable('platform_audit', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+  actorEmail: text('actor_email').notNull(),
+  accountId: uuid('account_id').references(() => accounts.id, { onDelete: 'set null' }),
+  accountName: text('account_name').notNull().default(''),
+  action: text('action').notNull(),
+  detail: jsonb('detail').notNull().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  byCreated: index('platform_audit_created_idx').on(t.createdAt),
+  byAccount: index('platform_audit_account_idx').on(t.accountId, t.createdAt),
+}));
+
 /** Variáveis da conta usadas nos fluxos como {{g_nome}} (os fluxos também podem mudar o valor). */
 export const globalVariables = pgTable('global_variables', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -1146,7 +1164,7 @@ export const schema = {
   tags, flowFolders, flows, flowRuns, flowNodeStats, voices, agents, agentRuns, campaigns, webhooks, products, sales, adSpend, subscriptions,
   kanbanBoards, kanbanColumns, kanbanCards, contactFields, contactExports, webhookEvents, webhookUsage, flowPending,
   campaignRecipients, dispatchUsage, metaProfiles, metaAdAccounts, pixels, pixelEvents, invoices, billingEvents,
-  departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, storedFiles, storedFileMedia,
+  departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, platformAudit, storedFiles, storedFileMedia,
   globalVariables, flowTranslations, aiUsage, trackingLinks, trackingClicks, apiKeys, mcpCalls, flowDistributions,
   waWebAuth, waWebMedia, accessLogs,
 };

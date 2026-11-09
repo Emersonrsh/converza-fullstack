@@ -1,8 +1,8 @@
 export type Role = 'owner' | 'admin' | 'agent';
 export type Stage = 'new' | 'in_service' | 'negotiating' | 'won' | 'lost';
 
-export interface User { id: string; name: string; email: string; }
-export interface Account { id: string; name: string; slug: string; role: Role; support?: boolean; supportUntil?: string; }
+export interface User { id: string; name: string; email: string; /** dono da plataforma (PLATFORM_ADMIN_EMAILS) */ platformAdmin?: boolean; }
+export interface Account { id: string; name: string; slug: string; role: Role; support?: boolean; supportUntil?: string; suspended?: boolean; suspendedReason?: string | null; }
 
 export interface Contact {
   id: string; name: string; phone: string; waId: string | null;

@@ -162,6 +162,13 @@
       "when": 1794034142474,
       "tag": "0022_access_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794040000000,
+      "tag": "0023_platform_admin",
+      "breakpoints": true
     }
   ]
 }

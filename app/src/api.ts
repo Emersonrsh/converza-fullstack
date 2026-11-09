@@ -53,6 +53,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (!res.ok) {
     const msg = (data as { error?: string })?.error ?? `Erro ${res.status}`;
     if (res.status === 401) { setToken(null); setAccountId(null); }
+    // empresa suspensa no painel da plataforma: o app mostra o aviso
+    if (res.status === 403 && (data as { code?: string })?.code === 'account_suspended') window.dispatchEvent(new Event('converza:suspended'));
     throw new ApiError(res.status, msg, data as Record<string, unknown>);
   }
   return data as T;

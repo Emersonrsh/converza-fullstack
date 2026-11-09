@@ -88,11 +88,13 @@ async function sendingAllowed(phoneNumberId: string): Promise<boolean> {
   const hit = allowCache.get(phoneNumberId);
   if (hit && Date.now() - hit.at < 3000) return hit.ok;
   const r = await db.execute(sql`
-    select s.status from connections c left join subscriptions s on s.account_id = c.account_id
+    select s.status, a.suspended_at as "suspendedAt" from connections c left join subscriptions s on s.account_id = c.account_id
+    left join accounts a on a.id = c.account_id
     where c.phone_number_id = ${phoneNumberId} limit 1`);
-  const row = r.rows[0] as { status?: string | null } | undefined;
+  const row = r.rows[0] as { status?: string | null; suspendedAt?: string | null } | undefined;
   // número que ainda não é uma conexão salva (ex.: teste durante o cadastro): não há assinatura para conferir
-  const ok = !row || row.status === 'active';
+  // empresa suspensa no painel da plataforma: não envia
+  const ok = !row || (row.status === 'active' && !row.suspendedAt);
   allowCache.set(phoneNumberId, { at: Date.now(), ok });
   return ok;
 }

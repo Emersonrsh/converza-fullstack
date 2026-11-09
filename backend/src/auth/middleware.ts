@@ -6,6 +6,8 @@ import { verifyToken } from './jwt';
 import { AppError } from '../utils/http';
 import { recordAccessLater } from './accessLog';
 
+export const isPlatformAdmin = (email: string | undefined | null) => !!email && config.platformAdmins.includes(email.toLowerCase());
+
 export const isSupportEmail = (email: string | undefined | null) => !!email && config.supportEmails.includes(email.toLowerCase());
 
 /** Acesso de suporte valendo agora para esta conta (registra o último uso, no máximo 1 vez por minuto). */
@@ -71,6 +73,12 @@ export function requireAccount(...roles: Array<'owner' | 'admin' | 'agent'>) {
           throw new AppError(403, 'Sem acesso a esta conta', { code: 'no_account_access' });
         }
       }
+      // empresa suspensa pelo dono da plataforma: ninguém entra (o dono da plataforma continua vendo)
+      const [acc] = await db.select({ at: schema.accounts.suspendedAt, why: schema.accounts.suspendedReason })
+        .from(schema.accounts).where(eq(schema.accounts.id, accountId)).limit(1);
+      if (acc?.at && !isPlatformAdmin(req.user.email)) {
+        throw new AppError(403, `Esta empresa está suspensa${acc.why ? `: ${acc.why}` : ''}. Fale com o suporte do Converza.`, { code: 'account_suspended', reason: acc.why ?? null });
+      }
       if (roles.length && !roles.includes(role!)) {
         throw new AppError(403, 'Permissão insuficiente');
       }
@@ -78,4 +86,10 @@ export function requireAccount(...roles: Array<'owner' | 'admin' | 'agent'>) {
       req.role = role!;
     })().then(() => next(), next);
   };
+}
+
+/** Só os donos da plataforma (PLATFORM_ADMIN_EMAILS). Responde 404 para os outros (nem mostra que existe). */
+export function platformAdminRequired(req: Request, _res: Response, next: NextFunction) {
+  if (!req.user || !isPlatformAdmin(req.user.email)) throw new AppError(404, 'Não encontrado');
+  next();
 }
