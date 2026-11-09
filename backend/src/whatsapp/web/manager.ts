@@ -519,6 +519,32 @@ function enqueue<T>(s: Session, fn: () => Promise<T>): Promise<T> {
 
 export interface WebSendResult { waMessageId: string | null; waId: string | null }
 
+/** "digitando…" em andamento por conversa (renovado a cada 10 s; o envio ou o fim do tempo encerram) */
+const typingTimers = new Map<string, { timer: NodeJS.Timeout; until: number }>();
+function stopTyping(connectionId: string, jid: string) {
+  const k = `${connectionId}|${jid}`;
+  const t = typingTimers.get(k);
+  if (t) { clearInterval(t.timer); typingTimers.delete(k); }
+}
+async function typingLocal(s: Session, connectionId: string, to: string, seconds: number) {
+  if (!s.sock || s.state !== 'open') return;
+  const jid = await jidFor(s, to).catch(() => null);
+  if (!jid) return;
+  stopTyping(connectionId, jid);
+  const until = Date.now() + Math.min(60, seconds) * 1000;
+  await s.sock.presence(jid, 'composing').catch(() => undefined);
+  const timer = setInterval(() => {
+    if (Date.now() >= until || !s.sock || s.state !== 'open') {
+      stopTyping(connectionId, jid);
+      if (s.sock && s.state === 'open') void s.sock.presence(jid, 'paused').catch(() => undefined);
+      return;
+    }
+    void s.sock.presence(jid, 'composing').catch(() => undefined);
+  }, 10_000);
+  timer.unref?.();
+  typingTimers.set(`${connectionId}|${jid}`, { timer, until });
+}
+
 async function sendLocal(s: Session, to: string, payload: Record<string, any>): Promise<WebSendResult> {
   if (s.state !== 'open' && !(await waitOpen(s, 25_000))) throw new WebSendError(offlineText(s.state));
   if (!s.sock) throw new WebSendError(offlineText(s.state));
@@ -528,6 +554,7 @@ async function sendLocal(s: Session, to: string, payload: Record<string, any>): 
   const ops = opsFromCloud(payload);
   if (!ops.length) throw new WebSendError('Tipo de mensagem não suportado pela conexão por QR Code.', 131051);
   const jid = await jidFor(s, to);
+  for (const k of typingTimers.keys()) if (k.endsWith(`|${jid}`)) { clearInterval(typingTimers.get(k)!.timer); typingTimers.delete(k); }
   return enqueue(s, async () => {
     let first: string | null = null;
     for (const op of ops) {
@@ -598,6 +625,9 @@ async function runLocal(connectionId: string, method: string, args: Record<strin
     case 'send':
       if (!s) throw new WebSendError('Sessão não está neste servidor.');
       return sendLocal(s, args.to, args.payload);
+    case 'typing':
+      if (s) await typingLocal(s, connectionId, String(args.to), Number(args.seconds) || 0);
+      return true;
     case 'read':
       if (s?.sock && s.state === 'open') {
         const jid = await jidFor(s, args.to).catch(() => null);
@@ -656,6 +686,10 @@ export async function webSend(connectionId: string, to: string, payload: Record<
     if (!r) throw new WebSendError(offlineText(state));
   }
   return r.result as WebSendResult;
+}
+
+export async function webTyping(connectionId: string, to: string, seconds: number) {
+  await callOwner(connectionId, 'typing', { to, seconds }, 10_000).catch(() => undefined);
 }
 
 export async function webMarkRead(connectionId: string, to: string, ids: string[]) {

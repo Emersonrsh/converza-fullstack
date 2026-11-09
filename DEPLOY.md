@@ -51,7 +51,7 @@ O Render faz deploy a partir de um repositório. Sem instalar Git pela linha de 
    | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `EMAIL_FROM` | (opcional, mas recomendado) envio de e-mail — veja a Parte 9. Sem isso, os convites mostram um link para você copiar. |
    | `SUPPORT_EMAILS` | (opcional) e-mails da sua equipe de suporte, separados por vírgula — veja a Parte 9. |
    | `HOUSE_EMAILS` / `HOUSE_INSTANCES` | (opcional) **conta da casa** — veja a Parte 10. |
-   | `LEGAL_TRADE_NAME` / `LEGAL_COMPANY_NAME` / `LEGAL_CNPJ` / `LEGAL_ADDRESS` / `LEGAL_EMAIL` / `LEGAL_DPO_NAME` / `LEGAL_DPO_EMAIL` / `LEGAL_CITY` | dados da sua empresa nos **Termos de Uso**, na **Política de Privacidade** e na **Exclusão de dados** — veja a Parte 10. |
+   | `LEGAL_TRADE_NAME` / `LEGAL_COMPANY_NAME` / `LEGAL_CNPJ` / `LEGAL_ADDRESS` / `LEGAL_EMAIL` / `LEGAL_DPO_NAME` / `LEGAL_DPO_EMAIL` / `LEGAL_CITY` | dados da sua empresa (ou seus, se vende com CPF: `LEGAL_CNPJ` aceita CPF) nos **Termos de Uso**, na **Política de Privacidade** e na **Exclusão de dados** — veja a Parte 10. |
    | `WA_WEB_ENABLED` e demais `WA_WEB_*` | (opcional) **WhatsApp por QR Code** (API não oficial) — veja a Parte 11. |
 4. Crie o serviço. O Render builda a imagem, roda as migrations e sobe a API. A URL final será algo como `https://converza-api.onrender.com`.
 
@@ -108,15 +108,20 @@ Usa o **mesmo app da Meta** da Parte 6 (`META_APP_ID` e `META_APP_SECRET`).
 O cliente paga por **instância** (cada instância = um número de WhatsApp; padrão R$ 127,00/mês) e compra **tokens de IA** à parte. Ninguém digita cartão no Converza: o pagamento acontece na página segura da **Asaas** (Pix e cartão, no Brasil) ou da **Paddle** (exterior), e as instâncias, tokens e disparos extras só são liberados quando o gateway avisa que o pagamento caiu.
 
 ### Asaas (Pix e cartão — Brasil)
-1. Crie a conta em asaas.com e envie os documentos pedidos — só depois da aprovação a conta recebe pagamentos de verdade. Para testar sem dinheiro, crie também uma conta no **sandbox** (sandbox.asaas.com): é ela que o Converza usa enquanto `ASAAS_ENV` não for `production`.
-2. No painel da Asaas, em **Integrações**, gere a **chave da API** → `ASAAS_API_KEY` (a chave do sandbox e a de produção são diferentes).
-3. Ainda em **Integrações › Webhooks**, adicione um webhook:
-   - **URL:** `https://converza-api.onrender.com/api/v1/billing-hooks/asaas`
-   - **Token de autenticação:** invente uma senha longa (por exemplo, 40 letras e números) e coloque a mesma em `ASAAS_WEBHOOK_TOKEN`
-   - **Versão da API:** v3 · **Fila de sincronização:** ligada · **E-mail:** o seu (a Asaas avisa se o envio falhar)
+A conta pode ser de **pessoa física (CPF)** ou de empresa (CNPJ): o Converza funciona igual. Com CPF, a Asaas não emite nota fiscal (isso é recurso da conta de empresa) e o cliente vê o seu nome como recebedor do Pix.
+
+São **duas contas** na Asaas: a de **teste** (sandbox.asaas.com, cadastro separado, sem dinheiro de verdade — o Converza usa ela enquanto `ASAAS_ENV` não for `production`) e a **de verdade** (asaas.com). Os passos 2 e 3 são feitos nas duas.
+
+1. **Conta de verdade:** envie os documentos e faça a **prova de vida** (selfie) quando a Asaas pedir — só depois da aprovação ela recebe pagamentos. Aprovada, cadastre uma **chave Pix** (menu **Pix › Cadastrar chave**; a **chave aleatória** não expõe seu CPF nem seu celular): sem chave, a Asaas demora mais para processar os recebimentos por Pix. A conta de teste é aprovada sozinha (se não for, ou se o Pix aparecer desabilitado, tire números e símbolos do nome do cadastro).
+2. **Chave da API:** pelo **site** (o aplicativo não gera), com usuário administrador, em **Integrações › Chave de API › Gerar nova chave de API**. **Copie na hora**: a Asaas mostra a chave uma vez só (perdeu, gera outra). → `ASAAS_API_KEY`. A chave do sandbox não funciona na produção e vice-versa.
+3. **Webhook:** em **Integrações › Webhooks**, adicione um:
+   - **Nome:** Converza · **URL:** `https://converza-api.onrender.com/api/v1/billing-hooks/asaas` · **E-mail:** o seu (a Asaas avisa se o envio falhar)
+   - **Versão da API:** v3 · **Fila de sincronização:** ativa · **Webhook:** ativo · **Tipo de envio:** sequencial
+   - **Token de autenticação:** a Asaas exige um de 32 a 255 caracteres — use o botão de gerar ou invente um (letras e números). Copie → `ASAAS_WEBHOOK_TOKEN`. Use **o mesmo token** no webhook do sandbox e no da produção: na troca, só a chave muda.
    - **Eventos:** todos os de **Cobranças** e os de **Assinaturas**
-4. Na API do Render: `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN` e, quando for cobrar de verdade, `ASAAS_ENV=production` (troque também a chave e o webhook para os da conta de produção).
-5. Opcional: `INSTANCE_PRICE_BRL` (padrão `127`) e `TOKEN_PRICE_BRL_PER_1000` (padrão `1` → 1.000 tokens = R$ 1,00).
+4. **No Render** (converza-api › Environment): `ASAAS_API_KEY` e `ASAAS_WEBHOOK_TOKEN` → salve (o Render reinicia a API). Para **cobrar de verdade**: apague a empresa de teste (veja abaixo), troque `ASAAS_API_KEY` pela chave da produção, adicione `ASAAS_ENV=production` e desative o webhook do sandbox.
+5. **Avisos da Asaas aos seus clientes:** por padrão a Asaas manda lembretes de cada cobrança por e-mail e SMS (antes e depois do vencimento) e cobra por isso — R$ 0,99 por cobrança avisada na tabela atual; confira em **Minha conta › Taxas**. Eles ajudam a lembrar de pagar a mensalidade por Pix (o Converza não manda esse lembrete); se não quiser, dá para desligar no cadastro de cada cliente na Asaas (**Clientes › cliente › Notificações**).
+6. Opcional: `INSTANCE_PRICE_BRL` (padrão `127`) e `TOKEN_PRICE_BRL_PER_1000` (padrão `1` → 1.000 tokens = R$ 1,00).
 
 ### Paddle (pagamentos do exterior) — opcional
 1. Crie a conta em paddle.com (Paddle Billing). A Paddle revisa o seu site antes de liberar vendas reais (ela costuma pedir domínio próprio com páginas de preços, termos, privacidade e reembolso). Para testar, use o **sandbox** (sandbox-vendors.paddle.com).
@@ -128,10 +133,11 @@ O cliente paga por **instância** (cada instância = um número de WhatsApp; pad
 7. Opcional: `TOKEN_PRICE_USD_PER_1000` (padrão `0.2`) e `INSTANCE_PRICE_USD` (só aparece se a Paddle não responder).
 
 ### Testar sem gastar (sandbox)
-Toda empresa precisa de assinatura ativa para conectar números e usar agentes de IA — inclusive a sua. Enquanto `ASAAS_ENV` não for `production`, tudo é de mentira:
-1. No Converza, em **Cobranças**, assine 1 instância pagando por **Pix** (no sandbox, pode usar o seu CPF: nada é cobrado).
-2. No painel do sandbox (sandbox.asaas.com), abra **Cobranças**, clique na cobrança e em **Confirmar pagamento**. Em segundos a Asaas avisa o Converza e a assinatura fica **Ativa**.
-3. Os tokens de IA são comprados do mesmo jeito (Cobranças › **Adicionar tokens** → confirmar no sandbox).
+Toda empresa precisa de assinatura ativa para conectar números e usar agentes de IA — menos as **contas da casa** (`HOUSE_EMAILS`, Parte 10), que não pagam e por isso não mostram o botão de assinar. Para testar a cobrança, **crie uma empresa de teste** no Converza com outro e-mail (no Gmail, `seunome+teste@gmail.com` chega na mesma caixa). Enquanto `ASAAS_ENV` não for `production`, tudo é de mentira:
+1. Na empresa de teste, em **Cobranças**, assine 1 instância pagando por **Pix** (no sandbox, pode usar o seu CPF: nada é cobrado).
+2. No painel do sandbox (sandbox.asaas.com), abra **Cobranças**, clique na cobrança e em **Confirmar pagamento**. Em segundos a Asaas avisa o Converza e a assinatura fica **Ativa**. (Não ficou? Abra os **logs do webhook** em **Integrações › Webhooks**: resposta 401 = o token do webhook é diferente do `ASAAS_WEBHOOK_TOKEN`; 503 = falta o `ASAAS_WEBHOOK_TOKEN` no Render.)
+3. Os tokens de IA são comprados do mesmo jeito (Cobranças › **Adicionar tokens** → confirmar no sandbox). Cartão de teste da Asaas: `4444 4444 4444 4444`.
+4. Terminou? **Apague a empresa de teste** (Configurações › Empresa › Excluir empresa) **antes** de trocar para a produção — a assinatura dela só existe no sandbox.
 
 ### Suporte
 `SUPPORT_URL` é o link do botão **Falar com Suporte** (ex.: `https://wa.me/5511999999999`). Se ficar vazio, usa o `PARTNER_CONTACT_URL`.
@@ -167,7 +173,9 @@ O app já tem três páginas públicas (abrem sem login):
 - `https://SEU-APP.onrender.com/privacidade` — Política de Privacidade (LGPD)
 - `https://SEU-APP.onrender.com/exclusao-de-dados` — instruções de exclusão de dados
 
-1. Na API (converza-api › Environment), preencha: `LEGAL_COMPANY_NAME` (razão social), `LEGAL_CNPJ`, `LEGAL_ADDRESS` (endereço completo), `LEGAL_EMAIL` (e-mail de contato), `LEGAL_DPO_NAME` e `LEGAL_DPO_EMAIL` (encarregado de dados — pode ser você), `LEGAL_CITY` (cidade do foro, ex.: `São Paulo/SP`) e, se a marca não for "Converza", `LEGAL_TRADE_NAME`. Enquanto faltar algo, a página mostra o dado marcado em amarelo e um aviso para você.
+1. Na API (converza-api › Environment), preencha: `LEGAL_COMPANY_NAME` (razão social), `LEGAL_CNPJ` (o CNPJ — o novo, com letras, também vale), `LEGAL_ADDRESS` (endereço completo), `LEGAL_EMAIL` (e-mail de contato), `LEGAL_DPO_NAME` e `LEGAL_DPO_EMAIL` (encarregado de dados — pode ser você), `LEGAL_CITY` (cidade do foro, ex.: `São Paulo/SP`) e, se a marca não for "Converza", `LEGAL_TRADE_NAME`. Enquanto faltar algo, a página mostra o dado marcado em amarelo e um aviso para você.
+   - **Vende como pessoa física (sem CNPJ)?** Coloque o seu **nome completo** em `LEGAL_COMPANY_NAME` e o seu **CPF** em `LEGAL_CNPJ`: as páginas passam a dizer "pessoa física inscrita no CPF sob o nº…" e "com endereço em…" sozinhas. A lei do comércio eletrônico (Decreto 7.962/2013) pede que o site mostre o CPF ou CNPJ de quem vende e um endereço físico e um eletrônico — então seu CPF e o endereço ficam públicos nessas páginas (se não quiser expor a sua casa, use um endereço comercial ou escritório virtual). Quando abrir o CNPJ, é só trocar as duas variáveis.
+   - Se o número não conferir (dígito errado), a página mostra um aviso para você corrigir.
 2. No app da Meta (Meta for Developers › seu app › **Configurações do app › Básico**), cole o link de `/privacidade` em **URL da Política de Privacidade**, o de `/termos` em **URL dos Termos de Serviço** e o de `/exclusao-de-dados` em **Exclusão de dados do usuário › URL de instruções**. A Meta exige isso para publicar o app e para a Análise do App.
 3. O cadastro de conta agora exige marcar "Li e aceito os Termos de Uso e a Política de Privacidade"; a data e a versão do aceite ficam gravadas.
 4. **Registros de acesso:** o Converza guarda data, hora e IP de cada acesso por 6 meses (Marco Civil da Internet, art. 15) e apaga o que passar disso sozinho, uma vez por dia.

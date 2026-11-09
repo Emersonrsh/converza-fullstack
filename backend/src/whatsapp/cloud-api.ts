@@ -397,6 +397,25 @@ export async function markRead(conn: WaConnection, waMessageId: string): Promise
   }).catch(() => undefined);
 }
 
+/**
+ * "Digitando…" para o cliente. QR Code: presença "digitando" pelo tempo pedido (renovada até o envio).
+ * API oficial: o indicador da Meta exige o id de uma mensagem recebida do cliente (marca como lida) e some em até 25 s.
+ */
+export async function showTyping(conn: WaConnection, to: string, lastInboundWaId: string | null, seconds: number): Promise<void> {
+  if (!conn.phoneNumberId || !conn.accessToken || seconds <= 0) return;
+  if (isWebPhoneId(conn.phoneNumberId)) {
+    await web().webTyping(connectionIdOf(conn.phoneNumberId), to, seconds);
+    return;
+  }
+  if (!lastInboundWaId || lastInboundWaId === 'sim') return;
+  await fetch(graph(`${conn.phoneNumberId}/messages`), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${conn.accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: lastInboundWaId, typing_indicator: { type: 'text' } }),
+    signal: AbortSignal.timeout(8_000),
+  }).catch(() => undefined);
+}
+
 export interface TemplateButton { type: string; text: string; url: string | null; hasVar: boolean; example: string | null }
 export interface TemplateInfo {
   name: string; language: string; category: string; status: string;

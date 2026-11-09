@@ -408,3 +408,116 @@ export function variablesOf(nodes: { type?: string; data: Record<string, any> }[
 
 export const sanitizeVarName = (s: string) =>
   s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
+
+/* ------------------------------------------------------------------ prévia no canvas */
+
+export type PreviewPart =
+  | { k: 'row'; icon: string; text: string; sub?: string }
+  | { k: 'label'; text: string }
+  | { k: 'chips'; items: { text: string; color?: string }[] }
+  | { k: 'box'; title: string; sub?: string }
+  | { k: 'note'; text: string };
+
+const ITEM_ICON: Record<string, string> = { text: 'chat', interval: 'clock', image: 'image', video: 'video', audio: 'mic', file: 'file', sticker: 'sticker', contact: 'contact' };
+const ITEM_NAME: Record<string, string> = { image: 'Imagem', video: 'Vídeo', audio: 'Áudio', file: 'Arquivo', sticker: 'Sticker' };
+const EVENT_PT: Record<string, string> = {
+  Purchase: 'Compra', Lead: 'Lead', InitiateCheckout: 'Início de checkout', AddToCart: 'Adicionar ao carrinho', AddPaymentInfo: 'Dados de pagamento',
+  CompleteRegistration: 'Cadastro', Contact: 'Contato', ViewContent: 'Ver conteúdo', Subscribe: 'Assinatura', Schedule: 'Agendamento', PlaceAnOrder: 'Pedido',
+  CompletePayment: 'Pagamento concluído', SubmitForm: 'Formulário enviado',
+};
+const PREVIEW_MAX = 12;
+const short = (s: unknown, n = 70) => { const t = String(s ?? '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
+const unitShort: Record<string, string> = { seconds: 's', minutes: 'min', hours: 'h', days: 'd' };
+
+/**
+ * O que compõe o bloco, para mostrar no canvas (itens da mensagem, etiquetas, setor, evento do pixel…).
+ * Vazio = o bloco mostra só o resumo de texto (ou "clique duas vezes para configurar").
+ */
+export function preview(type: string, d: Record<string, any>, lk: Lookups): PreviewPart[] {
+  switch (type) {
+    case 'message': {
+      const items: any[] = Array.isArray(d.items) ? d.items : d.text ? [{ type: 'text', text: d.text }] : [];
+      const parts: PreviewPart[] = [];
+      for (const it of items) {
+        const t = String(it.type ?? 'text');
+        if (t === 'text') {
+          if (Number(it.typingSeconds) > 0) parts.push({ k: 'row', icon: 'edit', text: `Digitando: ${Number(it.typingSeconds)}s` });
+          parts.push({ k: 'row', icon: 'chat', text: short(it.text) || 'Texto vazio' });
+        } else if (t === 'interval') parts.push({ k: 'row', icon: 'clock', text: `Delay: ${Number(it.amount ?? 3)}${unitShort[it.unit ?? 'seconds'] ?? 's'}` });
+        else if (t === 'contact') parts.push({ k: 'row', icon: 'contact', text: `Contato: ${short(it.name, 40) || 'sem nome'}` });
+        else {
+          const name = it.filename || it.fileName || (it.url ? String(it.url).split('/').pop() : '');
+          parts.push({ k: 'row', icon: ITEM_ICON[t] ?? 'file', text: `${ITEM_NAME[t] ?? 'Arquivo'}: ${short(name, 48) || 'sem arquivo'}`, sub: it.caption ? short(it.caption, 50) : undefined });
+        }
+      }
+      if (parts.length > PREVIEW_MAX) {
+        const extra = parts.length - PREVIEW_MAX;
+        return [...parts.slice(0, PREVIEW_MAX), { k: 'note', text: `+ ${extra} ${extra === 1 ? 'item' : 'itens'}` }];
+      }
+      return parts;
+    }
+    case 'tags': {
+      const tags: string[] = Array.isArray(d.tags) ? d.tags : [];
+      if (!tags.length) return [];
+      return [
+        { k: 'label', text: d.mode === 'remove' ? 'Remover etiquetas do cliente:' : 'Adicionar etiquetas ao cliente:' },
+        { k: 'chips', items: tags.map((t) => ({ text: t, color: lk.tags.find((x) => x.name === t)?.color })) },
+      ];
+    }
+    case 'department': {
+      if (d.action === 'clear') return [{ k: 'row', icon: 'building', text: 'Tirar a conversa do setor' }];
+      const dep = lk.departments.find((x) => x.id === d.departmentId);
+      return dep ? [{ k: 'label', text: 'Atribuir departamento ao chat:' }, { k: 'chips', items: [{ text: dep.name, color: dep.color }] }] : [];
+    }
+    case 'kanban': {
+      const b = lk.kanban.find((x) => x.id === d.boardId);
+      if (!b) return [];
+      const c = b.columns.find((x) => x.id === d.columnId)?.name;
+      const label = d.action === 'remove' ? 'Tirar o card de:' : d.action === 'move' ? 'Mover o card para:' : 'Adicionar card em:';
+      return [{ k: 'label', text: label }, { k: 'box', title: b.name, sub: c && d.action !== 'remove' ? `Coluna: ${c}` : undefined }];
+    }
+    case 'pixel': {
+      const px = lk.pixels.find((p) => p.id === d.pixelId);
+      if (!px) return [];
+      const plat = ({ meta: 'Facebook', meta_whatsapp: 'Facebook (WhatsApp)', tiktok: 'TikTok' } as Record<string, string>)[px.platform || d.platform] ?? 'Facebook';
+      const value = d.value ? ` • Valor: ${/\{\{/.test(String(d.value)) ? d.value : `${d.value} ${d.currency || 'BRL'}`}` : '';
+      return [{ k: 'label', text: `Disparar evento no ${plat}:` }, { k: 'box', title: px.name, sub: `Tipo: ${EVENT_PT[d.event] ?? d.event}${value}` }];
+    }
+    case 'condition': {
+      const rules: any[] = Array.isArray(d.rules) ? d.rules : d.field ? [d] : [];
+      if (!rules.length) return [];
+      const joiner = d.logic === 'any' ? 'ou' : 'e';
+      return [
+        ...rules.slice(0, 4).map((r, i) => ({ k: 'box', title: `${i ? `${joiner} ` : ''}${ruleText(r, lk)}` }) as PreviewPart),
+        ...(rules.length > 4 ? [{ k: 'note', text: `+ ${rules.length - 4} regras` } as PreviewPart] : []),
+        { k: 'note', text: 'Caso não atenda a condição, o fluxo segue pela saída “Não”' },
+      ];
+    }
+    case 'delay': {
+      const s = summary('delay', d, lk);
+      if (!s) return [];
+      const text = d.mode === 'date' || d.mode === 'hours' ? s : `Espera de ${delayText(d)}`;
+      return [{ k: 'row', icon: 'clock', text }];
+    }
+    case 'sale': {
+      const p = lk.products.find((x) => x.id === d.productId);
+      return p ? [{ k: 'label', text: 'Registrar venda:' }, { k: 'box', title: p.name, sub: money(Number(p.price)) }] : [];
+    }
+    case 'ai_agent': {
+      if (d.action === 'remove') return [{ k: 'row', icon: 'bot', text: 'Devolve a conversa para o fluxo' }];
+      const a = lk.agents.find((x) => x.id === d.agentId);
+      return a ? [{ k: 'label', text: 'Entregar a conversa para:' }, { k: 'chips', items: [{ text: a.name }] }] : [];
+    }
+    case 'goto_flow': {
+      const f = lk.flows.find((x) => x.id === d.flowId);
+      return f ? [{ k: 'label', text: 'Ir para o fluxo:' }, { k: 'box', title: f.name }] : [];
+    }
+    case 'chat_status': {
+      const who = lk.team.find((t) => t.userId === d.assignUserId)?.name;
+      return [{ k: 'label', text: 'Status da conversa:' }, { k: 'chips', items: [{ text: STATUS_LABEL[d.status] ?? 'Aguardando' }, ...(d.status === 'open' && who ? [{ text: who }] : [])] }];
+    }
+    case 'http': return d.url ? [{ k: 'label', text: 'Chamar a API:' }, { k: 'box', title: `${d.method ?? 'GET'} ${String(d.url).replace(/^https?:\/\//, '')}` }] : [];
+    case 'notify': return d.phone ? [{ k: 'label', text: 'Avisar pelo WhatsApp:' }, { k: 'box', title: d.name || 'Notificação', sub: `+${d.country || '55'} ${d.phone}` }] : [];
+    default: return [];
+  }
+}

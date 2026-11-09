@@ -12,14 +12,27 @@ export type LegalDoc = 'termos' | 'privacidade' | 'exclusao';
 
 interface LegalInfo {
   version: string;
-  company: { tradeName: string; companyName: string | null; cnpj: string | null; address: string | null; email: string | null; dpoName: string | null; dpoEmail: string | null; city: string | null };
+  company: {
+    tradeName: string; companyName: string | null; cnpj: string | null; address: string | null; email: string | null; dpoName: string | null; dpoEmail: string | null; city: string | null;
+    /** LEGAL_CNPJ pode ser o CPF de quem vende como pessoa física */
+    docType?: 'cpf' | 'cnpj' | null;
+  };
   missing: string[];
+  invalid?: string[];
   qrCode: boolean;
 }
 
+/** Quem opera o serviço é pessoa física (LEGAL_CNPJ com um CPF)? */
+const isPerson = (c: LegalInfo['company'] | undefined) => c?.docType === 'cpf';
+const docLabel = (c: LegalInfo['company'] | undefined) => (isPerson(c) ? 'CPF' : 'CNPJ');
+const nameLabel = (c: LegalInfo['company'] | undefined) => (isPerson(c) ? 'nome completo' : 'razão social');
+
 const TITLES: Record<LegalDoc, string> = { termos: 'Termos de Uso', privacidade: 'Política de Privacidade', exclusao: 'Exclusão de dados' };
 const PATHS: Record<LegalDoc, string> = { termos: '/termos', privacidade: '/privacidade', exclusao: '/exclusao-de-dados' };
-const MISSING_LABEL: Record<string, string> = { companyName: 'razão social (LEGAL_COMPANY_NAME)', cnpj: 'CNPJ (LEGAL_CNPJ)', address: 'endereço (LEGAL_ADDRESS)', email: 'e-mail de contato (LEGAL_EMAIL)', city: 'cidade do foro (LEGAL_CITY)' };
+const MISSING_LABEL: Record<string, string> = {
+  companyName: 'razão social — ou seu nome completo, se vende como pessoa física (LEGAL_COMPANY_NAME)', cnpj: 'CNPJ ou CPF (LEGAL_CNPJ)',
+  address: 'endereço (LEGAL_ADDRESS)', email: 'e-mail de contato (LEGAL_EMAIL)', city: 'cidade do foro (LEGAL_CITY)',
+};
 
 /** Valor da empresa ou um marcador visível de "falta preencher". */
 function V({ v, ph }: { v: string | null | undefined; ph: string }) {
@@ -62,11 +75,16 @@ export function LegalPage({ doc }: { doc: LegalDoc }) {
             <b>Para o dono do sistema:</b> preencha no Render (converza-api › Environment) {info.missing.map((m) => MISSING_LABEL[m] ?? m).join(', ')}. Até lá, esses dados aparecem marcados no texto.
           </div>
         )}
+        {info?.invalid?.includes('cnpj') && (
+          <div className="lg-warn" data-testid="legal-invalid">
+            <b>Para o dono do sistema:</b> o número em LEGAL_CNPJ ({c?.cnpj}) não confere como CPF nem como CNPJ. Confira os dígitos no Render (converza-api › Environment).
+          </div>
+        )}
         {doc === 'termos' && <Terms c={c} brand={brand} qrCode={info?.qrCode ?? true} contactEmail={contactEmail} />}
         {doc === 'privacidade' && <Privacy c={c} brand={brand} qrCode={info?.qrCode ?? true} contactEmail={contactEmail} />}
         {doc === 'exclusao' && <Deletion c={c} brand={brand} contactEmail={contactEmail} />}
         <footer className="lg-foot">
-          <span>© {new Date().getFullYear()} {c?.companyName ?? brand}{c?.cnpj ? ` · CNPJ ${c.cnpj}` : ''}</span>
+          <span>© {new Date().getFullYear()} {c?.companyName ?? brand}{c?.cnpj ? ` · ${docLabel(c)} ${c.cnpj}` : ''}</span>
           <span>{(Object.keys(TITLES) as LegalDoc[]).map((d) => <Link key={d} to={PATHS[d]}>{TITLES[d]}</Link>)}</span>
         </footer>
       </main>
@@ -77,6 +95,9 @@ export function LegalPage({ doc }: { doc: LegalDoc }) {
 type Props = { c: LegalInfo['company'] | undefined; brand: string; contactEmail: string | null; qrCode?: boolean };
 
 function Who({ c, brand }: Pick<Props, 'c' | 'brand'>) {
+  if (isPerson(c)) {
+    return <><b>{brand}</b>, serviço operado por <V v={c?.companyName} ph="nome completo" />, pessoa física inscrita no CPF sob o nº <V v={c?.cnpj} ph="CPF" />, com endereço em <V v={c?.address} ph="endereço" /></>;
+  }
   return <><b>{brand}</b>, serviço operado por <V v={c?.companyName} ph="razão social" />, inscrita no CNPJ sob o nº <V v={c?.cnpj} ph="CNPJ" />, com sede em <V v={c?.address} ph="endereço" /></>;
 }
 
@@ -180,7 +201,7 @@ function Privacy({ c, brand, qrCode, contactEmail }: Props) {
 
       <H n={1}>Quem cuida dos seus dados</H>
       <ul>
-        <li><b>Controlador</b> dos dados de quem usa a plataforma (donos de empresa, administradores e atendentes): <V v={c?.companyName} ph="razão social" />, CNPJ <V v={c?.cnpj} ph="CNPJ" />.</li>
+        <li><b>Controlador</b> dos dados de quem usa a plataforma (donos de empresa, administradores e atendentes): <V v={c?.companyName} ph={nameLabel(c)} />, {docLabel(c)} <V v={c?.cnpj} ph={docLabel(c)} />.</li>
         <li><b>Encarregado pelo tratamento de dados (DPO):</b> <V v={c?.dpoName} ph="nome do encarregado" /> — <V v={contactEmail} ph="e-mail do encarregado" />.</li>
         <li><b>Dados dos clientes finais</b> (as pessoas que conversam pelo WhatsApp com as empresas que usam o {brand}): a <b>empresa cliente é a controladora</b> e o {brand} é <b>operador</b>, tratando esses dados só para prestar o serviço contratado por ela.</li>
       </ul>

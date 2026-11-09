@@ -5,7 +5,8 @@ import {
 } from '@xyflow/react';
 import { Icon } from '../icons';
 import { cx } from '../components/ui';
-import { BLOCKS, emptyLookups, outputsFor, summary, type BlockType, type Lookups } from './blocks';
+import { money } from '../api';
+import { BLOCKS, emptyLookups, outputsFor, preview, summary, type BlockType, type Lookups, type PreviewPart } from './blocks';
 import type { IssueLevel } from './validate';
 import type { NodeStat } from '../types';
 
@@ -42,7 +43,8 @@ export const BlockNode = memo(function BlockNode({ id, type, data, selected }: N
   const advances = st?.advances ?? 0;
   const rate = entries ? Math.min(100, Math.round((advances / entries) * 100)) : 0;
   const rows = outs.length > 1 || (outs.length === 1 && outs[0].label !== '');
-  const text = summary(type, data, ctx.lookups);
+  const parts = preview(type, data, ctx.lookups);
+  const text = parts.length ? '' : summary(type, data, ctx.lookups);
   const level = ctx.levels[id];
 
   return (
@@ -63,7 +65,7 @@ export const BlockNode = memo(function BlockNode({ id, type, data, selected }: N
         <span className="blk-ic"><Icon name={meta.icon} size={14} stroke={2.2} /></span>
         <span className="blk-tt">{data.title || meta.label}</span>
       </div>
-      <div className={cx('blk-bd', !text && 'empty')}>{text || 'Clique duas vezes para configurar'}</div>
+      {parts.length ? <Preview parts={parts} /> : <div className={cx('blk-bd', !text && 'empty')}>{text || 'Clique duas vezes para configurar'}</div>}
       {rows ? (
         <div className="blk-outs">
           {outs.map((o) => (
@@ -80,6 +82,60 @@ export const BlockNode = memo(function BlockNode({ id, type, data, selected }: N
         <span><b>{entries}</b> entradas</span>
         <span><b>{advances}</b> avanços</span>
         <span><b>{rate}%</b> taxa</span>
+      </div>
+    </div>
+  );
+});
+
+/** O que compõe o bloco: itens da mensagem, etiquetas, setor, evento do pixel… */
+function Preview({ parts }: { parts: PreviewPart[] }) {
+  return (
+    <div className="blk-pv" data-testid="blk-preview">
+      {parts.map((p, i) => {
+        switch (p.k) {
+          case 'row': return (
+            <div key={i} className="pv-row"><Icon name={p.icon} size={12} stroke={2.2} /><span><span className="pv-t">{p.text}</span>{p.sub && <small>{p.sub}</small>}</span></div>
+          );
+          case 'label': return <div key={i} className="pv-label">{p.text}</div>;
+          case 'chips': return (
+            <div key={i} className="pv-chips">{p.items.map((c, j) => (
+              <span key={j} className="pv-chip" style={c.color ? ({ '--chip': c.color } as CSSProperties) : undefined}><i />{c.text}</span>
+            ))}</div>
+          );
+          case 'box': return <div key={i} className="pv-box"><b>{p.title}</b>{p.sub && <small>{p.sub}</small>}</div>;
+          default: return <div key={i} className="pv-note">{p.text}</div>;
+        }
+      })}
+    </div>
+  );
+}
+
+/** Venda aprovada: círculo com borda neon que acende e apaga. */
+export const SaleNode = memo(function SaleNode({ id, data, selected }: NodeProps<BlockFlowNode>) {
+  const ctx = useContext(BuilderContext);
+  const st = ctx.stats[id];
+  const entries = st?.entries ?? 0;
+  const advances = st?.advances ?? 0;
+  const rate = entries ? Math.min(100, Math.round((advances / entries) * 100)) : 0;
+  const level = ctx.levels[id];
+  const product = ctx.lookups.products.find((x) => x.id === data.productId);
+  return (
+    <div className={cx('sale-node', selected && 'sel', ctx.simNodeId === id && 'sim', !!level && 'bad', level === 'error' && 'err')} data-testid="block-sale">
+      <div className="blk-tools nodrag nopan" onDoubleClick={(e) => e.stopPropagation()}>
+        <button type="button" onClick={(e) => { e.stopPropagation(); ctx.onEdit(id); }} title="Editar (Enter)" aria-label="Editar bloco" data-testid="blk-edit"><Icon name="edit" size={13} /></button>
+        <button type="button" onClick={(e) => { e.stopPropagation(); ctx.onDuplicate(id); }} title="Duplicar" aria-label="Duplicar bloco" data-testid="blk-dup"><Icon name="copy" size={13} /></button>
+        <button type="button" className="del" onClick={(e) => { e.stopPropagation(); ctx.onDelete(id); }} title="Excluir" aria-label="Excluir bloco" data-testid="blk-del"><Icon name="trash" size={13} /></button>
+      </div>
+      <div className="sale-orb" title={product ? `${product.name} · ${money(Number(product.price))}` : 'Registra a venda (dashboard e pixel)'}>
+        <Handle type="target" position={Position.Left} className="blk-hin sale-h" />
+        <span className="sale-ic">$</span>
+        <span className="sale-tt">{data.title || 'Venda aprovada'}</span>
+        <Handle type="source" position={Position.Right} className="blk-hout sale-h" />
+      </div>
+      <div className="sale-stats" title="Estatísticas de contatos reais (a simulação não conta)">
+        <span><small>Entradas</small><b>{entries}</b></span>
+        <span><small>Avanços</small><b>{advances}</b></span>
+        <span><small>Taxa</small><b>{rate}%</b></span>
       </div>
     </div>
   );
@@ -113,7 +169,7 @@ export function DeletableEdge(props: EdgeProps) {
   );
 }
 
-export const nodeTypes = Object.fromEntries(Object.keys(BLOCKS).map((t) => [t, BlockNode]));
+export const nodeTypes = { ...Object.fromEntries(Object.keys(BLOCKS).map((t) => [t, BlockNode])), sale: SaleNode };
 export const edgeTypes = { deletable: DeletableEdge };
 
 export function ZoomControls() {

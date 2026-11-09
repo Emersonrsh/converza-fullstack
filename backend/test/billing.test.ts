@@ -2,7 +2,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'crypto';
 import {
-  addDaysDate, addMonthsDate, brDate, endOfDayBR, maskTaxId, periodEndFromDue, prorata, statusInfo, todayBR, validTaxId,
+  addDaysDate, addMonthsDate, brDate, endOfDayBR, formatTaxId, maskTaxId, normTaxId, periodEndFromDue, prorata, statusInfo, taxIdKind, todayBR,
+  validTaxId,
 } from '../src/billing/rules';
 import { asaasBillingType, methodFromAsaas, paddleOneOff, paddleQuantity, paddleSignatureOk } from '../src/billing/gateways';
 import { MAX_INSTANCES, TOKENS_MIN, monthlyPrice, tokensPrice } from '../src/modules/plans';
@@ -25,6 +26,27 @@ describe('CPF e CNPJ', () => {
     assert.equal(maskTaxId('52998224725'), '***.982.247-**');
     assert.equal(maskTaxId('11222333000181'), '**.222.333/0001-**');
     assert.equal(maskTaxId(null), null);
+  });
+  it('aceita o CNPJ alfanumérico (exemplo da Receita e o primeiro emitido)', () => {
+    assert.equal(validTaxId('12.ABC.345/01DE-35'), '12ABC34501DE35');
+    assert.equal(validTaxId('12.abc.345/01de-35'), '12ABC34501DE35');
+    assert.equal(validTaxId('00.000.000/E08G-12'), '00000000E08G12');
+    assert.equal(taxIdKind('12ABC34501DE35'), 'cnpj');
+    assert.equal(maskTaxId('12ABC34501DE35'), '**.ABC.345/01DE-**');
+  });
+  it('recusa CNPJ alfanumérico com dígito errado ou letra no dígito verificador', () => {
+    assert.equal(validTaxId('12.ABC.345/01DE-36'), null);
+    assert.equal(validTaxId('12.ABC.345/01DE-3A'), null);
+    assert.equal(validTaxId('AAAAAAAAAAAAAA'), null);
+    assert.equal(validTaxId('5299822472A'), null);
+  });
+  it('diz se é CPF ou CNPJ e formata', () => {
+    assert.equal(taxIdKind('529.982.247-25'), 'cpf');
+    assert.equal(taxIdKind('11.222.333/0001-81'), 'cnpj');
+    assert.equal(taxIdKind('529.982.247-26'), null);
+    assert.equal(formatTaxId('52998224725'), '529.982.247-25');
+    assert.equal(formatTaxId('12ABC34501DE35'), '12.ABC.345/01DE-35');
+    assert.equal(normTaxId(' 12.abc.345/01de-35 '), '12ABC34501DE35');
   });
 });
 

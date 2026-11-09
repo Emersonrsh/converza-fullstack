@@ -3,7 +3,7 @@ import { ApiError, api } from '../api';
 import { Icon } from '../icons';
 import { Modal, cx, toast } from '../components/ui';
 import {
-  docValid, fmtDate, fmtInt, fmtMoney, maskDoc, openPayment, pl, type CheckoutResult, type Summary,
+  docValid, fmtDate, fmtInt, fmtMoney, maskDoc, normDoc, openPayment, pl, type CheckoutResult, type Summary,
 } from './types';
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : 'Erro inesperado');
@@ -50,13 +50,16 @@ function Choice<T extends string>({ value, options, onChange, testId }: {
 function PayerFields({ doc, setDoc, name, setName, saved }: {
   doc: string; setDoc: (v: string) => void; name: string; setName: (v: string) => void; saved: string | null;
 }) {
-  const bad = doc.replace(/\D/g, '').length >= 11 && !docValid(doc);
+  // 12 e 13 caracteres: ainda digitando um CNPJ (não acusa erro no meio)
+  const n = normDoc(doc).length;
+  const bad = (n === 11 || n >= 14) && !docValid(doc);
   return (
     <div className="bl-payer">
       <div>
         <label className="label">CPF ou CNPJ</label>
-        <input className={cx('input', bad && 'bad')} value={doc} onChange={(e) => setDoc(maskDoc(e.target.value))} inputMode="numeric"
-          placeholder={saved ? `Cadastrado: ${saved}` : '000.000.000-00'} data-testid="bl-doc" />
+        {/* teclado com letras: o CNPJ emitido desde 31/07/2026 pode ter letras */}
+        <input className={cx('input', bad && 'bad')} value={doc} onChange={(e) => setDoc(maskDoc(e.target.value))} inputMode="text" autoCapitalize="characters"
+          autoComplete="off" spellCheck={false} placeholder={saved ? `Cadastrado: ${saved}` : '000.000.000-00'} data-testid="bl-doc" />
         {bad && <small className="bl-err">CPF ou CNPJ inválido. Confira os números.</small>}
         {saved && !doc && <small className="faint">Deixe em branco para usar o já cadastrado.</small>}
       </div>

@@ -254,3 +254,11 @@
 .sim-cbtn:disabled{opacity:.55;cursor:default}
 .sim-cbtn.link{cursor:default}
 .sim-tpl{font-size:10.5px;font-weight:800;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+.sale-node:hover .blk-tools,.sale-node.sel .blk-tools{opacity:1;transform:none;pointer-events:all}
+.bm-typing{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
+.bm-typing-hd{display:flex;align-items:baseline;gap:8px;font-size:12px;color:var(--muted);font-weight:600}
+.bm-typing-hd b{margin:0 auto;color:var(--text);font-weight:800}
+.bm-typing-hd small{font-size:11.5px;color:var(--faint)}
+.bm-typing input[type=range]{--p:0%;width:100%;margin:8px 0 2px;appearance:none;height:6px;border-radius:99px;background:linear-gradient(90deg,var(--primary) var(--p),var(--border-strong) var(--p));outline:none}
+.bm-typing input[type=range]::-webkit-slider-thumb{appearance:none;width:18px;height:18px;border-radius:50%;background:var(--primary);border:3px solid var(--surface);box-shadow:0 0 0 1px var(--primary)}
+.bm-typing input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--primary);border:3px solid var(--surface)}

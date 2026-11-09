@@ -20,7 +20,7 @@ import { toMp3 } from '../utils/audio';
 import { PLATFORMS, type Platform } from '../pixels/engine';
 import { publicEvent } from '../pixels/sender';
 import {
-  sendText, sendMedia, sendButtons, sendList, sendMediaId, sendSticker, sendStickerLink, sendContactCard, sendReaction,
+  sendText, showTyping, sendMedia, sendButtons, sendList, sendMediaId, sendSticker, sendStickerLink, sendContactCard, sendReaction,
   sendInteractive, sendTemplate as waSendTemplate, pixOrderInteractive, carouselInteractive, downloadMedia,
   type WaConnection, type SendResult,
 } from '../whatsapp/cloud-api';
@@ -240,6 +240,11 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
     async getContact() {
       const c = await contact();
       return { name: c.name, phone: c.phone, stage: c.stage, tags: [...c.tags], email: c.email, custom: { ...(c.custom as Record<string, unknown> ?? {}) } };
+    },
+    async typing(seconds) {
+      const conn = await connection();
+      if (!conn) return;
+      await showTyping({ phoneNumberId: conn.phoneNumberId, accessToken: conn.accessToken }, await recipient(), p.state.lastWaId, seconds).catch(() => undefined);
     },
     async sendText(text) {
       const quote = takeQuote();

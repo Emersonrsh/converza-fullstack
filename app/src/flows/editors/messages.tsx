@@ -1,3 +1,4 @@
+import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { Icon } from '../../icons';
 import { cx } from '../../components/ui';
@@ -41,6 +42,24 @@ function ContentGrid({ onPick }: { onPick: (type: string) => void }) {
   );
 }
 
+/** Quanto tempo o WhatsApp mostra "digitando…" antes de enviar o texto (0 = envia na hora). */
+export const TYPING_MAX = 60;
+function TypingDelay({ value, onChange, testId }: { value: number; onChange: (v: number) => void; testId: string }) {
+  const v = Math.min(TYPING_MAX, Math.max(0, Math.round(value) || 0));
+  return (
+    <div className="bm-typing" data-testid={testId}>
+      <div className="bm-typing-hd">
+        <span>Delay do “digitando”</span>
+        <b data-testid={`${testId}-value`}>{v ? `${v} ${v === 1 ? 'segundo' : 'segundos'}` : 'desligado'}</b>
+        <small>{TYPING_MAX} segundos</small>
+      </div>
+      <input type="range" min={0} max={TYPING_MAX} step={1} value={v} onChange={(e) => onChange(Number(e.target.value))}
+        style={{ '--p': `${(v / TYPING_MAX) * 100}%` } as React.CSSProperties} aria-label="Delay do digitando em segundos" />
+      <div className="bm-hint">Tempo que o WhatsApp fica “digitando…” antes de enviar esta mensagem. Na API oficial da Meta o aviso aparece por até 25 segundos e só depois que o cliente mandou alguma mensagem; o envio espera o tempo todo do mesmo jeito.</div>
+    </div>
+  );
+}
+
 function ItemBody({ it, upd, vars, i }: { it: D; upd: (p: D) => void; vars: string[]; i: number }) {
   const media = (kind: 'image' | 'video' | 'audio' | 'document' | 'sticker') => (
     <FileOrUrl kind={kind} url={it.url ?? ''} fileId={it.fileId ?? ''} fileName={it.fileName} vars={vars} testId={`item-${i}-file`}
@@ -48,8 +67,11 @@ function ItemBody({ it, upd, vars, i }: { it: D; upd: (p: D) => void; vars: stri
   );
   switch (it.type) {
     case 'text':
-      return <RichText value={it.text ?? ''} onChange={(text) => upd({ text })} vars={vars} rows={4} maxLength={4096} showCount
-        placeholder="Olá {{primeiro_nome}}! Como posso ajudar?" testId={`item-${i}-text`} />;
+      return (<>
+        <RichText value={it.text ?? ''} onChange={(text) => upd({ text })} vars={vars} rows={4} maxLength={4096} showCount
+          placeholder="Olá {{primeiro_nome}}! Como posso ajudar?" testId={`item-${i}-text`} />
+        <TypingDelay value={Number(it.typingSeconds ?? 0)} onChange={(typingSeconds) => upd({ typingSeconds })} testId={`item-${i}-typing`} />
+      </>);
     case 'image':
     case 'video':
       return (<>

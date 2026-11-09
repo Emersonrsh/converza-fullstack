@@ -1,3 +1,4 @@
+import { Logo } from './Logo';
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Icon } from '../icons';
@@ -89,11 +90,7 @@ export function Layout() {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <svg className="logo" viewBox="0 0 40 40" fill="none">
-            <rect width="40" height="40" rx="11" fill="#0e9488" />
-            <path d="M11 13a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v7a4 4 0 0 1-4 4h-7l-5 4v-4V13Z" fill="#fff" fillOpacity=".95" />
-            <path d="M18 17h7M18 20.5h4.5" stroke="#0e9488" strokeWidth="2" strokeLinecap="round" />
-          </svg>
+          <Logo size={34} className="logo" />
           <div><b>Converza</b><small>{account?.name ?? 'Conversational Sales'}</small></div>
         </div>
 

@@ -105,7 +105,7 @@ function sanitizeState(raw: unknown): SimState {
 
 const STATUS_LABEL: Record<string, string> = { pending: 'Aguardando', open: 'Atendimento', resolved: 'Resolvido' };
 
-function memoryExecutor(state: SimState, outputs: SimOutput[], visited: string[], deps: SimDeps): FlowExecutor {
+function memoryExecutor(state: SimState, outputs: SimOutput[], visited: string[], deps: SimDeps, typingWait = new Set<number>()): FlowExecutor {
   const note = (text: string) => outputs.push({ kind: 'note', text });
   let extrasCache: Dict | null = null;
   const simGlobals: Dict = {};
@@ -118,6 +118,11 @@ function memoryExecutor(state: SimState, outputs: SimOutput[], visited: string[]
     async sendText(text) {
       outputs.push({ kind: 'bot', text });
       said(text);
+    },
+    async typing(seconds) {
+      // a espera que vem logo depois é a do "digitando": não precisa do aviso genérico de espera
+      outputs.push({ kind: 'note', text: `✍️ Digitando… (${seconds} s) — pulado na simulação` });
+      typingWait.add(seconds);
     },
     async sendMedia(kind, url, caption) {
       outputs.push({ kind: 'media', mediaType: kind, url, caption });
@@ -295,7 +300,9 @@ export async function simulate(rawGraph: unknown, rawState: unknown, input: SimI
   const outputs: SimOutput[] = [];
   const visited: string[] = [];
   const state = sanitizeState(rawState);
-  const exec = memoryExecutor(state, outputs, visited, deps);
+  // esperas de "digitando" (o próprio typing já avisou na simulação)
+  const typingWait = new Set<number>();
+  const exec = memoryExecutor(state, outputs, visited, deps, typingWait);
   const trigger = graph.nodes.find((n) => n.type === 'trigger');
   let halt: Halt | null = null;
 
@@ -346,9 +353,9 @@ export async function simulate(rawGraph: unknown, rawState: unknown, input: SimI
 
   // na simulação as esperas são puladas e o buffer segue na hora
   let guard = 0;
-  while (halt && (halt.kind === 'delay' || halt.kind === 'buffer') && guard++ < 30) {
+  while (halt && (halt.kind === 'delay' || halt.kind === 'buffer') && guard++ < 120) {
     if (halt.kind === 'delay') {
-      outputs.push({ kind: 'note', text: `⏱️ Espera de ${delayLabel(halt.seconds)} — pulada na simulação` });
+      if (!typingWait.delete(halt.seconds)) outputs.push({ kind: 'note', text: `⏱️ Espera de ${delayLabel(halt.seconds)} — pulada na simulação` });
       halt = await resumeAfterDelay(graph, halt.nodeId, state.run, exec);
     } else {
       outputs.push({ kind: 'note', text: `⏳ Buffer de mensagens (${halt.seconds} s) — na simulação segue na hora` });

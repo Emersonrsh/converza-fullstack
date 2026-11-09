@@ -1,3 +1,4 @@
+import { Logo } from '../components/Logo';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SubscriptionAlert } from '../components/SubscriptionAlert';
 import { useNavigate } from 'react-router-dom';
@@ -146,11 +147,7 @@ export function Dashboard() {
         <section className="pbanner" data-testid="partner-banner">
           <button type="button" className="pb-x" onClick={closeBanner} aria-label="Fechar"><Icon name="close" size={14} /></button>
           <div className="pb-brand">
-            <svg viewBox="0 0 40 40" width="46" height="46" aria-hidden="true">
-              <rect width="40" height="40" rx="11" fill="#fff" fillOpacity=".12" />
-              <path d="M11 13a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v7a4 4 0 0 1-4 4h-7l-5 4v-4V13Z" fill="#fff" />
-              <path d="M18 17h7M18 20.5h4.5" stroke="#0b8278" strokeWidth="2" strokeLinecap="round" />
-            </svg>
+            <Logo size={50} className="pb-logo" />
             <div><b>CONVERZA</b><small>vendas no automático</small></div>
           </div>
           <div className="pb-sep" />

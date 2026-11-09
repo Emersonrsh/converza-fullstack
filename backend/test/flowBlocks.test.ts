@@ -147,6 +147,35 @@ describe('Mensagem com vários itens', () => {
   });
 });
 
+describe('Delay do digitando', () => {
+  it('mostra digitando antes de cada texto e depois envia, na ordem', async () => {
+    const g = {
+      nodes: [T(), N('m', 'message', { items: [
+        { id: 'a', type: 'text', text: 'Primeira', typingSeconds: 3 },
+        { id: 'b', type: 'text', text: 'Segunda' },
+        { id: 'c', type: 'text', text: 'Terceira', typingSeconds: 90 },
+      ] }), N('t', 'tags', { mode: 'add', tags: ['ok'] })],
+      edges: [E('trigger', 'm'), E('m', 't')],
+    };
+    const [r] = await chat(g, ['oi']);
+    assert.deepEqual(bots(r), ['Primeira', 'Segunda', 'Terceira']);
+    const ns = notes(r);
+    assert.ok(ns.some((n) => n.includes('Digitando… (3 s)')));
+    assert.ok(ns.some((n) => n.includes('Digitando… (60 s)')), 'limite de 60 s');
+    assert.ok(!ns.some((n) => n.includes('Espera de')), 'sem aviso duplicado de espera');
+    const iTyping = r.outputs.findIndex((o) => o.kind === 'note' && String(o.text).includes('(3 s)'));
+    const iFirst = r.outputs.findIndex((o) => o.kind === 'bot' && o.text === 'Primeira');
+    assert.ok(iTyping < iFirst, 'digitando vem antes do texto');
+    assert.ok(ns.some((n) => n.includes('ok')), 'segue para o próximo bloco');
+  });
+  it('texto vazio não espera', async () => {
+    const g = { nodes: [T(), N('m', 'message', { items: [{ id: 'a', type: 'text', text: '  ', typingSeconds: 5 }, { id: 'b', type: 'text', text: 'Fim' }] })], edges: [E('trigger', 'm')] };
+    const [r] = await chat(g, ['oi']);
+    assert.deepEqual(bots(r), ['Fim']);
+    assert.ok(!notes(r).some((n) => n.includes('Digitando')));
+  });
+});
+
 describe('Template WhatsApp', () => {
   const g = {
     nodes: [T(), N('t', 'template', {

@@ -77,28 +77,32 @@ export function openPayment(url: string) {
   return true;
 }
 
-/** CPF (000.000.000-00) ou CNPJ (00.000.000/0000-00) enquanto digita. */
+/** Só letras maiúsculas e números (o CNPJ novo, de 31/07/2026 em diante, pode ter letras). */
+export const normDoc = (v: string) => v.toUpperCase().replace(/[^0-9A-Z]/g, '');
+
+/** CPF (000.000.000-00) ou CNPJ (00.000.000/0000-00, com ou sem letras) enquanto digita. */
 export function maskDoc(v: string) {
-  const d = v.replace(/\D/g, '').slice(0, 14);
-  if (d.length <= 11) {
+  const d = normDoc(v).slice(0, 14);
+  if (d.length <= 11 && /^\d*$/.test(d)) {
     return d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})\.(\d{3})(\d)/, '$1.$2.$3').replace(/(\d{3})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3-$4');
   }
-  return d.replace(/(\d{2})(\d)/, '$1.$2').replace(/(\d{2})\.(\d{3})(\d)/, '$1.$2.$3').replace(/(\d{2})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3/$4')
-    .replace(/(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, '$1.$2.$3/$4-$5');
+  return [d.slice(0, 2), d.slice(2, 5), d.slice(5, 8)].filter(Boolean).join('.')
+    + (d.length > 8 ? `/${d.slice(8, 12)}` : '') + (d.length > 12 ? `-${d.slice(12)}` : '');
 }
 
 function cpfOk(d: string) {
-  if (d.length !== 11 || /^(\d)\1+$/.test(d)) return false;
+  if (!/^\d{11}$/.test(d) || /^(\d)\1+$/.test(d)) return false;
   const dv = (len: number) => { let s = 0; for (let i = 0; i < len; i++) s += Number(d[i]) * (len + 1 - i); const r = (s * 10) % 11; return r === 10 ? 0 : r; };
   return dv(9) === Number(d[9]) && dv(10) === Number(d[10]);
 }
+/** Módulo 11 com o valor de cada caractere = código ASCII − 48 (vale para o CNPJ numérico e o com letras). */
 function cnpjOk(d: string) {
-  if (d.length !== 14 || /^(\d)\1+$/.test(d)) return false;
+  if (!/^[0-9A-Z]{12}\d{2}$/.test(d) || /^(.)\1+$/.test(d)) return false;
   const calc = (len: number) => {
     const w = len === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
-    const r = w.reduce((a, x, i) => a + Number(d[i]) * x, 0) % 11; return r < 2 ? 0 : 11 - r;
+    const r = w.reduce((a, x, i) => a + (d.charCodeAt(i) - 48) * x, 0) % 11; return r < 2 ? 0 : 11 - r;
   };
   return calc(12) === Number(d[12]) && calc(13) === Number(d[13]);
 }
 /** Mesma conta que o servidor faz (dígitos verificadores), para avisar antes de enviar. */
-export const docValid = (v: string) => { const d = v.replace(/\D/g, ''); return d.length === 11 ? cpfOk(d) : d.length === 14 ? cnpjOk(d) : false; };
+export const docValid = (v: string) => { const d = normDoc(v); return d.length === 11 ? cpfOk(d) : d.length === 14 ? cnpjOk(d) : false; };

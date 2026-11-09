@@ -87,6 +87,8 @@ export interface FlowExecutor {
   onAdvance(nodeId: string): Promise<void> | void;
   /** Anotação visível só na simulação (no ar é ignorada). */
   note(text: string): void;
+  /** Mostra "digitando…" para o cliente por alguns segundos (o envio do texto vem depois da espera). */
+  typing?(seconds: number): Promise<void>;
   random(): number;
 
   /* ---- blocos da barra Ferramentas ---- */
@@ -138,6 +140,8 @@ export interface RunState {
   buffer: string[];
   /** onde parou o bloco Mensagem quando tem Intervalo entre os itens */
   cursor: Dict;
+  /** bloco → item de texto cujo "digitando…" já foi mostrado (na volta da espera, envia o texto) */
+  typed?: Dict;
 }
 
 export type Halt =
@@ -148,6 +152,8 @@ export type Halt =
   | { kind: 'payment'; nodeId: string; timeoutSeconds: number };
 
 const MAX_STEPS = 80;
+/** limite do "Delay do digitando" de cada texto do bloco Mensagem */
+export const TYPING_MAX_SECONDS = 60;
 /** Menu/carrossel sem tempo de expiração: o padrão é 2 dias (depois disso a conversa sai do fluxo). */
 export const DEFAULT_EXPIRE_SECONDS = 2 * 86400;
 
@@ -479,6 +485,15 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
         const type = String(it.type ?? 'text');
         if (type === 'text') {
           const text = render(it.text, s);
+          const typing = Math.min(TYPING_MAX_SECONDS, Math.max(0, Math.round(Number(it.typingSeconds ?? 0)) || 0));
+          if (text.trim() && typing > 0 && Number(state.typed?.[node.id]) !== i) {
+            // "digitando…" agora, o texto quando a espera acabar (volta para este mesmo item)
+            state.typed = { ...(state.typed ?? {}), [node.id]: i };
+            state.cursor[node.id] = i;
+            if (exec.typing) await exec.typing(typing).catch(() => undefined);
+            return { kind: 'delay', nodeId: node.id, seconds: typing };
+          }
+          if (state.typed) delete state.typed[node.id];
           if (text.trim()) await exec.sendText(text);
         } else if (type === 'interval') {
           const secs = durationSeconds(it.amount ?? 3, it.unit ?? 'seconds');

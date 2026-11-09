@@ -18,15 +18,9 @@ export function pendingInviteToken(): string | null {
 }
 export function clearInviteToken() { try { sessionStorage.removeItem(LS_INVITE); } catch { /* ok */ } }
 
-export function Logo() {
-  return (
-    <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-      <rect width="40" height="40" rx="11" fill="#0e9488" />
-      <path d="M11 13a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v7a4 4 0 0 1-4 4h-7l-5 4v-4V13Z" fill="#fff" />
-      <path d="M18 17h7M18 20.5h4.5" stroke="#0e9488" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
+import { Logo } from '../components/Logo';
+
+export { Logo };
 
 export function Login() {
   const { login, register } = useAuth();

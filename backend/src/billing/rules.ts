@@ -2,8 +2,14 @@
 
 export const onlyDigits = (s: unknown) => String(s ?? '').replace(/\D/g, '');
 
+/**
+ * Só letras maiúsculas e números (tira pontos, barra, traço e espaços).
+ * Desde 31/07/2026 a Receita emite CNPJ com letras nas 12 primeiras posições (IN RFB 2.229/2024).
+ */
+export const normTaxId = (s: unknown) => String(s ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+
 function cpfOk(d: string) {
-  if (d.length !== 11 || /^(\d)\1+$/.test(d)) return false;
+  if (!/^\d{11}$/.test(d) || /^(\d)\1+$/.test(d)) return false;
   const dv = (len: number) => {
     let sum = 0;
     for (let i = 0; i < len; i++) sum += Number(d[i]) * (len + 1 - i);
@@ -13,23 +19,36 @@ function cpfOk(d: string) {
   return dv(9) === Number(d[9]) && dv(10) === Number(d[10]);
 }
 
+/** CNPJ numérico ou alfanumérico: módulo 11 com o valor de cada caractere = código ASCII − 48 (A = 17, Z = 42). */
 function cnpjOk(d: string) {
-  if (d.length !== 14 || /^(\d)\1+$/.test(d)) return false;
+  if (!/^[0-9A-Z]{12}\d{2}$/.test(d) || /^(.)\1+$/.test(d)) return false;
   const calc = (len: number) => {
     const w = len === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
-    const sum = w.reduce((acc, x, i) => acc + Number(d[i]) * x, 0);
+    const sum = w.reduce((acc, x, i) => acc + (d.charCodeAt(i) - 48) * x, 0);
     const r = sum % 11;
     return r < 2 ? 0 : 11 - r;
   };
   return calc(12) === Number(d[12]) && calc(13) === Number(d[13]);
 }
 
-/** CPF (11 dígitos) ou CNPJ (14 dígitos) com os dígitos verificadores certos. */
-export function validTaxId(v: unknown): string | null {
-  const d = onlyDigits(v);
-  if (d.length === 11) return cpfOk(d) ? d : null;
-  if (d.length === 14) return cnpjOk(d) ? d : null;
+/** É CPF ou CNPJ válido? (null quando não é nenhum dos dois) */
+export function taxIdKind(v: unknown): 'cpf' | 'cnpj' | null {
+  const d = normTaxId(v);
+  if (d.length === 11) return cpfOk(d) ? 'cpf' : null;
+  if (d.length === 14) return cnpjOk(d) ? 'cnpj' : null;
   return null;
+}
+
+/** CPF (11 dígitos) ou CNPJ (14 caracteres, com ou sem letras) com os dígitos verificadores certos. */
+export function validTaxId(v: unknown): string | null {
+  return taxIdKind(v) ? normTaxId(v) : null;
+}
+
+/** 000.000.000-00 ou 00.000.000/0000-00 (o CNPJ com letras usa a mesma máscara). */
+export function formatTaxId(d: string) {
+  if (d.length === 11) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+  if (d.length === 14) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+  return d;
 }
 
 export function maskTaxId(d: string | null | undefined) {
