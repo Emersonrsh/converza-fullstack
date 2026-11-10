@@ -1,4 +1,5 @@
-import { createContext, memo, useContext, useEffect, type CSSProperties } from 'react';
+import { createContext, memo, useContext, useEffect, useState, type CSSProperties } from 'react';
+import { cachedSignedUrl } from './editors/fields';
 import {
   BaseEdge, EdgeLabelRenderer, Handle, Position, getBezierPath, useReactFlow, useUpdateNodeInternals,
   type EdgeProps, type Node, type NodeProps,
@@ -88,6 +89,29 @@ export const BlockNode = memo(function BlockNode({ id, type, data, selected }: N
 });
 
 /** O que compõe o bloco: itens da mensagem, etiquetas, setor, evento do pixel… */
+/** Miniatura da imagem do bloco (arquivo enviado = link assinado; link = direto). */
+function ImagePreview({ part }: { part: Extract<PreviewPart, { k: 'img' }> }) {
+  const [src, setSrc] = useState<string | null>(part.url ?? null);
+  const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    setBroken(false);
+    if (!part.fileId) { setSrc(part.url ?? null); return; }
+    let on = true;
+    void cachedSignedUrl(part.fileId).then((u) => { if (on) setSrc(u); });
+    return () => { on = false; };
+  }, [part.fileId, part.url]);
+  return (
+    <div className="pv-img" data-testid="pv-img">
+      <div className="pv-img-frame">
+        {src && !broken
+          ? <img src={src} alt={part.name} loading="lazy" draggable={false} onError={() => setBroken(true)} />
+          : <span className="pv-img-ph"><Icon name="image" size={20} />{broken ? 'Não foi possível carregar' : 'Carregando…'}</span>}
+      </div>
+      {part.caption ? <small className="pv-img-cap">{part.caption}</small> : null}
+    </div>
+  );
+}
+
 function Preview({ parts }: { parts: PreviewPart[] }) {
   return (
     <div className="blk-pv" data-testid="blk-preview">
@@ -102,6 +126,7 @@ function Preview({ parts }: { parts: PreviewPart[] }) {
               <span key={j} className="pv-chip" style={c.color ? ({ '--chip': c.color } as CSSProperties) : undefined}><i />{c.text}</span>
             ))}</div>
           );
+          case 'img': return <ImagePreview key={i} part={p} />;
           case 'box': return <div key={i} className="pv-box"><b>{p.title}</b>{p.sub && <small>{p.sub}</small>}</div>;
           default: return <div key={i} className="pv-note">{p.text}</div>;
         }

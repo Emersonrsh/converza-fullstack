@@ -95,8 +95,10 @@ export function Toaster() {
   useEffect(() => {
     let t: ReturnType<typeof setTimeout>;
     const handler = (e: Event) => {
-      setMsg((e as CustomEvent<string>).detail);
-      clearTimeout(t); t = setTimeout(() => setMsg(null), 2200);
+      const text = (e as CustomEvent<string>).detail;
+      setMsg(text);
+      // mensagens longas ficam mais tempo na tela (dá para ler com calma)
+      clearTimeout(t); t = setTimeout(() => setMsg(null), Math.min(9000, Math.max(2200, String(text ?? '').length * 55)));
     };
     window.addEventListener('converza:toast', handler);
     return () => { window.removeEventListener('converza:toast', handler); clearTimeout(t); };

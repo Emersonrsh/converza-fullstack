@@ -176,6 +176,49 @@ describe('Delay do digitando', () => {
   });
 });
 
+describe('Delay do gravando (áudio) e intervalo aleatório', () => {
+  it('mostra gravando antes do áudio e depois envia', async () => {
+    const g = {
+      nodes: [T(), N('m', 'message', { items: [
+        { id: 'a', type: 'audio', url: 'https://ex.com/voz.ogg', recordingSeconds: 8 },
+        { id: 'b', type: 'text', text: 'Depois do áudio' },
+        { id: 'c', type: 'audio', url: 'https://ex.com/voz2.ogg', recordingSeconds: 500 },
+      ] })],
+      edges: [E('trigger', 'm')],
+    };
+    const [r] = await chat(g, ['oi']);
+    const ns = notes(r);
+    assert.ok(ns.some((n) => n.includes('Gravando áudio… (8 s)')));
+    assert.ok(ns.some((n) => n.includes('Gravando áudio… (120 s)')), 'limite de 120 s');
+    assert.ok(!ns.some((n) => n.includes('Espera de')), 'sem aviso duplicado de espera');
+    const iRec = r.outputs.findIndex((o) => o.kind === 'note' && String(o.text).includes('(8 s)'));
+    const iAudio = r.outputs.findIndex((o) => o.kind !== 'note' && JSON.stringify(o).includes('voz.ogg'));
+    assert.ok(iAudio > iRec, 'gravando vem antes do áudio');
+    assert.equal(r.outputs.filter((o) => o.kind !== 'note' && /voz2?\.ogg/.test(JSON.stringify(o))).length, 2, 'cada áudio enviado uma vez');
+    assert.deepEqual(bots(r), ['Depois do áudio']);
+  });
+  it('intervalo aleatório fica dentro do mínimo e máximo', async () => {
+    const { intervalSeconds } = await import('../src/flows/interpreter');
+    for (const v of [0, 0.25, 0.5, 0.999]) {
+      const s = intervalSeconds({ mode: 'random', min: 10, max: 40 }, () => v);
+      assert.ok(s >= 10 && s <= 40, `${s}`);
+    }
+    assert.equal(intervalSeconds({ mode: 'random', min: 10, max: 40 }, () => 0), 10);
+    assert.equal(intervalSeconds({ mode: 'random', min: 10, max: 40 }, () => 0.9999), 40);
+    assert.equal(intervalSeconds({ mode: 'random', min: 50, max: 20 }, () => 0), 20, 'mínimo e máximo invertidos');
+    assert.equal(intervalSeconds({ mode: 'random', min: 0, max: 999 }, () => 0.9999), 120, 'limite de 120 s');
+    assert.equal(intervalSeconds({ amount: 5, unit: 'seconds' }, () => 0), 5, 'fixo continua igual');
+  });
+  it('na simulação avisa o valor sorteado', async () => {
+    const g = { nodes: [T(), N('m', 'message', { items: [
+      { id: 'a', type: 'text', text: 'Um' }, { id: 'i', type: 'interval', mode: 'random', min: 5, max: 5 }, { id: 'b', type: 'text', text: 'Dois' },
+    ] })], edges: [E('trigger', 'm')] };
+    const [r] = await chat(g, ['oi']);
+    assert.deepEqual(bots(r), ['Um', 'Dois']);
+    assert.ok(notes(r).some((n) => n.includes('Intervalo sorteado: 5 s')));
+  });
+});
+
 describe('Template WhatsApp', () => {
   const g = {
     nodes: [T(), N('t', 'template', {

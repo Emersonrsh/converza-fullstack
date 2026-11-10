@@ -262,3 +262,16 @@
 .bm-typing input[type=range]{--p:0%;width:100%;margin:8px 0 2px;appearance:none;height:6px;border-radius:99px;background:linear-gradient(90deg,var(--primary) var(--p),var(--border-strong) var(--p));outline:none}
 .bm-typing input[type=range]::-webkit-slider-thumb{appearance:none;width:18px;height:18px;border-radius:50%;background:var(--primary);border:3px solid var(--surface);box-shadow:0 0 0 1px var(--primary)}
 .bm-typing input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--primary);border:3px solid var(--surface)}
+
+/* intervalo aleatório: dois controles no mesmo trilho */
+.bm-range{margin-top:10px}
+.bm-range-track{--a:0%;--b:100%;position:relative;height:22px;margin:8px 0 2px}
+.bm-range-track::before{content:"";position:absolute;left:0;right:0;top:8px;height:6px;border-radius:99px;
+  background:linear-gradient(90deg,var(--border-strong) var(--a),var(--primary) var(--a),var(--primary) var(--b),var(--border-strong) var(--b))}
+.bm-range-track input[type=range]{position:absolute;inset:0;width:100%;margin:0;appearance:none;background:none;pointer-events:none;height:22px;outline:none}
+.bm-range-track input[type=range]::-webkit-slider-runnable-track{background:none;height:22px}
+.bm-range-track input[type=range]::-webkit-slider-thumb{pointer-events:auto;appearance:none;width:20px;height:20px;margin-top:1px;border-radius:50%;background:var(--primary);border:3px solid var(--surface);box-shadow:0 0 0 1px var(--primary);cursor:grab}
+.bm-range-track input[type=range]::-moz-range-track{background:none}
+.bm-range-track input[type=range]::-moz-range-thumb{pointer-events:auto;width:14px;height:14px;border-radius:50%;background:var(--primary);border:3px solid var(--surface);cursor:grab}
+
+.bm-file-thumb{width:44px;height:44px;border-radius:8px;object-fit:cover;flex:none;border:1px solid var(--border)}

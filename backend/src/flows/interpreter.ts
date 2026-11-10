@@ -87,8 +87,8 @@ export interface FlowExecutor {
   onAdvance(nodeId: string): Promise<void> | void;
   /** Anotação visível só na simulação (no ar é ignorada). */
   note(text: string): void;
-  /** Mostra "digitando…" para o cliente por alguns segundos (o envio do texto vem depois da espera). */
-  typing?(seconds: number): Promise<void>;
+  /** Mostra "digitando…" (ou "gravando áudio…") para o cliente por alguns segundos (o envio vem depois da espera). */
+  typing?(seconds: number, mode?: 'text' | 'audio'): Promise<void>;
   random(): number;
 
   /* ---- blocos da barra Ferramentas ---- */
@@ -154,6 +154,21 @@ export type Halt =
 const MAX_STEPS = 80;
 /** limite do "Delay do digitando" de cada texto do bloco Mensagem */
 export const TYPING_MAX_SECONDS = 60;
+/** "gravando áudio…" antes de um áudio: até 2 minutos */
+export const RECORDING_MAX_SECONDS = 120;
+/** intervalo aleatório entre conteúdos de uma mensagem: 0 a 120 s */
+export const RANDOM_INTERVAL_MAX_SECONDS = 120;
+
+/** Segundos de um item "Intervalo": fixo (quantidade + unidade) ou sorteado entre mínimo e máximo. */
+export function intervalSeconds(it: Dict, rnd: () => number): number {
+  if (it.mode === 'random') {
+    const clamp = (v: unknown) => Math.min(RANDOM_INTERVAL_MAX_SECONDS, Math.max(0, Math.round(Number(v)) || 0));
+    let lo = clamp(it.min ?? 10); let hi = clamp(it.max ?? 40);
+    if (lo > hi) [lo, hi] = [hi, lo];
+    return lo + Math.min(hi - lo, Math.floor(rnd() * (hi - lo + 1)));
+  }
+  return durationSeconds(it.amount ?? 3, it.unit ?? 'seconds');
+}
 /** Menu/carrossel sem tempo de expiração: o padrão é 2 dias (depois disso a conversa sai do fluxo). */
 export const DEFAULT_EXPIRE_SECONDS = 2 * 86400;
 
@@ -496,7 +511,8 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
           if (state.typed) delete state.typed[node.id];
           if (text.trim()) await exec.sendText(text);
         } else if (type === 'interval') {
-          const secs = durationSeconds(it.amount ?? 3, it.unit ?? 'seconds');
+          const secs = intervalSeconds(it, () => exec.random());
+          if (it.mode === 'random' && i < items.length - 1) exec.note(`🎲 Intervalo sorteado: ${secs} s`);
           if (secs > 0 && i < items.length - 1) {
             state.cursor[node.id] = i + 1;
             return { kind: 'delay', nodeId: node.id, seconds: secs };
@@ -511,6 +527,17 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
           const ref: MediaRef = { url: url || undefined, fileId: it.fileId ? String(it.fileId) : undefined, filename: it.filename ? render(it.filename, s) : undefined };
           if (!ref.url && !ref.fileId) { exec.note(`⚠️ ${type === 'sticker' ? 'Sticker' : 'Mídia'} sem arquivo ou link — nada foi enviado.`); continue; }
           const kind = type === 'file' ? 'document' : type as MediaKind | 'sticker';
+          if (type === 'audio') {
+            const rec = Math.min(RECORDING_MAX_SECONDS, Math.max(0, Math.round(Number(it.recordingSeconds ?? 0)) || 0));
+            if (rec > 0 && Number(state.typed?.[node.id]) !== i) {
+              // "gravando áudio…" agora, o áudio quando a espera acabar (volta para este mesmo item)
+              state.typed = { ...(state.typed ?? {}), [node.id]: i };
+              state.cursor[node.id] = i;
+              if (exec.typing) await exec.typing(rec, 'audio').catch(() => undefined);
+              return { kind: 'delay', nodeId: node.id, seconds: rec };
+            }
+            if (state.typed) delete state.typed[node.id];
+          }
           await exec.sendMediaRef(kind, ref, it.caption ? render(it.caption, s) : undefined);
         }
       }

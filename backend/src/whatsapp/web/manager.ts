@@ -526,20 +526,21 @@ function stopTyping(connectionId: string, jid: string) {
   const t = typingTimers.get(k);
   if (t) { clearInterval(t.timer); typingTimers.delete(k); }
 }
-async function typingLocal(s: Session, connectionId: string, to: string, seconds: number) {
+async function typingLocal(s: Session, connectionId: string, to: string, seconds: number, mode: 'text' | 'audio' = 'text') {
+  const presence = mode === 'audio' ? 'recording' : 'composing';
   if (!s.sock || s.state !== 'open') return;
   const jid = await jidFor(s, to).catch(() => null);
   if (!jid) return;
   stopTyping(connectionId, jid);
-  const until = Date.now() + Math.min(60, seconds) * 1000;
-  await s.sock.presence(jid, 'composing').catch(() => undefined);
+  const until = Date.now() + Math.min(120, seconds) * 1000;
+  await s.sock.presence(jid, presence).catch(() => undefined);
   const timer = setInterval(() => {
     if (Date.now() >= until || !s.sock || s.state !== 'open') {
       stopTyping(connectionId, jid);
       if (s.sock && s.state === 'open') void s.sock.presence(jid, 'paused').catch(() => undefined);
       return;
     }
-    void s.sock.presence(jid, 'composing').catch(() => undefined);
+    void s.sock.presence(jid, presence).catch(() => undefined);
   }, 10_000);
   timer.unref?.();
   typingTimers.set(`${connectionId}|${jid}`, { timer, until });
@@ -626,7 +627,7 @@ async function runLocal(connectionId: string, method: string, args: Record<strin
       if (!s) throw new WebSendError('Sessão não está neste servidor.');
       return sendLocal(s, args.to, args.payload);
     case 'typing':
-      if (s) await typingLocal(s, connectionId, String(args.to), Number(args.seconds) || 0);
+      if (s) await typingLocal(s, connectionId, String(args.to), Number(args.seconds) || 0, args.mode === 'audio' ? 'audio' : 'text');
       return true;
     case 'read':
       if (s?.sock && s.state === 'open') {
@@ -688,8 +689,8 @@ export async function webSend(connectionId: string, to: string, payload: Record<
   return r.result as WebSendResult;
 }
 
-export async function webTyping(connectionId: string, to: string, seconds: number) {
-  await callOwner(connectionId, 'typing', { to, seconds }, 10_000).catch(() => undefined);
+export async function webTyping(connectionId: string, to: string, seconds: number, mode: 'text' | 'audio' = 'text') {
+  await callOwner(connectionId, 'typing', { to, seconds, mode }, 10_000).catch(() => undefined);
 }
 
 export async function webMarkRead(connectionId: string, to: string, ids: string[]) {

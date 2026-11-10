@@ -119,9 +119,9 @@ function memoryExecutor(state: SimState, outputs: SimOutput[], visited: string[]
       outputs.push({ kind: 'bot', text });
       said(text);
     },
-    async typing(seconds) {
-      // a espera que vem logo depois é a do "digitando": não precisa do aviso genérico de espera
-      outputs.push({ kind: 'note', text: `✍️ Digitando… (${seconds} s) — pulado na simulação` });
+    async typing(seconds, mode) {
+      // a espera que vem logo depois é a do "digitando"/"gravando": não precisa do aviso genérico de espera
+      outputs.push({ kind: 'note', text: mode === 'audio' ? `🎙️ Gravando áudio… (${seconds} s) — pulado na simulação` : `✍️ Digitando… (${seconds} s) — pulado na simulação` });
       typingWait.add(seconds);
     },
     async sendMedia(kind, url, caption) {

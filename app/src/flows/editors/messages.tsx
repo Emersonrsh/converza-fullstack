@@ -44,18 +44,65 @@ function ContentGrid({ onPick }: { onPick: (type: string) => void }) {
 
 /** Quanto tempo o WhatsApp mostra "digitando…" antes de enviar o texto (0 = envia na hora). */
 export const TYPING_MAX = 60;
-function TypingDelay({ value, onChange, testId }: { value: number; onChange: (v: number) => void; testId: string }) {
-  const v = Math.min(TYPING_MAX, Math.max(0, Math.round(value) || 0));
+/** "gravando áudio…" antes de um áudio */
+export const RECORDING_MAX = 120;
+/** intervalo aleatório entre conteúdos */
+export const RANDOM_MAX = 120;
+
+const secLabel = (v: number) => `${v} ${v === 1 ? 'segundo' : 'segundos'}`;
+
+function PresenceDelay({ value, onChange, testId, label, max, hint }: {
+  value: number; onChange: (v: number) => void; testId: string; label: string; max: number; hint: string;
+}) {
+  const v = Math.min(max, Math.max(0, Math.round(value) || 0));
   return (
     <div className="bm-typing" data-testid={testId}>
       <div className="bm-typing-hd">
-        <span>Delay do “digitando”</span>
-        <b data-testid={`${testId}-value`}>{v ? `${v} ${v === 1 ? 'segundo' : 'segundos'}` : 'desligado'}</b>
-        <small>{TYPING_MAX} segundos</small>
+        <span>{label}</span>
+        <b data-testid={`${testId}-value`}>{v ? secLabel(v) : 'desligado'}</b>
+        <small>{max} segundos</small>
       </div>
-      <input type="range" min={0} max={TYPING_MAX} step={1} value={v} onChange={(e) => onChange(Number(e.target.value))}
-        style={{ '--p': `${(v / TYPING_MAX) * 100}%` } as React.CSSProperties} aria-label="Delay do digitando em segundos" />
-      <div className="bm-hint">Tempo que o WhatsApp fica “digitando…” antes de enviar esta mensagem. Na API oficial da Meta o aviso aparece por até 25 segundos e só depois que o cliente mandou alguma mensagem; o envio espera o tempo todo do mesmo jeito.</div>
+      <input type="range" min={0} max={max} step={1} value={v} onChange={(e) => onChange(Number(e.target.value))}
+        style={{ '--p': `${(v / max) * 100}%` } as React.CSSProperties} aria-label={`${label} em segundos`} />
+      <div className="bm-hint">{hint}</div>
+    </div>
+  );
+}
+
+function TypingDelay({ value, onChange, testId }: { value: number; onChange: (v: number) => void; testId: string }) {
+  return (
+    <PresenceDelay value={value} onChange={onChange} testId={testId} label="Delay do “digitando”" max={TYPING_MAX}
+      hint="Tempo que o WhatsApp fica “digitando…” antes de enviar esta mensagem. Na API oficial da Meta o aviso aparece por até 25 segundos e só depois que o cliente mandou alguma mensagem; o envio espera o tempo todo do mesmo jeito." />
+  );
+}
+
+function RecordingDelay({ value, onChange, testId }: { value: number; onChange: (v: number) => void; testId: string }) {
+  return (
+    <PresenceDelay value={value} onChange={onChange} testId={testId} label="Delay do “gravando”" max={RECORDING_MAX}
+      hint="Tempo que o WhatsApp fica “gravando áudio…” antes de enviar o áudio. Na API oficial da Meta não existe o aviso de gravando: o envio só espera esse tempo." />
+  );
+}
+
+/** Dois controles no mesmo trilho: mínimo e máximo (em segundos). */
+function RangeDelay({ min, max, onChange, testId }: { min: number; max: number; onChange: (lo: number, hi: number) => void; testId: string }) {
+  const clamp = (v: number) => Math.min(RANDOM_MAX, Math.max(0, Math.round(v) || 0));
+  const lo = Math.min(clamp(min), clamp(max));
+  const hi = Math.max(clamp(min), clamp(max));
+  const pct = (v: number) => `${(v / RANDOM_MAX) * 100}%`;
+  return (
+    <div className="bm-range" data-testid={testId}>
+      <div className="bm-typing-hd">
+        <span>0 segundos</span>
+        <b data-testid={`${testId}-value`}>{lo === hi ? secLabel(lo) : `${lo} - ${hi} segundos`}</b>
+        <small>{RANDOM_MAX} segundos</small>
+      </div>
+      <div className="bm-range-track" style={{ '--a': pct(lo), '--b': pct(hi) } as React.CSSProperties}>
+        <input type="range" min={0} max={RANDOM_MAX} step={1} value={lo} aria-label="Delay mínimo em segundos" data-testid={`${testId}-min`}
+          onChange={(e) => onChange(Math.min(Number(e.target.value), hi), hi)} />
+        <input type="range" min={0} max={RANDOM_MAX} step={1} value={hi} aria-label="Delay máximo em segundos" data-testid={`${testId}-max`}
+          onChange={(e) => onChange(lo, Math.max(Number(e.target.value), lo))} />
+      </div>
+      <div className="bm-hint">O delay será escolhido aleatoriamente entre o mínimo e o máximo configurados, a cada cliente. Isso deixa o envio com cara de humano.</div>
     </div>
   );
 }
@@ -84,6 +131,7 @@ function ItemBody({ it, upd, vars, i }: { it: D; upd: (p: D) => void; vars: stri
       return (<>
         {media('audio')}
         <div className="bm-hint">Em OGG (Opus) o áudio aparece como mensagem de voz; nos outros formatos, como arquivo de áudio.</div>
+        <RecordingDelay value={Number(it.recordingSeconds ?? 0)} onChange={(recordingSeconds) => upd({ recordingSeconds })} testId={`item-${i}-recording`} />
       </>);
     case 'file':
       return (<>
@@ -97,12 +145,21 @@ function ItemBody({ it, upd, vars, i }: { it: D; upd: (p: D) => void; vars: stri
       </>);
     case 'sticker':
       return media('sticker');
-    case 'interval':
+    case 'interval': {
+      const random = it.mode === 'random';
       return (<>
-        <Duration amount={it.amount ?? 3} unit={it.unit ?? 'seconds'} min={1} onAmount={(amount) => upd({ amount })} onUnit={(unit) => upd({ unit })}
-          units={UNITS.filter(([u]) => u !== 'days')} testId={`item-${i}-wait`} />
-        <div className="bm-hint">Espera esse tempo antes do próximo conteúdo deste bloco (no fim do bloco não tem efeito).</div>
+        <Tabs value={random ? 'random' : 'fixed'} testId={`item-${i}-imode`}
+          options={[['fixed', 'Tempo fixo', 'clock'], ['random', 'Intervalo aleatório', 'shuffle']]}
+          onChange={(m) => upd(m === 'random' ? { mode: 'random', min: it.min ?? 10, max: it.max ?? 40 } : { mode: 'fixed' })} />
+        {random ? (
+          <RangeDelay min={Number(it.min ?? 10)} max={Number(it.max ?? 40)} onChange={(min, max) => upd({ min, max })} testId={`item-${i}-range`} />
+        ) : (
+          <Duration amount={it.amount ?? 3} unit={it.unit ?? 'seconds'} min={1} onAmount={(amount) => upd({ amount })} onUnit={(unit) => upd({ unit })}
+            units={UNITS.filter(([u]) => u !== 'days')} testId={`item-${i}-wait`} />
+        )}
+        <div className="bm-hint">Espera antes do próximo conteúdo deste bloco (no fim do bloco não tem efeito).</div>
       </>);
+    }
     case 'contact':
       return (
         <div className="bm-row2">

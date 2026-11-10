@@ -390,8 +390,10 @@ export function Inbox() {
   async function upload(file: File, caption: string, opts: UploadOpts = {}): Promise<boolean> {
     if (!convId) return false;
     const mime = mimeOf(file);
-    const limit = /^image\/(jpeg|png)$/i.test(mime) ? 5 : 16;
-    if (file.size > limit * 1024 * 1024) { toast(`Arquivo grande demais: o limite é ${limit} MB${limit === 5 ? ' para imagens' : ''}`); return false; }
+    const isImg = /^image\/(jpeg|png)$/i.test(mime);
+    const isMedia = /^video\/(mp4|3gpp)$/i.test(mime) || /^audio\/(aac|mp4|mpeg|amr|ogg)/i.test(mime) || !!opts.voice;
+    const limit = isImg ? 5 : isMedia ? 16 : 30;
+    if (file.size > limit * 1024 * 1024) { toast(`Arquivo grande demais: o limite é ${limit} MB${isImg ? ' para imagens' : isMedia ? ' para vídeos e áudios' : ' para documentos'}`); return false; }
     const qs = new URLSearchParams({ filename: file.name });
     if (caption) qs.set('caption', caption);
     if (opts.voice) qs.set('voice', '1');

@@ -403,12 +403,14 @@ export async function markRead(conn: WaConnection, waMessageId: string): Promise
  * "Digitando…" para o cliente. QR Code: presença "digitando" pelo tempo pedido (renovada até o envio).
  * API oficial: o indicador da Meta exige o id de uma mensagem recebida do cliente (marca como lida) e some em até 25 s.
  */
-export async function showTyping(conn: WaConnection, to: string, lastInboundWaId: string | null, seconds: number): Promise<void> {
+export async function showTyping(conn: WaConnection, to: string, lastInboundWaId: string | null, seconds: number, mode: 'text' | 'audio' = 'text'): Promise<void> {
   if (!conn.phoneNumberId || !conn.accessToken || seconds <= 0) return;
   if (isWebPhoneId(conn.phoneNumberId)) {
-    await web().webTyping(connectionIdOf(conn.phoneNumberId), to, seconds);
+    await web().webTyping(connectionIdOf(conn.phoneNumberId), to, seconds, mode);
     return;
   }
+  // a API oficial da Meta só tem o indicador "digitando"; "gravando áudio" não existe lá (a espera acontece igual)
+  if (mode === 'audio') return;
   if (!lastInboundWaId || lastInboundWaId === 'sim') return;
   await fetch(graph(`${conn.phoneNumberId}/messages`), {
     method: 'POST',

@@ -25,7 +25,7 @@ Crie um fluxo para o Converza e responda SOMENTE com JSON no formato:
 
 Blocos disponíveis (campo "type") e seus "data":
 - trigger: {"type":"any_message"|"keyword"|"first_message","keywords":"preço, valor"} — sempre exatamente um, com id "trigger".
-- message: {"items":[{"id":"i1","type":"text","text":"...","typingSeconds":3},{"id":"i2","type":"interval","amount":3,"unit":"seconds"},{"id":"i3","type":"file","fileName":"Guia.pdf"}]} — conteúdos em sequência; "interval" é uma pausa entre eles ("unit": "seconds" ou "minutes"); "typingSeconds" (0 a 60) mostra "digitando…" antes do texto; "file", "image", "video" e "audio" só com o nome do arquivo ("fileName") — o usuário anexa o arquivo depois.
+- message: {"items":[{"id":"i1","type":"text","text":"...","typingSeconds":3},{"id":"i2","type":"interval","amount":3,"unit":"seconds"},{"id":"i3","type":"file","fileName":"Guia.pdf"}]} — conteúdos em sequência; "interval" é uma pausa entre eles ("unit": "seconds" ou "minutes"); "typingSeconds" (0 a 60) mostra "digitando…" antes do texto; intervalo aleatório = {"type":"interval","mode":"random","min":10,"max":40} (segundos, 0 a 120); áudio pode ter "recordingSeconds" (0 a 120) para mostrar "gravando áudio…" antes; "file", "image", "video" e "audio" só com o nome do arquivo ("fileName") — o usuário anexa o arquivo depois.
 - menu: {"text":"...","style":"buttons"|"list","options":[{"id":"o1","title":"até 20 caracteres"}],"expireAmount":0,"expireUnit":"days"} — saídas: o id de cada opção e "fallback" (respondeu outra coisa).
 - ask: {"text":"pergunta","saveAs":"nome_variavel","timeoutAmount":1,"timeoutUnit":"days"} — espera a resposta; saídas: null (respondeu) e "timeout" (não respondeu).
 - condition: {"logic":"all"|"any","rules":[{"id":"r1","field":"lastMessage"|"var","varName":"...","op":"contains"|"equals"|"not_empty"|"greater_than","value":"sim, quero"}]} — saídas "true" e "false".
@@ -44,7 +44,7 @@ export const GENERATE_FROM_IMAGES = `As imagens anexadas mostram o fluxo que dev
 um fluxograma, um rascunho à mão, um roteiro em texto ou prints de uma conversa de WhatsApp.
 - Recrie a MESMA sequência e as MESMAS ramificações que aparecem, usando só os blocos listados acima (escolha o bloco mais parecido).
 - Copie os textos das mensagens exatamente como estão na imagem quando forem legíveis (inclusive emojis); se um texto estiver cortado ou ilegível, escreva uma versão curta coerente.
-- Pausas/"delay"/"aguardar X segundos" entre mensagens viram itens "interval"; "digitando" vira "typingSeconds"; esperas longas (minutos, horas, dias) viram o bloco "delay".
+- Pausas/"delay"/"aguardar X segundos" entre mensagens viram itens "interval"; "digitando" vira "typingSeconds"; "gravando" antes de áudio vira "recordingSeconds"; "delay aleatório entre X e Y segundos" vira interval com mode "random"; esperas longas (minutos, horas, dias) viram o bloco "delay".
 - Arquivos, PDFs, imagens e áudios que aparecem como conteúdo enviado viram itens do bloco message com o nome do arquivo.
 - Botões ou opções numeradas viram "menu"; perguntas que esperam resposta viram "ask"; "se/então", "comprovante válido", "respondeu sim" viram "condition"; etiquetas viram "tags".
 - Se houver mais de uma imagem, elas são partes do mesmo fluxo, na ordem enviada.
@@ -60,13 +60,19 @@ function sanitizeData(type: string, raw: unknown): Dict {
     case 'message': {
       const raw = Array.isArray(d.items) ? d.items : [{ type: 'text', text: d.text }];
       const items = raw.slice(0, 20).map((it: Dict) => {
+        if (it?.type === 'interval' && (it.mode === 'random' || it.min !== undefined)) {
+          const c = (v: unknown, dflt: number) => Math.min(120, Math.max(0, Math.round(Number(v ?? dflt)) || 0));
+          const lo = c(it.min, 10); const hi = c(it.max, 40);
+          return { id: `it_${rid()}`, type: 'interval', mode: 'random', min: Math.min(lo, hi), max: Math.max(lo, hi), amount: 3, unit: 'seconds' };
+        }
         if (it?.type === 'interval') {
           const unit = it.unit === 'minutes' ? 'minutes' : 'seconds';
           return { id: `it_${rid()}`, type: 'interval', amount: Math.min(unit === 'minutes' ? 60 : 300, Math.max(1, Math.round(Number(it.amount ?? 3)) || 3)), unit };
         }
         if (['file', 'image', 'video', 'audio'].includes(it?.type)) {
           const name = str(it.fileName ?? it.filename ?? it.name, 200);
-          return { id: `it_${rid()}`, type: it.type, url: '', fileId: '', fileName: name, filename: it.type === 'file' ? name : '', caption: str(it.caption, 1000) };
+          const rec = it.type === 'audio' ? Math.min(120, Math.max(0, Math.round(Number(it.recordingSeconds ?? 0)) || 0)) : 0;
+          return { id: `it_${rid()}`, type: it.type, url: '', fileId: '', fileName: name, filename: it.type === 'file' ? name : '', caption: str(it.caption, 1000), ...(rec ? { recordingSeconds: rec } : {}) };
         }
         const typing = Math.min(60, Math.max(0, Math.round(Number(it?.typingSeconds ?? 0)) || 0));
         return { id: `it_${rid()}`, type: 'text', text: str(it?.text, 4000), ...(typing ? { typingSeconds: typing } : {}) };

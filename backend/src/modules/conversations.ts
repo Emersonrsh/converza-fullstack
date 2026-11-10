@@ -440,14 +440,14 @@ conversationsRouter.post('/:id/quick-replies/:qrId', asyncHandler(async (req, re
   res.status(201).json({ messages: sent });
 }));
 
-const KIND_LIMIT: Record<MediaKind, number> = { image: 5, video: 16, audio: 16, document: 16 };
+const KIND_LIMIT: Record<MediaKind, number> = { image: 5, video: 16, audio: 16, document: 30 };
 export { mediaKind };
 
 /**
- * Envio de arquivo: o corpo da requisição é o próprio arquivo (até 16 MB).
+ * Envio de arquivo: o corpo da requisição é o próprio arquivo (até 16 MB; documentos até 30 MB).
  * `?voice=1`: áudio gravado no app — é convertido para Ogg/Opus e vai como mensagem de voz.
  */
-conversationsRouter.post('/:id/media', express.raw({ type: () => true, limit: '16mb' }), asyncHandler(async (req, res) => {
+conversationsRouter.post('/:id/media', express.raw({ type: () => true, limit: '31mb' }), asyncHandler(async (req, res) => {
   let data = req.body as Buffer;
   if (!Buffer.isBuffer(data) || !data.length) throw new AppError(400, 'Arquivo vazio');
   // o app manda o arquivo como octet-stream e o tipo real em x-file-type (evita outros parsers)

@@ -12,7 +12,7 @@ export const ACTION_META: Record<QuickActionType, { label: string; icon: string;
   image: { label: 'Imagem', icon: 'image', accept: 'image/jpeg,image/png', hint: 'JPG ou PNG até 5 MB' },
   video: { label: 'Vídeo', icon: 'play', accept: 'video/mp4,video/3gpp', hint: 'MP4 ou 3GP até 16 MB' },
   audio: { label: 'Áudio', icon: 'mic', accept: 'audio/*', hint: 'MP3, OGG, AAC, AMR ou M4A até 16 MB' },
-  document: { label: 'Documento', icon: 'file', accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,application/*,text/*', hint: 'PDF, planilha, texto… até 16 MB' },
+  document: { label: 'Documento', icon: 'file', accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,application/*,text/*', hint: 'PDF, planilha, texto… até 30 MB' },
   sticker: { label: 'Sticker', icon: 'smile', accept: 'image/webp', hint: 'WEBP 512×512 até 500 KB' },
 };
 const TYPES = Object.keys(ACTION_META) as QuickActionType[];

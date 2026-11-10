@@ -224,6 +224,26 @@ export async function uploadFlowFile(kind: FileKind, file: File): Promise<FlowFi
   return data.file;
 }
 
+/** Links de prévia já assinados (valem 12 h; guardamos por 11 h) — pedidos do mesmo instante vão juntos. */
+const signCache = new Map<string, { url: string | null; at: number }>();
+let signQueue: { id: string; done: (u: string | null) => void }[] = [];
+let signTimer: ReturnType<typeof setTimeout> | null = null;
+export function cachedSignedUrl(fileId: string): Promise<string | null> {
+  const hit = signCache.get(fileId);
+  if (hit && Date.now() - hit.at < 11 * 3600_000) return Promise.resolve(hit.url);
+  return new Promise((done) => {
+    signQueue.push({ id: fileId, done });
+    signTimer ??= setTimeout(async () => {
+      const batch = signQueue; signQueue = []; signTimer = null;
+      const ids = [...new Set(batch.map((b) => b.id))].slice(0, 300);
+      let files: Record<string, FlowFile> = {};
+      try { files = (await api.post<{ files: Record<string, FlowFile> }>('/flows/files/sign', { ids })).files; } catch { /* sem prévia */ }
+      for (const id of ids) signCache.set(id, { url: files[id]?.url ?? null, at: Date.now() });
+      for (const b of batch) b.done(signCache.get(b.id)?.url ?? null);
+    }, 30);
+  });
+}
+
 /** Link de prévia (12 h) de um arquivo já enviado. */
 export async function signedUrl(fileId: string): Promise<string | null> {
   try { const r = await api.post<{ files: Record<string, FlowFile> }>('/flows/files/sign', { ids: [fileId] }); return r.files[fileId]?.url ?? null; } catch { return null; }
@@ -233,12 +253,29 @@ const ACCEPT: Record<FileKind, string> = {
   image: 'image/jpeg,image/png', video: 'video/mp4,video/3gpp', audio: 'audio/*,.ogg,.opus,.m4a,.mp3,.aac,.amr',
   document: '.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,application/pdf', sticker: 'image/webp',
 };
+/** Tamanho máximo de cada tipo (o mesmo que o servidor aceita). */
+const MAX_MB: Record<FileKind, number> = { image: 5, video: 16, audio: 16, document: 30, sticker: 0.5 };
+const sizeLabel = (b: number) => (b >= 1024 * 1024 ? `${(b / (1024 * 1024)).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+const TOO_BIG_TIP: Record<FileKind, string> = {
+  document: 'Comprima o PDF (ex.: ilovepdf.com › Comprimir PDF) ou use a aba URL com um link direto do arquivo.',
+  image: 'Diminua a imagem ou salve em JPG com qualidade menor.',
+  video: 'Comprima o vídeo ou use a aba URL com um link direto.',
+  audio: 'Comprima o áudio ou use a aba URL com um link direto.',
+  sticker: 'Figurinhas precisam ser WEBP 512×512 com até 500 KB.',
+};
+
 const RULES: Record<FileKind, string> = {
   image: 'JPG ou PNG, até 5 MB', video: 'MP4 ou 3GP, até 16 MB', audio: 'MP3, OGG, AAC, AMR ou M4A, até 16 MB',
-  document: 'PDF, planilha, texto… até 16 MB', sticker: 'WEBP 512×512, até 500 KB (formato que o WhatsApp exige)',
+  document: 'PDF, planilha, texto… até 30 MB', sticker: 'WEBP 512×512, até 500 KB (formato que o WhatsApp exige)',
 };
 
 /** Arquivo enviado aqui ou link (as duas formas que o WhatsApp aceita). */
+function FileThumb({ fileId }: { fileId: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => { let on = true; void cachedSignedUrl(fileId).then((u) => { if (on) setSrc(u); }); return () => { on = false; }; }, [fileId]);
+  return src ? <img className="bm-file-thumb" src={src} alt="" data-testid="file-thumb" /> : null;
+}
+
 export function FileOrUrl({ kind, url, fileId, fileName, onChange, vars, testId, urlPlaceholder }: {
   kind: FileKind; url: string; fileId: string; fileName?: string; vars: string[]; testId?: string; urlPlaceholder?: string;
   onChange: (v: { url: string; fileId: string; fileName: string }) => void;
@@ -248,6 +285,12 @@ export function FileOrUrl({ kind, url, fileId, fileName, onChange, vars, testId,
   const input = useRef<HTMLInputElement>(null);
   async function pick(f: File | undefined) {
     if (!f) return;
+    if (f.size > MAX_MB[kind] * 1024 * 1024) {
+      const lim = MAX_MB[kind] >= 1 ? `${MAX_MB[kind]} MB` : `${MAX_MB[kind] * 1000} KB`;
+      toast(`“${f.name}” tem ${sizeLabel(f.size)} e o limite é ${lim}. ${TOO_BIG_TIP[kind]}`);
+      if (input.current) input.current.value = '';
+      return;
+    }
     setBusy(true);
     try {
       const up = await uploadFlowFile(kind, f);
@@ -265,6 +308,7 @@ export function FileOrUrl({ kind, url, fileId, fileName, onChange, vars, testId,
       {mode === 'file' ? (
         fileId ? (
           <div className="bm-file">
+            {(kind === 'image' || kind === 'sticker') && <FileThumb fileId={fileId} />}
             <Icon name={kind === 'image' ? 'image' : kind === 'video' ? 'video' : kind === 'audio' ? 'mic' : kind === 'sticker' ? 'sticker' : 'file'} size={16} />
             <button type="button" className="linkbtn" onClick={open} title="Abrir">{fileName || 'arquivo'}</button>
             <button type="button" className="btn icon sm ghost" onClick={() => onChange({ url: '', fileId: '', fileName: '' })} aria-label="Remover arquivo"><Icon name="trash" size={14} /></button>

@@ -80,7 +80,7 @@ quickRepliesRouter.get('/', asyncHandler(async (req, res) => {
 }));
 
 /** Envia um anexo (o corpo é o próprio arquivo; tipo em x-file-type, nome em ?filename=, uso em ?kind=). */
-quickRepliesRouter.post('/files', express.raw({ type: () => true, limit: '17mb' }), asyncHandler(async (req, res) => {
+quickRepliesRouter.post('/files', express.raw({ type: () => true, limit: '31mb' }), asyncHandler(async (req, res) => {
   const kind = String(req.query.kind ?? '') as FileKind;
   if (!FILE_RULES[kind]) throw new AppError(422, 'Tipo de anexo inválido');
   const data = req.body as Buffer;

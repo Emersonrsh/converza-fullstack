@@ -13,7 +13,7 @@ export const FILE_RULES: Record<FileKind, { mimes: RegExp; maxMb: number; label:
   image: { mimes: /^image\/(jpeg|png)$/i, maxMb: 5, label: 'imagem JPG ou PNG (até 5 MB)' },
   video: { mimes: /^video\/(mp4|3gpp)$/i, maxMb: 16, label: 'vídeo MP4 ou 3GP (até 16 MB)' },
   audio: { mimes: /^audio\/(aac|mp4|mpeg|amr|ogg|opus)/i, maxMb: 16, label: 'áudio MP3, OGG, AAC, AMR ou M4A (até 16 MB)' },
-  document: { mimes: /^(application|text)\//i, maxMb: 16, label: 'documento (PDF, planilha, texto…) até 16 MB' },
+  document: { mimes: /^(application|text)\//i, maxMb: 30, label: 'documento (PDF, planilha, texto…) até 30 MB' },
   sticker: { mimes: /^image\/webp$/i, maxMb: 0.5, label: 'figurinha WEBP 512×512 (até 500 KB)' },
 };
 

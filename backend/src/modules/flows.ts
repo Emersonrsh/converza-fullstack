@@ -274,7 +274,7 @@ flowsRouter.post('/simulate', asyncHandler(async (req, res) => {
 /* ------------------------------------------------------------- arquivos, teste de integração e modelos de IA */
 
 /** Arquivo dos blocos (Mensagem, Carrossel, Botão PIX): o corpo é o próprio arquivo; tipo em x-file-type, nome em ?filename=, uso em ?kind=. */
-flowsRouter.post('/files', express.raw({ type: () => true, limit: '17mb' }), asyncHandler(async (req, res) => {
+flowsRouter.post('/files', express.raw({ type: () => true, limit: '31mb' }), asyncHandler(async (req, res) => {
   const kind = String(req.query.kind ?? '') as FileKind;
   if (!FILE_RULES[kind]) throw new AppError(422, 'Tipo de arquivo inválido');
   const data = req.body as Buffer;

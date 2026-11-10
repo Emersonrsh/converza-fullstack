@@ -416,7 +416,8 @@ export type PreviewPart =
   | { k: 'label'; text: string }
   | { k: 'chips'; items: { text: string; color?: string }[] }
   | { k: 'box'; title: string; sub?: string }
-  | { k: 'note'; text: string };
+  | { k: 'note'; text: string }
+  | { k: 'img'; fileId?: string; url?: string; name: string; caption?: string };
 
 const ITEM_ICON: Record<string, string> = { text: 'chat', interval: 'clock', image: 'image', video: 'video', audio: 'mic', file: 'file', sticker: 'sticker', contact: 'contact' };
 const ITEM_NAME: Record<string, string> = { image: 'Imagem', video: 'Vídeo', audio: 'Áudio', file: 'Arquivo', sticker: 'Sticker' };
@@ -443,9 +444,18 @@ export function preview(type: string, d: Record<string, any>, lk: Lookups): Prev
         if (t === 'text') {
           if (Number(it.typingSeconds) > 0) parts.push({ k: 'row', icon: 'edit', text: `Digitando: ${Number(it.typingSeconds)}s` });
           parts.push({ k: 'row', icon: 'chat', text: short(it.text) || 'Texto vazio' });
-        } else if (t === 'interval') parts.push({ k: 'row', icon: 'clock', text: `Delay: ${Number(it.amount ?? 3)}${unitShort[it.unit ?? 'seconds'] ?? 's'}` });
+        } else if (t === 'interval') {
+          if (it.mode === 'random') {
+            const lo = Math.min(Number(it.min ?? 10), Number(it.max ?? 40)); const hi = Math.max(Number(it.min ?? 10), Number(it.max ?? 40));
+            parts.push({ k: 'row', icon: 'shuffle', text: lo === hi ? `Delay: ${lo}s` : `Delay aleatório: ${lo}–${hi}s` });
+          } else parts.push({ k: 'row', icon: 'clock', text: `Delay: ${Number(it.amount ?? 3)}${unitShort[it.unit ?? 'seconds'] ?? 's'}` });
+        }
         else if (t === 'contact') parts.push({ k: 'row', icon: 'contact', text: `Contato: ${short(it.name, 40) || 'sem nome'}` });
-        else {
+        else if ((t === 'image' || t === 'sticker') && (it.fileId || /^https?:\/\//i.test(String(it.url ?? '').trim()))) {
+          const name = it.fileName || (it.url ? String(it.url).split('/').pop() : '') || ITEM_NAME[t];
+          parts.push({ k: 'img', fileId: it.fileId || undefined, url: it.fileId ? undefined : String(it.url).trim(), name: short(name, 48), caption: it.caption ? short(it.caption, 60) : undefined });
+        } else {
+          if (t === 'audio' && Number(it.recordingSeconds) > 0) parts.push({ k: 'row', icon: 'mic', text: `Gravando: ${Number(it.recordingSeconds)}s` });
           const name = it.filename || it.fileName || (it.url ? String(it.url).split('/').pop() : '');
           parts.push({ k: 'row', icon: ITEM_ICON[t] ?? 'file', text: `${ITEM_NAME[t] ?? 'Arquivo'}: ${short(name, 48) || 'sem arquivo'}`, sub: it.caption ? short(it.caption, 50) : undefined });
         }
@@ -455,6 +465,11 @@ export function preview(type: string, d: Record<string, any>, lk: Lookups): Prev
         return [...parts.slice(0, PREVIEW_MAX), { k: 'note', text: `+ ${extra} ${extra === 1 ? 'item' : 'itens'}` }];
       }
       return parts;
+    }
+    case 'media': {
+      const url = String(d.url ?? '').trim();
+      if (d.mediaType === 'image' && /^https?:\/\//i.test(url)) return [{ k: 'img', url, name: short(url.split('/').pop(), 48), caption: d.caption ? short(d.caption, 60) : undefined }];
+      return [];
     }
     case 'tags': {
       const tags: string[] = Array.isArray(d.tags) ? d.tags : [];

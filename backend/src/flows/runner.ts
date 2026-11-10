@@ -241,10 +241,10 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
       const c = await contact();
       return { name: c.name, phone: c.phone, stage: c.stage, tags: [...c.tags], email: c.email, custom: { ...(c.custom as Record<string, unknown> ?? {}) } };
     },
-    async typing(seconds) {
+    async typing(seconds, mode) {
       const conn = await connection();
       if (!conn) return;
-      await showTyping({ phoneNumberId: conn.phoneNumberId, accessToken: conn.accessToken }, await recipient(), p.state.lastWaId, seconds).catch(() => undefined);
+      await showTyping({ phoneNumberId: conn.phoneNumberId, accessToken: conn.accessToken }, await recipient(), p.state.lastWaId, seconds, mode).catch(() => undefined);
     },
     async sendText(text) {
       const quote = takeQuote();

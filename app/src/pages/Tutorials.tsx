@@ -164,7 +164,7 @@ const TUTORIALS: Tutorial[] = [
       'Adicione as ações na ordem em que devem chegar: texto (com {{primeiro_nome}}, {{saudacao}}…), imagem, vídeo, áudio, documento ou figurinha.',
       'No Chats ao vivo, digite **#cat** e aperte Enter. Só texto vira rascunho para você ajustar; com anexos, tudo é enviado na hora.',
     ],
-    tip: 'Cada empresa tem até 200 MB de anexos. O WhatsApp aceita imagens até 5 MB e vídeos, áudios e documentos até 16 MB.',
+    tip: 'Cada empresa tem até 200 MB de anexos. O WhatsApp aceita imagens até 5 MB, vídeos e áudios até 16 MB e documentos até 30 MB.',
   },
   {
     id: 'trackeamento', icon: 'target', title: 'Saber de onde vem cada cliente', module: 'Configurações', route: '/settings/trackeamento', minutes: 3,

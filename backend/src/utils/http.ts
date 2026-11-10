@@ -31,6 +31,15 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   if (err && typeof err === 'object' && 'issues' in err) {
     return res.status(422).json({ error: 'Dados inválidos', issues: (err as { issues: unknown }).issues });
   }
+  // erros do leitor do corpo (arquivo grande demais, envio interrompido, JSON quebrado…)
+  const e = err as { type?: string; status?: number; statusCode?: number; limit?: number } | null;
+  const status = Number(e?.status ?? e?.statusCode ?? 0);
+  if (e?.type === 'entity.too.large' || status === 413) {
+    return res.status(413).json({ code: 'too_big', error: 'Arquivo grande demais para enviar. Confira o limite de tamanho mostrado na tela (documentos: até 30 MB; vídeos e áudios: até 16 MB; imagens: até 5 MB).' });
+  }
+  if (e?.type === 'request.aborted') return res.status(400).json({ code: 'aborted', error: 'O envio foi interrompido antes de terminar. Confira sua internet e tente de novo.' });
+  if (e?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Dados enviados em formato inválido.' });
+  if (status >= 400 && status < 500) return res.status(status).json({ error: 'Não foi possível processar o envio. Tente de novo.' });
   console.error(err);
   return res.status(500).json({ error: 'Erro interno do servidor' });
 }
