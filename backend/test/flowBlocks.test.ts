@@ -5,7 +5,7 @@ import { applyVarOp, parseLocalDate, normalizeState, type FlowExecutor } from '.
 import { outputsOf } from '../src/flows/types';
 import { crc16, normalizePixKey, parseMoney, pixCode } from '../src/flows/pix';
 import { secondsUntilWindow } from '../src/flows/timing';
-import { runAiBlock, parseJsonLoose, toChatParts } from '../src/flows/aiBlock';
+import { runAiBlock, parseJsonLoose, toChatParts, pixKeyMatches, nameMatches } from '../src/flows/aiBlock';
 import { sanitizeGeneratedGraph, stripForImport } from '../src/flows/aiTools';
 
 const deps = (over: Partial<SimDeps> = {}): SimDeps => ({
@@ -455,6 +455,103 @@ describe('Bloco de IA', () => {
     assert.equal(toChatParts([{ type: 'text', text: 'oi' }]), 'oi');
     const parts = toChatParts([{ type: 'text', text: 'veja' }, { type: 'image', mime: 'image/png', data: 'AAA' }]);
     assert.ok(Array.isArray(parts) && parts[1].type === 'image_url');
+  });
+});
+
+describe('Comprovante: validar chave Pix e recebedor', () => {
+  const run = async (receipt: Record<string, unknown>, d: Record<string, unknown>, scope: Record<string, unknown> = {}) => {
+    const state = normalizeState({ mediaMsgId: 'm1', lastMessage: '' });
+    const notes: string[] = [];
+    const exec = {
+      lastInboundMedia: async () => ({ kind: 'document', mime: 'application/pdf', filename: 'c.pdf', data: Buffer.from('fake') }),
+      aiComplete: async () => JSON.stringify({ comprovante: true, valor: 15, moeda: 'BRL', ...receipt }),
+      aiAudio: async () => ({ text: '' }), sendText: async () => {}, note: (t: string) => { notes.push(t); },
+    } as unknown as FlowExecutor;
+    const r = await runAiBlock({ detectReceipt: true, ...d }, state, exec, scope);
+    return { r, state, notes };
+  };
+  it('chave certa e recebedor certo: Comprovante válido', async () => {
+    const { r, state } = await run({ chave_pix: 'financeiro@empresa.com.br', nome_recebedor: 'EMPRESA EXEMPLO LTDA', nome_pagador: 'Ana Lima' },
+      { validatePixKey: true, pixKeys: ['Financeiro@Empresa.com.br'], validateRecipient: true, recipientNames: ['Empresa Exemplo'] });
+    assert.equal(r.handle, 'receipt');
+    assert.equal(state.vars.comprovante.chave_ok, 'sim');
+    assert.equal(state.vars.comprovante.nome_ok, 'sim');
+  });
+  it('chave diferente: Chave Pix errada (com o motivo)', async () => {
+    const { r, state } = await run({ chave_pix: 'outro@golpe.com', nome_recebedor: 'Empresa Exemplo' },
+      { validatePixKey: true, pixKeys: ['financeiro@empresa.com.br', '{{g_chave_pix}}'], validateRecipient: true, recipientNames: ['Empresa Exemplo'] }, { g_chave_pix: '11987654321' });
+    assert.equal(r.handle, 'pix_wrong');
+    assert.match(String(state.vars.comprovante.motivo), /outro@golpe\.com/);
+  });
+  it('chave pela variável (variação) e comprovante sem chave', async () => {
+    const ok = await run({ chave_pix: '+55 (11) 98765-4321' }, { validatePixKey: true, pixKeys: ['x@y.com', '{{g_chave_pix}}'] }, { g_chave_pix: '11987654321' });
+    assert.equal(ok.r.handle, 'receipt');
+    const none = await run({ chave_pix: null }, { validatePixKey: true, pixKeys: ['x@y.com'] });
+    assert.equal(none.r.handle, 'pix_wrong');
+    assert.match(String(none.state.vars.comprovante.motivo), /não mostra a chave/);
+  });
+  it('nome errado no recebedor e no pagador: Nome errado; bate pelo pagador: válido', async () => {
+    const bad = await run({ nome_recebedor: 'Fulano de Tal', nome_pagador: 'Beltrano Souza' }, { validateRecipient: true, recipientNames: ['Empresa Exemplo LTDA'] });
+    assert.equal(bad.r.handle, 'name_wrong');
+    const byPayer = await run({ nome_recebedor: '', nome_pagador: 'EMPRESA EXEMPLO' }, { validateRecipient: true, recipientNames: ['Empresa Exemplo LTDA'] });
+    assert.equal(byPayer.r.handle, 'receipt');
+  });
+  it('validação ligada com lista vazia é ignorada; desligada não confere', async () => {
+    assert.equal((await run({ chave_pix: 'qualquer' }, { validatePixKey: true, pixKeys: ['', ' '] })).r.handle, 'receipt');
+    assert.equal((await run({ chave_pix: 'qualquer' }, { validatePixKey: false, pixKeys: ['outra@x.com'] })).r.handle, 'receipt');
+  });
+  it('compara chaves mascaradas e em formatos diferentes', () => {
+    assert.ok(pixKeyMatches('***.456.789-**', '123.456.789-09'));
+    assert.ok(pixKeyMatches('123.456.789-09', '12345678909'));
+    assert.ok(!pixKeyMatches('***.456.780-**', '123.456.789-09'));
+    assert.ok(pixKeyMatches('jo***@gmail.com', 'joao.silva@gmail.com'));
+    assert.ok(!pixKeyMatches('ma***@gmail.com', 'joao.silva@gmail.com'));
+    assert.ok(pixKeyMatches('(11) *****-4321', '+55 11 98765-4321'));
+    assert.ok(pixKeyMatches('5511987654321', '(11) 98765-4321'));
+    assert.ok(pixKeyMatches('7D9F0335-8DCC-4054-9BF9-0D8B2C6C1C51', '7d9f0335-8dcc-4054-9bf9-0d8b2c6c1c51'));
+    assert.ok(!pixKeyMatches('***', '12345678909'), 'pouco visível não conta');
+    assert.ok(pixKeyMatches('12.345.678/0001-95', '12345678000195'));
+  });
+  it('compara nomes com acento, abreviação e sufixo de empresa', () => {
+    assert.ok(nameMatches('JOAO S SILVA', 'João Pedro Souza Silva'));
+    assert.ok(nameMatches('MARIA DE FATIMA', 'Maria de Fátima'));
+    assert.ok(nameMatches('EMPRESA EXEMPLO LTDA', 'Empresa Exemplo'));
+    assert.ok(nameMatches('CONVERZA TECNOLOGIA', 'Converza'));
+    assert.ok(!nameMatches('Carlos Pereira', 'João Silva'));
+    assert.ok(!nameMatches('', 'João Silva'));
+  });
+});
+
+describe('Bloco de IA: Fallback (padrão) com "Só conferir comprovante"', () => {
+  const mk = (media: unknown, aiAnswer: string) => {
+    const calls: string[] = []; const sent: string[] = [];
+    const exec = {
+      lastInboundMedia: async () => media,
+      aiComplete: async (spec: { system: string }) => { calls.push(spec.system.slice(0, 20)); return aiAnswer; },
+      aiAudio: async () => ({ text: '' }), sendText: async (t: string) => { sent.push(t); }, note: () => {},
+    } as unknown as FlowExecutor;
+    return { exec, calls, sent };
+  };
+  it('foto que não é comprovante: vai pro fallback sem a IA responder', async () => {
+    const state = normalizeState({ mediaMsgId: 'm1', lastMessage: '' });
+    const { exec, calls, sent } = mk({ kind: 'image', mime: 'image/jpeg', filename: null, data: Buffer.from('x') }, '{"comprovante": false}');
+    const r = await runAiBlock({ detectReceipt: true, receiptOnly: true, prompt: 'Responda' }, state, exec, {});
+    assert.equal(r.handle, null);
+    assert.equal(calls.length, 1, 'só a leitura do comprovante');
+    assert.deepEqual(sent, []);
+    assert.equal(state.vars.comprovante.valido, 'nao');
+  });
+  it('só texto: fallback direto, sem gastar IA', async () => {
+    const state = normalizeState({ lastMessage: 'paguei' });
+    const { exec, calls, sent } = mk(null, 'x');
+    const r = await runAiBlock({ detectReceipt: true, receiptOnly: true, prompt: 'Responda' }, state, exec, { resposta: 'paguei' });
+    assert.equal(r.handle, null); assert.equal(calls.length, 0); assert.deepEqual(sent, []);
+  });
+  it('desligado: a IA responde como antes', async () => {
+    const state = normalizeState({ lastMessage: 'oi' });
+    const { exec, sent } = mk(null, 'Olá! Pode mandar o comprovante?');
+    const r = await runAiBlock({ detectReceipt: true, prompt: 'Responda' }, state, exec, { resposta: 'oi' });
+    assert.equal(r.handle, null); assert.deepEqual(sent, ['Olá! Pode mandar o comprovante?']);
   });
 });
 

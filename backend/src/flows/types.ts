@@ -164,6 +164,8 @@ export function outputsOf(node: { type: string; data?: Dict }): (string | null)[
     case 'ai':
       return [
         ...(d.detectReceipt ? ['receipt'] : []),
+        ...(d.detectReceipt && d.validatePixKey ? ['pix_wrong'] : []),
+        ...(d.detectReceipt && d.validateRecipient ? ['name_wrong'] : []),
         ...(Array.isArray(d.conditions) ? d.conditions.filter((c: Dict) => c?.id).map((c: Dict) => String(c.id)) : []),
         null, 'error',
       ];

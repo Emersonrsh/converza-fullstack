@@ -5,6 +5,32 @@ import { api } from '../../api';
 import { rid, sanitizeVarName } from '../blocks';
 import { Field, HowItWorks, RichText, Section, Switch, Tabs, ToggleCard, VarInput } from './fields';
 import type { D, EditorProps } from './types';
+import type { ReactNode } from 'react';
+
+/** Lista de variações (até 5), cada uma aceitando variáveis. */
+function VariantList({ label, values, onChange, vars, placeholder, hint, testId }: {
+  label: string; values: unknown; onChange: (v: string[]) => void; vars: string[]; placeholder: string; hint: ReactNode; testId: string;
+}) {
+  const list: string[] = Array.isArray(values) && values.length ? values.map((v) => String(v ?? '')) : [''];
+  const put = (l: string[]) => onChange(l.length ? l : ['']);
+  return (
+    <div className="ai-var" data-testid={testId}>
+      <div className="ai-var-l">{label}</div>
+      {list.map((v, i) => (
+        <div className="ai-var-row" key={i}>
+          <div className="ai-var-in"><VarInput value={v} onChange={(nv) => put(list.map((x, j) => (j === i ? nv : x)))} vars={vars} placeholder={placeholder} testId={`${testId}-${i}`} /></div>
+          {list.length > 1 && (
+            <button type="button" className="btn icon sm ghost" onClick={() => put(list.filter((_, j) => j !== i))} aria-label="Remover variação"><Icon name="trash" size={14} /></button>
+          )}
+        </div>
+      ))}
+      {list.length < 5 && (
+        <button type="button" className="ai-var-add" onClick={() => put([...list, ''])} data-testid={`${testId}-add`}><Icon name="plus" size={13} />Adicionar variação</button>
+      )}
+      <div className="bm-hint">{hint}</div>
+    </div>
+  );
+}
 
 /* ------------------------------------------------------------------ cURL */
 
@@ -317,9 +343,34 @@ export function AiEditor({ d, set, vars, lookups }: EditorProps) {
         <ToggleCard title="Entender imagem" desc="Fotos e figurinhas vão junto para o modelo (use um modelo com visão)." checked={!!d.image} onChange={(image) => set({ image })} testId="ai-image" />
         <ToggleCard title="Entender PDF" desc={provider === 'gemini' ? 'Atenção: o Gemini pela API compatível pode não ler PDFs.' : 'Documentos PDF vão junto para o modelo.'} checked={!!d.pdf} onChange={(pdf) => set({ pdf })} testId="ai-pdf" />
         <ToggleCard title="Identificar comprovante" accent checked={!!d.detectReceipt} onChange={(detectReceipt) => set({ detectReceipt })} testId="ai-receipt"
-          desc={<>Se o cliente mandar a foto ou o PDF de um comprovante de pagamento, segue pela saída <b>Comprovante válido</b> com <code>{'{{comprovante.valor}}'}</code>, <code>{'{{comprovante.nome_pagador}}'}</code>, data, banco e ID. A IA lê o arquivo: confira o dinheiro no banco antes de liberar algo caro.</>} />
+          desc={<>Identifica comprovante de pagamento em imagem/PDF e extrai os dados no lead. Cria a saída <strong>Comprovante válido</strong> no topo do bloco, com <code>{'{{comprovante.valor}}'}</code>, <code>{'{{comprovante.nome_pagador}}'}</code>, data, banco e ID. A IA lê o arquivo: confira o dinheiro no banco antes de liberar algo caro.</>} />
+        {d.detectReceipt && (
+          <div className="ai-val" data-testid="ai-validations">
+            <ToggleCard title="Só conferir comprovante" accent checked={!!d.receiptOnly} onChange={(receiptOnly) => set({ receiptOnly })} testId="ai-receipt-only"
+              desc={<>Se o cliente mandar outra coisa (texto, outra foto), a IA <strong>não responde</strong> e o fluxo segue direto pelo <strong>Fallback (padrão)</strong> — use para pedir o comprovante de novo com a sua mensagem. Desligado, a IA responde normalmente com o prompt.</>} />
+            <div className="ai-val-h">Validações adicionais</div>
+            <p className="ai-val-sub">Cada validação ligada vira uma saída no bloco: <b>Chave Pix errada</b> e/ou <b>Nome errado</b>.</p>
+            <ToggleCard title="Validar Chave Pix" desc="Compara a chave Pix do comprovante com a chave cadastrada." accent
+              checked={!!d.validatePixKey} onChange={(validatePixKey) => set({ validatePixKey })} testId="ai-val-pix" />
+            {d.validatePixKey && (
+              <VariantList label="Chave Pix esperada" values={d.pixKeys} onChange={(pixKeys) => set({ pixKeys })} vars={vars} testId="ai-pixkeys"
+                placeholder="financeiro@empresa.com.br ou {{g_chave_pix}}"
+                hint="Aceita CPF/CNPJ, e-mail, telefone, chave aleatória ou variáveis. Até 5 variações. Chaves mascaradas no comprovante (***.456.789-**) também são conferidas. Deixe vazio para ignorar a validação de chave." />
+            )}
+            <ToggleCard title="Validar recebedor" desc="Confere o nome do recebedor; se não bater, tenta o pagador." accent
+              checked={!!d.validateRecipient} onChange={(validateRecipient) => set({ validateRecipient })} testId="ai-val-name" />
+            {d.validateRecipient && (
+              <VariantList label="Recebedor esperado" values={d.recipientNames} onChange={(recipientNames) => set({ recipientNames })} vars={vars} testId="ai-names"
+                placeholder="Empresa Exemplo LTDA ou {{g_nome_recebedor}}"
+                hint={<>Compara com <code>{'{{comprovante.nome_recebedor}}'}</code>; se não bater, tenta <code>{'{{comprovante.nome_pagador}}'}</code>. Ignora acentos, maiúsculas e “LTDA”, e aceita nome abreviado (JOAO S SILVA). Até 5 variações. Deixe vazio para ignorar.</>} />
+            )}
+            {(d.validatePixKey || d.validateRecipient) && (
+              <div className="bm-hint">O motivo da recusa fica em <code>{'{{comprovante.motivo}}'}</code>, para você responder o cliente na saída de erro.</div>
+            )}
+          </div>
+        )}
       </Section>
-      <Section title={`Condicionais inteligentes (${conds.length}/10)`} sub="A IA escolhe a que melhor descreve a mensagem e o fluxo segue por ela. Sem nenhuma, sai por “Resposta”.">
+      <Section title={`Condicionais inteligentes (${conds.length}/10)`} sub="A IA escolhe a que melhor descreve a mensagem e o fluxo segue por ela. Se nenhuma se aplicar, sai pelo “Fallback (padrão)”.">
         {conds.map((c, i) => (
           <div className="bm-opt" key={c.id ?? i}>
             <span className="bm-opt-n">{i + 1}</span>
@@ -339,6 +390,7 @@ export function AiEditor({ d, set, vars, lookups }: EditorProps) {
         </Field>
       )}
       <HowItWorks>
+        <b>Fallback (padrão)</b> é a saída de quando nada mais se aplica: não é comprovante válido e nenhuma condicional foi escolhida.
         A resposta fica em <code>{'{{ia.resposta}}'}</code>, a transcrição do áudio em <code>{'{{ia.transcricao}}'}</code> e a condição escolhida em <code>{'{{ia.condicao}}'}</code>.
         Se der erro (chave inválida, sem saldo, modelo errado) segue por <b>Falha</b> — ou pela saída normal, se Falha não estiver ligada — com o motivo em <code>{'{{ia.erro}}'}</code>.
         {provider === 'converza' ? ' Consome tokens de IA da conta.' : ' O custo é cobrado pelo provedor, na sua conta dele.'}

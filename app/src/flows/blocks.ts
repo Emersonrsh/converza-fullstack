@@ -87,7 +87,8 @@ export function defaultData(type: BlockType): Record<string, any> {
     case 'http': return { method: 'GET', url: '', headersJson: '{\n  "Content-Type": "application/json"\n}', body: '', mappings: [], saveAs: 'http' };
     case 'ai': return {
       provider: 'converza', apiKey: '', model: '', input: '{{resposta}}', saveAs: '', send: true, prompt: DEFAULT_PROMPT,
-      audio: false, image: false, pdf: false, detectReceipt: false, conditions: [], keepContext: false, contextSize: 5,
+      audio: false, image: false, pdf: false, detectReceipt: false,
+      receiptOnly: false, validatePixKey: false, pixKeys: [''], validateRecipient: false, recipientNames: [''], conditions: [], keepContext: false, contextSize: 5,
     };
     case 'ai_agent': return { action: 'assign', agentId: '' };
     case 'kanban': return { action: 'add', boardId: '', columnId: '' };
@@ -183,8 +184,10 @@ export function outputsFor(type: string, d: Record<string, any>): Output[] {
     case 'distributor': return (Array.isArray(d.outputs) ? d.outputs : []).map((o: any, i: number) => ({ id: String(o.id), label: o.label || `Saída ${i + 1}` }));
     case 'ai': return [
       ...(d.detectReceipt ? [{ id: 'receipt', label: 'Comprovante válido', tone: 'green' as const }] : []),
+      ...(d.detectReceipt && d.validatePixKey ? [{ id: 'pix_wrong', label: 'Chave Pix errada', tone: 'red' as const }] : []),
+      ...(d.detectReceipt && d.validateRecipient ? [{ id: 'name_wrong', label: 'Nome errado', tone: 'red' as const }] : []),
       ...(Array.isArray(d.conditions) ? d.conditions : []).map((c: any) => ({ id: String(c.id), label: c.label || '(condição sem nome)' })),
-      { id: null, label: 'Resposta' },
+      { id: null, label: 'Fallback (padrão)' },
       { id: 'error', label: 'Falha', tone: 'red' as const },
     ];
     case 'ai_classify': return [
@@ -392,7 +395,7 @@ export function variablesOf(nodes: { type?: string; data: Record<string, any> }[
       case 'ai':
         vars.add('ia.resposta'); vars.add('ia.erro'); vars.add('ia.transcricao'); vars.add('ia.condicao');
         if (d.saveAs) vars.add(String(d.saveAs));
-        if (d.detectReceipt) ['comprovante.valido', 'comprovante.valor', 'comprovante.nome_pagador', 'comprovante.nome_recebedor', 'comprovante.data', 'comprovante.banco', 'comprovante.id_transacao', 'comprovante.currency'].forEach((v) => vars.add(v));
+        if (d.detectReceipt) ['comprovante.valido', 'comprovante.valor', 'comprovante.nome_pagador', 'comprovante.nome_recebedor', 'comprovante.data', 'comprovante.banco', 'comprovante.id_transacao', 'comprovante.currency', 'comprovante.chave_pix', 'comprovante.chave_ok', 'comprovante.nome_ok', 'comprovante.motivo'].forEach((v) => vars.add(v));
         break;
       case 'set_var': if (d.name) vars.add(String(d.name).replace(/^\{\{|\}\}$/g, '')); break;
       case 'sale': ['venda.cliente', 'venda.valor', 'venda.valor_numero', 'venda.moeda', 'venda.produto'].forEach((v) => vars.add(v)); break;
