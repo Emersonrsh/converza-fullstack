@@ -215,6 +215,12 @@ export function PixelEditor({ d, set, vars, lookups }: EditorProps) {
           </select>
         </Field>
       </div>
+      {platform === 'meta' && (
+        <Field label="Page ID (opcional)"
+          hint="ID da Página do Facebook ligada ao WhatsApp do anúncio. Use em conexões não oficiais (WhatsApp Web): quando o cliente veio de um anúncio de clique para o WhatsApp, o evento vai atribuído ao anúncio. Na API oficial não precisa.">
+          <VarInput value={String(d.pageId ?? '')} onChange={(pageId) => set({ pageId })} vars={vars} placeholder="123456789012345" testId="pixel-page-id" />
+        </Field>
+      )}
       <HowItWorks>
         Envia o evento pela API de Conversões (servidor para servidor), com o telefone e os dados do contato criptografados.
         Cada contato manda o evento uma vez por passagem neste bloco. Acompanhe em Facebook › Pixel › Eventos.
