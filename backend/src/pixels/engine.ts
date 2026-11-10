@@ -137,6 +137,14 @@ export function metaUserData(p: Person) {
 export interface BuildIn {
   platform: Platform; pixelId: string; wabaId?: string | null;
   event: string; key: string; time: Date; person: Person | null; money?: Money | null; testCode?: string | null;
+  /** Página do Facebook ligada ao WhatsApp (bloco Pixel do fluxo, para conexões sem WABA). */
+  pageId?: string | null;
+}
+
+/** Evento do pixel da Meta → nome aceito pela API de Conversões para mensagens comerciais (null = não tem). */
+export function businessMessagingEvent(event: string): string | null {
+  if (event === 'Lead') return 'LeadSubmitted';
+  return PLATFORMS.meta_whatsapp.events.includes(event) ? event : null;
 }
 export type Built = { ok: true; body: Record<string, unknown>; preview: Record<string, unknown> } | { ok: false; skip: string };
 
@@ -147,6 +155,19 @@ export function buildEvent(i: BuildIn): Built {
   const t = unix(i.time);
   const money = i.money && i.money.value > 0 ? i.money : null;
   if (i.platform === 'meta') {
+    // cliente veio de um anúncio de clique para o WhatsApp e o bloco tem a Página: manda como mensagem comercial,
+    // que a Meta atribui ao anúncio (sem isso, segue como evento de chat cruzado pelo telefone)
+    const bmEvent = businessMessagingEvent(i.event);
+    const pageId = String(i.pageId ?? '').replace(/\D/g, '');
+    if (pageId && bmEvent && i.person?.ctwaClid) {
+      const ev: Record<string, unknown> = {
+        event_name: bmEvent, event_time: t, event_id: i.key, action_source: 'business_messaging', messaging_channel: 'whatsapp',
+        user_data: { page_id: pageId, ctwa_clid: i.person.ctwaClid },
+        ...(money ? { custom_data: { currency: money.currency, value: money.value } } : {}),
+      };
+      const body = { data: [ev], partner_agent: 'converza', ...(i.testCode ? { test_event_code: i.testCode } : {}) };
+      return { ok: true, body, preview: body };
+    }
     if (!i.person) return { ok: false, skip: 'Sem contato para identificar o cliente' };
     const user_data = metaUserData(i.person);
     if (!user_data.ph && !user_data.em) return { ok: false, skip: 'O contato não tem telefone nem e-mail para a Meta cruzar' };
