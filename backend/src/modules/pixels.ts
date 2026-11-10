@@ -5,7 +5,7 @@ import { db, schema } from '../db';
 import { emitToAccount } from '../realtime/io';
 import { enqueuePixelEvent } from '../queue';
 import { asyncHandler, AppError, isUuid } from '../utils/http';
-import { fetchPixel, MetaApiError, wabaDataset } from '../meta/graphAds';
+import { fetchPixel, MetaApiError, sendCapi, wabaDataset } from '../meta/graphAds';
 import { PLATFORMS, buildEvent, checkRules, defaultRules, ruleSchema, type Platform, type Rule } from '../pixels/engine';
 import { PixelSendError, deliver, pixelCredentials, publicEvent } from '../pixels/sender';
 
@@ -53,6 +53,21 @@ async function verify(platform: Platform, pixelId: string, token: string): Promi
     const px = await fetchPixel(pixelId, token);
     return px.name;
   } catch (err) {
+    // O token gerado em "API de Conversões > Gerar token de acesso" só envia eventos: ler o pixel
+    // dá "(#100) Missing Permission". Nesse caso, confere mandando um evento de teste (só aparece
+    // na aba "Eventos de teste" do Gerenciador, não conta como conversão).
+    if (err instanceof MetaApiError && platform === 'meta' && !err.tokenExpired && !err.rateLimited) {
+      const probe = buildEvent({
+        platform, pixelId, event: 'Lead', key: `converza-verify-${Date.now()}`, time: new Date(),
+        person: { id: 'converza-verify', name: null, phone: '5511999999999', email: null }, testCode: 'TEST_CONVERZA',
+      });
+      if (probe.ok) {
+        try {
+          await sendCapi(pixelId, token, probe.body);
+          return null;
+        } catch { /* mostra o erro original da leitura */ }
+      }
+    }
     if (err instanceof MetaApiError) {
       throw new AppError(422, err.tokenExpired
         ? 'A Meta recusou o token: ele venceu ou foi revogado. Gere um token novo no Gerenciador de Eventos.'
