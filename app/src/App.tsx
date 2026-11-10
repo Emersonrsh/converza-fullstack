@@ -50,6 +50,8 @@ export default function App() {
     );
   }
   if (!user) {
+    // visitante sem login na página inicial: mostra o site do Converza
+    if (loc.pathname === '/' && !loc.search) { window.location.replace('/site/'); return null; }
     return (
       <Routes>
         <Route path="/convite/:token" element={<InviteAccept />} />

@@ -29,6 +29,7 @@ export function Login() {
   const [invite, setInvite] = useState<InviteInfo | null>(null);
   // link de indicação (?ref=CODIGO): guarda o código e abre direto em "Criar conta"
   const [mode, setMode] = useState<'login' | 'register'>(() => {
+    if (window.location.pathname === '/criar-conta') return 'register';
     const ref = new URLSearchParams(window.location.search).get('ref');
     if (ref && /^[A-Za-z0-9]{4,20}$/.test(ref)) { localStorage.setItem('converza:ref', ref.toUpperCase()); return 'register'; }
     return 'login';

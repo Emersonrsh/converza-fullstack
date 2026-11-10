@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Converza</title>
+<meta name="description" content="Converza: fluxos, agentes de IA, chats ao vivo e CRM para vender no WhatsApp. Conecte pela API oficial da Meta ou por QR Code.">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta property="og:title" content="Converza — vendas no WhatsApp">
+<meta property="og:description" content="Fluxos, agentes de IA, chats ao vivo e CRM num lugar só.">
+<meta property="og:image" content="/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* Um mundo só (escuro, como o app): fundo tinta-petróleo, acento verde-água da marca,
+     âmbar só para dinheiro entrando. Layout: conversa à esquerda vira fluxo à direita. */
+  --ink:#06171a;        /* fundo */
+  --panel:#0b2126;      /* superfícies */
+  --line:#18363c;       /* bordas */
+  --text:#e4f2ef;       /* texto */
+  --muted:#8fb0ab;      /* texto secundário */
+  --teal:#2dd4bf;       /* marca / ação */
+  --money:#f6c453;      /* venda, valores */
+  --display:"Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
+  --body:"Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --mono:"JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--ink);color:var(--text);font:16px/1.6 var(--body);-webkit-font-smoothing:antialiased}
+a{color:inherit}
+img{max-width:100%}
+h1,h2,h3{font-family:var(--display);line-height:1.05;margin:0;text-wrap:balance;letter-spacing:-.02em}
+p{margin:0}
+:focus-visible{outline:2px solid var(--teal);outline-offset:3px;border-radius:6px}
+.wrap{width:min(1160px,100% - 40px);margin-inline:auto}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- topo ---------- */
+.nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--ink) 82%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid color-mix(in srgb,var(--line) 70%,transparent)}
+.nav .wrap{display:flex;align-items:center;gap:28px;height:68px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font:800 21px var(--display);letter-spacing:-.02em}
+.brand img{width:34px;height:34px}
+.nav ul{display:flex;gap:22px;list-style:none;margin:0;padding:0;font-size:14.5px;color:var(--muted)}
+.nav ul a{text-decoration:none}
+.nav ul a:hover{color:var(--text)}
+.nav .act{margin-left:auto;display:flex;gap:10px;align-items:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:11px;padding:11px 18px;font:700 15px var(--body);text-decoration:none;border:1px solid transparent;cursor:pointer;transition:transform .15s,background .15s,border-color .15s}
+.btn:hover{transform:translateY(-1px)}
+.btn.main{background:var(--teal);color:#032521}
+.btn.main:hover{background:color-mix(in srgb,var(--teal) 86%,white)}
+.btn.ghost{border-color:var(--line);color:var(--text)}
+.btn.ghost:hover{border-color:var(--teal)}
+.btn.lg{padding:15px 24px;font-size:16px;border-radius:13px}
+@media (max-width:860px){.nav ul{display:none}}
+@media (max-width:420px){.nav .act .ghost{display:none}}
+
+/* ---------- hero ---------- */
+.hero{padding:72px 0 56px;position:relative;overflow:hidden}
+.hero::before{content:"";position:absolute;inset:-30% -10% auto auto;width:720px;height:720px;background:radial-gradient(closest-side,color-mix(in srgb,var(--teal) 16%,transparent),transparent);pointer-events:none}
+.hero .wrap{display:grid;grid-template-columns:1.02fr 1fr;gap:56px;align-items:center;position:relative}
+@media (max-width:960px){.hero .wrap{grid-template-columns:1fr}}
+.kicker{display:inline-flex;align-items:center;gap:8px;font:500 12.5px var(--mono);color:var(--teal);letter-spacing:.04em;text-transform:uppercase;margin-bottom:22px}
+.kicker i{width:8px;height:8px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 4px color-mix(in srgb,var(--teal) 22%,transparent)}
+.hero h1{font-size:clamp(38px,5vw,62px);font-weight:800}
+.hero h1 em{font-style:normal;color:var(--teal)}
+.hero h1 .money{color:var(--money)}
+.lead{margin-top:22px;font-size:19px;color:var(--muted);max-width:33em}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px}
+.proof{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:34px;font-size:13.5px;color:var(--muted)}
+.proof span{display:inline-flex;align-items:center;gap:7px}
+.proof svg{color:var(--teal)}
+
+/* demo: conversa + fluxo */
+.demo{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:stretch}
+@media (max-width:540px){.demo{grid-template-columns:1fr}}
+.phone{background:#0a1c1f;border:1px solid var(--line);border-radius:26px;padding:14px;box-shadow:0 30px 80px -30px #000}
+.phone-hd{display:flex;align-items:center;gap:9px;padding:4px 4px 12px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.phone-hd b{font-size:13.5px}
+.phone-hd small{display:block;font-size:11.5px;color:var(--teal)}
+.av{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#f6c453,#f08a5d);display:grid;place-items:center;font:700 13px var(--display);color:#3a1f00}
+.msgs{display:flex;flex-direction:column;gap:8px;font-size:13.5px;line-height:1.4}
+.m{max-width:86%;padding:8px 11px;border-radius:13px;transition:box-shadow .3s,transform .3s}
+.m.in{background:#13302f;align-self:flex-start;border-bottom-left-radius:4px}
+.m.out{background:#0f4d45;align-self:flex-end;border-bottom-right-radius:4px}
+.m small{display:block;font-size:10.5px;color:var(--muted);text-align:right;margin-top:2px}
+.m.file{display:flex;gap:8px;align-items:center}
+.m.file .pdf{width:28px;height:34px;border-radius:5px;background:#e9f4f2;color:#b42318;font:700 9px var(--mono);display:grid;place-items:center;flex:none}
+.m.on{box-shadow:0 0 0 2px var(--teal);transform:translateX(0) scale(1.02)}
+.typing{align-self:flex-end;display:none;gap:4px;padding:9px 12px;background:#0f4d45;border-radius:13px}
+.typing.on{display:flex}
+.typing i{width:6px;height:6px;border-radius:50%;background:#9fe7dc;animation:dot 1s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes dot{0%,80%,100%{opacity:.3}40%{opacity:1}}
+
+.flow{position:relative;display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:22px;border:1px dashed var(--line);background:
+  radial-gradient(circle,color-mix(in srgb,var(--line) 90%,transparent) 1px,transparent 1.2px) 0 0/16px 16px}
+.node{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:10px 12px;transition:border-color .3s,box-shadow .3s}
+.node+.node::before{content:"";position:absolute;left:24px;top:-13px;width:2px;height:13px;background:var(--line)}
+.node .t{display:flex;align-items:center;gap:8px;font:700 13px var(--body)}
+.node .t i{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;flex:none}
+.node p{font-size:12px;color:var(--muted);margin-top:3px}
+.node.on{border-color:var(--teal);box-shadow:0 0 0 3px color-mix(in srgb,var(--teal) 25%,transparent)}
+.node.on+.node::before{background:var(--teal)}
+.sale{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:999px;border:2px solid var(--money);background:color-mix(in srgb,var(--money) 10%,var(--panel));font:800 14px var(--display)}
+.sale .ic{width:30px;height:30px;border-radius:50%;background:var(--money);color:#3a2600;display:grid;place-items:center;font:800 16px var(--display)}
+.sale .v{margin-left:auto;color:var(--money);white-space:nowrap}
+.sale.on{animation:neon 1.4s ease-in-out infinite}
+@keyframes neon{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--money) 0%,transparent)}50%{box-shadow:0 0 26px 2px color-mix(in srgb,var(--money) 55%,transparent)}}
+
+/* ---------- seções ---------- */
+section{padding:84px 0}
+.sec-hd{display:grid;gap:14px;max-width:720px;margin-bottom:44px}
+.sec-hd .lbl{font:500 12.5px var(--mono);color:var(--teal);letter-spacing:.06em;text-transform:uppercase}
+.sec-hd h2{font-size:clamp(30px,4vw,48px);font-weight:800}
+.sec-hd p{color:var(--muted);font-size:17.5px;max-width:38em}
+
+/* onde as vendas escapam: dor → resposta */
+.leaks{display:grid;gap:0;border-top:1px solid var(--line)}
+.leak{display:grid;grid-template-columns:70px 1fr 1fr;gap:24px;padding:26px 0;border-bottom:1px solid var(--line);align-items:start}
+.leak .n{font:800 34px var(--display);color:color-mix(in srgb,var(--text) 22%,transparent);line-height:1}
+.leak h3{font-size:22px;font-weight:700}
+.leak .pain{color:var(--muted);margin-top:6px}
+.leak .fix{padding-left:18px;border-left:2px solid var(--teal)}
+.leak .fix b{display:block;font-size:13px;color:var(--teal);font-family:var(--mono);font-weight:500;letter-spacing:.03em;margin-bottom:4px}
+@media (max-width:760px){.leak{grid-template-columns:44px 1fr}.leak .fix{grid-column:2}}
+
+/* recursos em grade de tamanhos diferentes */
+.bento{display:grid;grid-template-columns:repeat(6,1fr);gap:14px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:24px;display:flex;flex-direction:column;gap:10px;min-height:220px}
+.tile h3{font-size:22px;font-weight:700}
+.tile p{color:var(--muted);font-size:15px}
+.tile .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto}
+.chip{font:500 11.5px var(--mono);padding:4px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.w3{grid-column:span 3}.w2{grid-column:span 2}.w4{grid-column:span 4}
+@media (max-width:900px){.w3,.w2,.w4{grid-column:span 6}}
+.tile.big{background:linear-gradient(160deg,color-mix(in srgb,var(--teal) 12%,var(--panel)),var(--panel) 60%)}
+.mini-flow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px}
+.mini-flow span{font:600 12px var(--body);padding:6px 10px;border-radius:9px;background:#0f2c31;border:1px solid var(--line)}
+.mini-flow em{font-style:normal;color:var(--teal)}
+.wave{display:flex;align-items:center;gap:3px;height:28px;margin-top:4px}
+.wave i{width:4px;border-radius:2px;background:var(--teal);opacity:.85}
+.roas{display:flex;gap:18px;margin-top:6px}
+.roas div{display:grid}
+.roas b{font:800 26px var(--display);color:var(--money)}
+.roas small{font-size:12px;color:var(--muted)}
+
+/* como começar */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;counter-reset:s}
+@media (max-width:820px){.steps{grid-template-columns:1fr}}
+.step{padding:26px;border-radius:20px;border:1px solid var(--line);position:relative}
+.step::before{counter-increment:s;content:"0" counter(s);font:500 13px var(--mono);color:var(--teal)}
+.step h3{font-size:21px;margin:12px 0 8px}
+.step p{color:var(--muted);font-size:15px}
+
+/* calculadora */
+.calc{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media (max-width:880px){.calc{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:28px}
+.field{display:grid;gap:8px;margin-bottom:20px}
+.field label{display:flex;justify-content:space-between;font-weight:600;font-size:14.5px}
+.field label output{font-family:var(--mono);color:var(--teal);font-weight:500}
+input[type=range]{width:100%;accent-color:var(--teal)}
+.result{display:grid;gap:18px;align-content:start}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:14px;border-bottom:1px dashed var(--line)}
+.row span{color:var(--muted)}
+.row b{font:800 26px var(--display)}
+.row.hl b{color:var(--money);font-size:38px}
+.note{font-size:13px;color:var(--muted)}
+
+/* preço */
+.price{display:grid;grid-template-columns:1.1fr 1fr;gap:18px}
+@media (max-width:880px){.price{grid-template-columns:1fr}}
+.plan h3{font-size:16px;font-family:var(--mono);font-weight:500;color:var(--teal);letter-spacing:.04em;text-transform:uppercase}
+.amount{display:flex;align-items:baseline;gap:8px;margin:12px 0 4px}
+.amount b{font:800 64px var(--display);letter-spacing:-.03em}
+.amount span{color:var(--muted)}
+.inc{list-style:none;padding:0;margin:22px 0 26px;display:grid;gap:10px}
+.inc li{display:flex;gap:10px;align-items:flex-start}
+.inc svg{flex:none;margin-top:4px;color:var(--teal)}
+.qty{display:flex;align-items:center;gap:12px;margin:14px 0 18px}
+.qty button{width:40px;height:40px;border-radius:11px;border:1px solid var(--line);background:transparent;color:var(--text);font:700 20px var(--body);cursor:pointer}
+.qty button:hover{border-color:var(--teal)}
+.qty output{font:800 28px var(--display);min-width:3ch;text-align:center}
+.total{font:800 40px var(--display);color:var(--money)}
+.extras{display:grid;gap:12px;margin-top:22px;padding-top:22px;border-top:1px solid var(--line)}
+.extras div{display:flex;justify-content:space-between;gap:12px;font-size:15px}
+.extras span{color:var(--muted)}
+
+/* perguntas */
+.faq{display:grid;gap:10px;max-width:860px}
+details{border:1px solid var(--line);border-radius:16px;background:var(--panel);padding:0 22px}
+summary{cursor:pointer;list-style:none;padding:19px 0;font:700 17px var(--body);display:flex;justify-content:space-between;gap:16px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font:500 22px var(--mono);color:var(--teal);line-height:1}
+details[open] summary::after{content:"–"}
+details p{padding:0 0 20px;color:var(--muted)}
+
+/* final */
+.final{text-align:left}
+.final .box{border-radius:28px;padding:56px;background:
+  linear-gradient(120deg,color-mix(in srgb,var(--teal) 22%,var(--panel)),var(--panel) 55%);border:1px solid color-mix(in srgb,var(--teal) 35%,var(--line));display:grid;grid-template-columns:1.4fr auto;gap:28px;align-items:center}
+@media (max-width:820px){.final .box{grid-template-columns:1fr;padding:34px}}
+.final h2{font-size:clamp(30px,4vw,50px);font-weight:800}
+.final p{color:var(--muted);margin-top:12px;font-size:17px}
+
+footer{border-top:1px solid var(--line);padding:40px 0 56px;color:var(--muted);font-size:14px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:20px 40px;justify-content:space-between;align-items:center}
+footer nav{display:flex;flex-wrap:wrap;gap:8px 22px}
+footer a{text-decoration:none}
+footer a:hover{color:var(--text)}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#topo" aria-label="Converza, início"><img src="/logo.png" alt="" width="34" height="34">Converza</a>
+    <ul>
+      <li><a href="#recursos">Recursos</a></li>
+      <li><a href="#como-comecar">Como começar</a></li>
+      <li><a href="#precos">Preços</a></li>
+      <li><a href="#perguntas">Perguntas</a></li>
+    </ul>
+    <div class="act">
+      <a class="btn ghost" href="/entrar">Entrar</a>
+      <a class="btn main" href="/criar-conta">Criar conta</a>
+    </div>
+  </div>
+</header>
+
+<main id="topo">
+  <section class="hero">
+    <div class="wrap">
+      <div>
+        <div class="kicker"><i></i>Vendas e atendimento no WhatsApp</div>
+        <h1>Do <em>“oi”</em> ao <span class="money">Pix pago</span>, sem perder ninguém no caminho.</h1>
+        <p class="lead">Fluxos que respondem na hora, agentes de IA que entendem áudio e comprovante, e uma equipe atendendo junto no mesmo número. Você monta, o Converza conversa e cada venda aparece no seu painel.</p>
+        <div class="cta">
+          <a class="btn main lg" href="/criar-conta">Criar minha conta</a>
+          <a class="btn ghost lg" href="#precos">Ver preços</a>
+        </div>
+        <div class="proof">
+          <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>API oficial da Meta ou QR Code</span>
+          <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Pix e cartão pela Asaas</span>
+          <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Cancele quando quiser</span>
+        </div>
+      </div>
+
+      <div class="demo" aria-label="Exemplo: uma conversa no WhatsApp e o fluxo que respondeu">
+        <div class="phone">
+          <div class="phone-hd"><span class="av">M</span><div><b>Marina Souza</b><small>online</small></div></div>
+          <div class="msgs">
+            <div class="m in" data-step="0">Oi! Vi o anúncio do guia de orações 🙏<small>14:02</small></div>
+            <div class="m out" data-step="1">Oi, Marina! O guia tem 9 dias de roteiro e sai por R$ 15. Quer receber agora?<small>14:02</small></div>
+            <div class="m in" data-step="2">Quero sim, como pago?<small>14:03</small></div>
+            <div class="m out" data-step="2">Pix copia e cola: 00020126…5802BR<small>14:03</small></div>
+            <div class="m in file" data-step="3"><span class="pdf">PDF</span>comprovante.pdf<small>14:05</small></div>
+            <div class="typing" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="m out" data-step="4">Pagamento confirmado ✅ Aqui está o seu guia!<small>14:05</small></div>
+          </div>
+        </div>
+        <div class="flow">
+          <div class="node" data-step="0"><div class="t"><i style="background:#0f4d45">⚡</i>Início</div><p>Clicou no anúncio</p></div>
+          <div class="node" data-step="1"><div class="t"><i style="background:#1e3a8a">💬</i>Mensagem</div><p>Oferta com digitando… 3 s</p></div>
+          <div class="node" data-step="2"><div class="t"><i style="background:#065f46">◆</i>Botão Pix</div><p>R$ 15,00 · copia e cola</p></div>
+          <div class="node" data-step="3"><div class="t"><i style="background:#7c2d12">✦</i>Bloco de IA</div><p>Comprovante válido · chave Pix confere</p></div>
+          <div class="sale" data-step="4"><span class="ic">$</span>Venda aprovada<span class="v num">R$ 15,00</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="vazamentos">
+    <div class="wrap">
+      <div class="sec-hd">
+        <span class="lbl">Onde as vendas escapam</span>
+        <h2>Quatro buracos que todo atendimento no WhatsApp tem.</h2>
+        <p>E o que o Converza coloca em cada um.</p>
+      </div>
+      <div class="leaks">
+        <div class="leak"><span class="n">01</span><div><h3>Resposta que chega tarde</h3><p class="pain">O cliente manda mensagem às 23h, ninguém responde, e de manhã ele já comprou no concorrente.</p></div>
+          <div class="fix"><b>Fluxos e agentes 24h</b>Responde na hora, com o tempo de “digitando” de uma pessoa, e passa para a equipe quando precisa.</div></div>
+        <div class="leak"><span class="n">02</span><div><h3>Comprovante que ninguém confere</h3><p class="pain">Chega a foto do Pix, alguém precisa abrir, conferir valor, chave e nome, e só então liberar.</p></div>
+          <div class="fix"><b>Bloco de IA</b>Lê o comprovante em foto ou PDF, confere a chave Pix e o recebedor, e segue o fluxo certo.</div></div>
+        <div class="leak"><span class="n">03</span><div><h3>Lead que some da lista</h3><p class="pain">Quem não comprou hoje fica perdido no meio de centenas de conversas.</p></div>
+          <div class="fix"><b>CRM, Kanban e disparos</b>Etiquetas, etapas e campos em cada contato, e disparos para quem parou no meio do caminho.</div></div>
+        <div class="leak"><span class="n">04</span><div><h3>Anúncio sem saber se vendeu</h3><p class="pain">O Gerenciador mostra conversas iniciadas, mas não quanto cada anúncio faturou de verdade.</p></div>
+          <div class="fix"><b>Facebook e Pixel</b>Cada lead chega marcado com o anúncio de origem, e a venda aprovada volta para a Meta com o valor.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="recursos">
+    <div class="wrap">
+      <div class="sec-hd">
+        <span class="lbl">Recursos</span>
+        <h2>Tudo que acontece depois do primeiro “oi”.</h2>
+        <p>Um painel para montar a conversa, atender junto com a equipe e ver o dinheiro entrando.</p>
+      </div>
+      <div class="bento">
+        <article class="tile big w4">
+          <h3>Fluxos visuais com 21 blocos</h3>
+          <p>Arraste blocos de mensagem, menu, carrossel, Pix, condição, IA, Kanban e venda aprovada. Teste no simulador antes de ligar. Tem um fluxo pronto em outra ferramenta? Envie os prints e a IA monta para você.</p>
+          <div class="mini-flow"><span>Início</span><em>→</em><span>Menu</span><em>→</em><span>Botão Pix</span><em>→</em><span>Bloco de IA</span><em>→</em><span style="border-color:var(--money);color:var(--money)">Venda aprovada</span></div>
+        </article>
+        <article class="tile w2">
+          <h3>Agentes de IA que falam</h3>
+          <p>Entendem áudio, respondem em texto ou em mensagem de voz com uma voz clonada.</p>
+          <div class="wave" aria-hidden="true"></div>
+        </article>
+        <article class="tile w2">
+          <h3>Chats ao vivo</h3>
+          <p>Fila Aguardando, Atendendo e Resolvidos, setores, respostas rápidas com #atalho e notas internas.</p>
+          <div class="chips"><span class="chip">multiatendente</span><span class="chip">tempo real</span></div>
+        </article>
+        <article class="tile w2">
+          <h3>CRM e Kanban</h3>
+          <p>Contatos com etiquetas, campos e compras. Quadros com valor no pipeline e taxa de conversão.</p>
+          <div class="chips"><span class="chip">importar CSV</span><span class="chip">sem duplicados</span></div>
+        </article>
+        <article class="tile w2">
+          <h3>Disparos em massa</h3>
+          <p>Envie um fluxo para muitos contatos, com a regra das 24h da Meta, agendamento e pausa automática.</p>
+          <div class="chips"><span class="chip">SAIR / VOLTAR</span></div>
+        </article>
+        <article class="tile w3">
+          <h3>Facebook Ads com ROAS real</h3>
+          <p>Campanhas, conjuntos e anúncios cruzados com as vendas aprovadas no Converza.</p>
+          <div class="roas"><div><b class="num">4,2×</b><small>ROAS (exemplo)</small></div><div><b class="num">R$ 8,40</b><small>custo por conversa (exemplo)</small></div></div>
+        </article>
+        <article class="tile w3">
+          <h3>Webhooks e integrações</h3>
+          <p>Hotmart, Kiwify e formulários disparam fluxos, etiquetas e vendas. Ferramentas MCP deixam Claude, ChatGPT ou n8n agirem na sua conta.</p>
+          <div class="chips"><span class="chip">Hotmart</span><span class="chip">Kiwify</span><span class="chip">MCP</span><span class="chip">cURL</span></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="como-comecar">
+    <div class="wrap">
+      <div class="sec-hd">
+        <span class="lbl">Como começar</span>
+        <h2>Três passos até a primeira venda automática.</h2>
+      </div>
+      <div class="steps">
+        <div class="step"><h3>Conecte seu número</h3><p>Pela API oficial da Meta em 1 clique, pelo WhatsApp Business do celular ou lendo um QR Code.</p></div>
+        <div class="step"><h3>Monte o fluxo</h3><p>Comece de um modelo, descreva o que quer para a IA ou envie prints de um fluxo que você já usa.</p></div>
+        <div class="step"><h3>Acompanhe as vendas</h3><p>Entradas, avanços e taxa em cada bloco, e faturamento por anúncio no Dashboard.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="calculadora">
+    <div class="wrap">
+      <div class="sec-hd">
+        <span class="lbl">Faça a conta</span>
+        <h2>Quantas vendas pagam o Converza?</h2>
+        <p>Coloque os números do seu negócio. A conta é sua: nada aqui é promessa de resultado.</p>
+      </div>
+      <div class="calc">
+        <div class="card">
+          <div class="field"><label for="c-leads">Conversas por mês <output id="o-leads" class="num"></output></label><input id="c-leads" type="range" min="100" max="20000" step="100" value="2000"></div>
+          <div class="field"><label for="c-ticket">Ticket médio <output id="o-ticket" class="num"></output></label><input id="c-ticket" type="range" min="10" max="2000" step="1" value="97"></div>
+          <div class="field"><label for="c-now">Conversão hoje <output id="o-now" class="num"></output></label><input id="c-now" type="range" min="0.5" max="30" step="0.5" value="3"></div>
+          <div class="field"><label for="c-goal">Conversão que você quer atingir <output id="o-goal" class="num"></output></label><input id="c-goal" type="range" min="0.5" max="40" step="0.5" value="5"></div>
+          <div class="field" style="margin-bottom:0"><label for="c-inst">Números de WhatsApp <output id="o-inst" class="num"></output></label><input id="c-inst" type="range" min="1" max="10" step="1" value="1"></div>
+        </div>
+        <div class="card result" aria-live="polite">
+          <div class="row"><span>Faturamento hoje</span><b id="r-now" class="num"></b></div>
+          <div class="row"><span>Com a conversão que você quer</span><b id="r-goal" class="num"></b></div>
+          <div class="row hl"><span>Diferença por mês</span><b id="r-diff" class="num"></b></div>
+          <div class="row"><span>Converza por mês</span><b id="r-cost" class="num"></b></div>
+          <p class="note" id="r-pay"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="precos">
+    <div class="wrap">
+      <div class="sec-hd">
+        <span class="lbl">Preços</span>
+        <h2>Um preço por número de WhatsApp.</h2>
+        <p>Sem plano escondido: todos os recursos entram para todo mundo. Você escolhe quantos números conectar.</p>
+      </div>
+      <div class="price">
+        <div class="card plan">
+          <h3>Por instância</h3>
+          <div class="amount"><b class="num">R$ 127</b><span>por número / mês</span></div>
+          <ul class="inc">
+            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>1 número de WhatsApp (API oficial ou QR Code)</li>
+            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>2 agentes de IA</li>
+            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>1.000 contatos em disparos por mês</li>
+            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>10 mil eventos de webhook por mês</li>
+            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Fluxos, chats ao vivo, CRM, Kanban, Facebook e Pixel</li>
+          </ul>
+          <a class="btn main lg" href="/criar-conta">Criar minha conta</a>
+        </div>
+        <div class="card">
+          <h3 style="font-size:22px">Monte o seu</h3>
+          <div class="qty">
+            <button type="button" id="q-minus" aria-label="Menos um número">−</button>
+            <output id="q-n" class="num">1</output>
+            <button type="button" id="q-plus" aria-label="Mais um número">+</button>
+            <span style="color:var(--muted)">números</span>
+          </div>
+          <div class="total num" id="q-total">R$ 127,00</div>
+          <p class="note">por mês, no Pix ou no cartão</p>
+          <div class="extras">
+            <div><span>Tokens de IA avulsos</span><b class="num">R$ 1,00 / 1.000</b></div>
+            <div><span>Disparos extras</span><b class="num">a partir de R$ 29,90</b></div>
+            <div><span>Mais números no meio do mês</span><b>proporcional</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="perguntas">
+    <div class="wrap">
+      <div class="sec-hd">
+        <span class="lbl">Perguntas</span>
+        <h2>Antes de você começar.</h2>
+      </div>
+      <div class="faq">
+        <details open><summary>Qual a diferença entre API oficial e QR Code?</summary><p>A API oficial da Meta é a forma mais estável e com menor risco de bloqueio, mas exige uma conta no Gerenciador do WhatsApp e mensagens modelo fora da janela de 24h. O QR Code conecta qualquer WhatsApp em segundos, sem janela de 24h, mas usa o protocolo do WhatsApp Web e tem risco de banimento. Você escolhe por número.</p></details>
+        <details><summary>Posso conhecer antes de pagar?</summary><p>Sim. Criar a conta não custa nada: você monta fluxos, configura agentes e testa tudo no simulador. A assinatura só é necessária para conectar um número e falar com clientes de verdade.</p></details>
+        <details><summary>Como pago e como cancelo?</summary><p>Por Pix ou cartão, pela Asaas. Para cancelar, é um clique em Cobranças e assinaturas: os números continuam funcionando até o fim do período já pago.</p></details>
+        <details><summary>Como funcionam os tokens de IA?</summary><p>Agentes, Bloco de IA, leitura de comprovantes e geração de fluxos usam tokens. Você compra quanto quiser, a partir de 5 mil, e eles não vencem. Também dá para usar a sua própria chave de IA no Bloco de IA.</p></details>
+        <details><summary>Já tenho fluxos em outra ferramenta. Preciso refazer tudo?</summary><p>Não. Envie prints do fluxo pronto e a IA monta a mesma estrutura no Converza. Depois é só revisar e anexar as mídias.</p></details>
+        <details><summary>Minha equipe pode atender no mesmo número?</summary><p>Pode. Convide as pessoas por e-mail, separe por setores e cada conversa fica com quem atendeu, com histórico de transferências.</p></details>
+        <details><summary>Meus dados ficam protegidos?</summary><p>Os dados dos clientes ficam na sua conta, os dados de cartão nunca passam pelo Converza e você pode pedir a exclusão a qualquer momento. Os detalhes estão na Política de Privacidade.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="final">
+    <div class="wrap">
+      <div class="box">
+        <div>
+          <h2>Seu próximo cliente já está mandando “oi”.</h2>
+          <p>Crie a conta, monte o primeiro fluxo e conecte o número quando estiver pronto.</p>
+        </div>
+        <a class="btn main lg" href="/criar-conta">Criar minha conta</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="#topo"><img src="/logo.png" alt="" width="28" height="28">Converza</a>
+    <nav aria-label="Links do rodapé">
+      <a href="#recursos">Recursos</a>
+      <a href="#precos">Preços</a>
+      <a href="/entrar">Entrar</a>
+      <a href="/termos">Termos de Uso</a>
+      <a href="/privacidade">Privacidade</a>
+      <a href="/exclusao-de-dados">Exclusão de dados</a>
+    </nav>
+    <span>© <span id="yr">2026</span> Converza</span>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const brl = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: v >= 1000 ? 0 : 2 });
+  const PRICE = 127;
+
+  /* onda do agente de voz */
+  const wave = document.querySelector('.wave');
+  if (wave) for (let i = 0; i < 34; i++) { const b = document.createElement('i'); b.style.height = `${6 + Math.round(Math.abs(Math.sin(i * 0.7) * 18 + Math.cos(i * 1.9) * 4))}px`; wave.appendChild(b); }
+
+  /* demonstração: a conversa e o bloco do fluxo acendem juntos */
+  const steps = [0, 1, 2, 3, 4];
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const typing = document.querySelector('.typing');
+  const show = (s) => {
+    document.querySelectorAll('[data-step]').forEach((el) => el.classList.toggle('on', Number(el.dataset.step) === s));
+    if (s === 4) document.querySelector('.sale').classList.add('on');
+  };
+  if (reduce) show(4);
+  else {
+    let i = 0;
+    const tick = () => {
+      const s = steps[i % steps.length];
+      if (s === 4) { typing.classList.add('on'); setTimeout(() => { typing.classList.remove('on'); show(4); }, 900); }
+      else show(s);
+      i++;
+      setTimeout(tick, s === 4 ? 3600 : 1700);
+    };
+    tick();
+  }
+
+  /* calculadora */
+  const $ = (id) => document.getElementById(id);
+  const calc = () => {
+    const leads = +$('c-leads').value, ticket = +$('c-ticket').value, now = +$('c-now').value, goal = +$('c-goal').value, inst = +$('c-inst').value;
+    $('o-leads').textContent = leads.toLocaleString('pt-BR');
+    $('o-ticket').textContent = brl(ticket);
+    $('o-now').textContent = `${now.toLocaleString('pt-BR')}%`;
+    $('o-goal').textContent = `${goal.toLocaleString('pt-BR')}%`;
+    $('o-inst').textContent = inst;
+    const fNow = leads * now / 100 * ticket, fGoal = leads * goal / 100 * ticket, cost = inst * PRICE;
+    $('r-now').textContent = brl(fNow);
+    $('r-goal').textContent = brl(fGoal);
+    $('r-diff').textContent = (fGoal - fNow >= 0 ? '+ ' : '− ') + brl(Math.abs(fGoal - fNow));
+    $('r-cost').textContent = brl(cost);
+    const sales = Math.ceil(cost / ticket);
+    $('r-pay').textContent = `Com ticket de ${brl(ticket)}, ${sales} ${sales === 1 ? 'venda paga' : 'vendas pagam'} o mês do Converza. Simulação com os números que você escolheu.`;
+  };
+  ['c-leads', 'c-ticket', 'c-now', 'c-goal', 'c-inst'].forEach((id) => $(id).addEventListener('input', calc));
+  calc();
+
+  /* preço por quantidade */
+  let n = 1;
+  const upd = () => { $('q-n').textContent = n; $('q-total').textContent = brl(n * PRICE); };
+  $('q-minus').addEventListener('click', () => { n = Math.max(1, n - 1); upd(); });
+  $('q-plus').addEventListener('click', () => { n = Math.min(100, n + 1); upd(); });
+  upd();
+
+  $('yr').textContent = new Date().getFullYear();
+})();
+</script>
+</body>
+</html>
