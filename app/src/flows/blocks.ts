@@ -81,7 +81,7 @@ export function defaultData(type: BlockType): Record<string, any> {
     case 'condition': return { logic: 'all', rules: [] };
     case 'distributor': return { mode: 'sticky', outputs: [{ id: rid('out'), label: 'Saída 1' }, { id: rid('out'), label: 'Saída 2' }] };
     case 'goto_flow': return { flowId: '' };
-    case 'pixel': return { platform: 'meta', pixelId: '', event: 'Purchase', value: '', currency: 'BRL' };
+    case 'pixel': return { platform: 'meta', pixelId: '', event: 'Purchase', value: '', currency: 'BRL', pageId: '' };
     case 'delay': return { mode: 'interval', amount: 1, unit: 'minutes', date: '', days: [1, 2, 3, 4, 5], from: '09:00', to: '18:00', useBusinessHours: false };
     case 'department': return { action: 'set', departmentId: '' };
     case 'http': return { method: 'GET', url: '', headersJson: '{\n  "Content-Type": "application/json"\n}', body: '', mappings: [], saveAs: 'http' };
