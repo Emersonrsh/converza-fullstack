@@ -111,6 +111,24 @@ const contextIdOf = (m: any): string | null => {
 };
 
 /**
+ * Anúncio de clique para o WhatsApp: o WhatsApp Web traz o anúncio no externalAdReply da primeira mensagem.
+ * Vira o mesmo `referral` da Cloud API (com o ctwa_clid, que a Meta usa para atribuir a conversão).
+ */
+const adReplyOf = (m: any): Record<string, string> | null => {
+  for (const k of ['extendedTextMessage', ...MEDIA_KEYS, 'contactMessage', 'locationMessage'] as const) {
+    const ad = m?.[k]?.contextInfo?.externalAdReply;
+    if (ad?.sourceId || ad?.ctwaClid) {
+      const ref: Record<string, string> = { source_id: String(ad.sourceId || ad.ctwaClid) };
+      if (ad.sourceType) ref.source_type = String(ad.sourceType);
+      if (ad.sourceUrl) ref.source_url = String(ad.sourceUrl);
+      if (ad.ctwaClid) ref.ctwa_clid = String(ad.ctwaClid);
+      return ref;
+    }
+  }
+  return null;
+};
+
+/**
  * Mensagem recebida (ou enviada pelo celular) → mensagem no formato da Cloud API.
  * `mediaId`: o id da mídia já baixada e guardada pelo Converza. null = não é algo que o Converza mostra.
  */
@@ -121,6 +139,8 @@ export function toCloudMessage(msg: any, mediaId: string | null = null): Record<
   const base: Record<string, any> = { id: String(msg.key.id), timestamp: tsOf(msg.messageTimestamp) };
   const ctx = contextIdOf(m);
   if (ctx) base.context = { id: ctx };
+  const ad = adReplyOf(m);
+  if (ad) base.referral = ad;
   if (isViewOnce(m)) return { ...base, type: 'unsupported', unsupported: { text: '👁️ Mensagem de visualização única — só dá para abrir no celular.' } };
   if (m.editedMessage || m.protocolMessage?.editedMessage) return null; // edição: a mensagem original continua no chat
 
