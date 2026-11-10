@@ -42,7 +42,7 @@ export interface TemplateSpec {
 export interface NotifySpec { name: string; phone: string; text: string; template: { name: string; language: string; withText: boolean; paramName?: string } | null }
 export interface SaleSpec { productId: string | null; customerName: string; amount: number | null; currency: string }
 export interface SaleResult { productName: string; amount: number; currency: string }
-export interface PixelSpec { pixelId: string; event: string; value: number | null; currency: string; nodeId: string }
+export interface PixelSpec { pixelId: string; event: string; value: number | null; currency: string; nodeId: string; pageId?: string | null }
 
 /** Parte do pedido para a IA (texto, imagem, PDF ou áudio já em base64). */
 export type AiPart =
@@ -722,6 +722,7 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
       await exec.firePixel({
         pixelId: String(d.pixelId), event: String(d.event || 'Purchase'), nodeId: node.id,
         value: Number.isFinite(value) ? value : null, currency: (render(d.currency || 'BRL', s).trim() || 'BRL').toUpperCase().slice(0, 3),
+        pageId: render(d.pageId ?? '', s).replace(/\D/g, '').slice(0, 30) || null,
       });
       return go(null);
     }
