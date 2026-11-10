@@ -239,6 +239,7 @@ O que tem nele:
 - **Números do negócio:** recebido no mês (comparado com o mês passado), receita recorrente estimada (números pagos × preço da instância), empresas pagando, faturas atrasadas, receita dos últimos 6 meses, empresas por situação, números conectados, pessoas que entraram nos últimos 7 dias e tokens de IA usados.
 - **Empresas:** busca por nome, dono, e-mail ou ID da conta e filtro por situação (pagando, cancelando, atrasadas, cortesia, da casa, sem assinatura, canceladas, suspensas). Clicando numa empresa: dono, equipe, números, assinatura, faturas, se o acesso de suporte está liberado e o histórico do que foi feito no painel.
 - **Dar cortesia:** libera a empresa por alguns dias (até 90 por vez) sem cobrança. Se ela já estiver ativa, os dias são somados. No fim, **não renova sozinha**. Não vale para quem tem assinatura paga renovando (aí o desconto é feito no painel da Asaas ou da Paddle).
+- **Créditos de IA:** soma tokens ao saldo de IA de uma empresa sem gerar cobrança (bônus, testes, compensações) — ou tira, para corrigir (nunca fica negativo). A IA só funciona com assinatura ativa (ou cortesia); sem ela, o saldo fica guardado.
 - **Suspender / reativar:** com um motivo, que a empresa vê. Suspensa, ninguém da empresa entra (aparece um aviso) e os números param de enviar; nada é apagado. A cobrança no gateway **não** é cancelada — se for o caso, cancele na Asaas ou na Paddle.
 - **Registro de ações:** cada cortesia, suspensão e reativação fica guardada com quem fez e quando.
 

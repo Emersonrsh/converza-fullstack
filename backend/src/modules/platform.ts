@@ -10,6 +10,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { asyncHandler, AppError } from '../utils/http';
 import { patchSub } from '../billing/store';
+import { creditTokens, removeTokens } from './tokens';
 import { PRICING } from './plans';
 import { emitToAccount } from '../realtime/io';
 
@@ -115,7 +116,7 @@ platformRouter.get('/accounts', asyncHandler(async (req, res) => {
   const base = sql`
     select a.id, a.name, a.number, a.created_at as "createdAt", a.suspended_at as "suspendedAt", a.suspended_reason as "suspendedReason",
       ${STATUS_SQL} as status,
-      s.instances, s.current_period_end as "periodEnd", s.gateway, s.payment_method as "paymentMethod", s.billing_country as country,
+      s.instances, s.ai_tokens_balance as "aiBalance", s.current_period_end as "periodEnd", s.gateway, s.payment_method as "paymentMethod", s.billing_country as country,
       (select u.name from memberships m join users u on u.id = m.user_id where m.account_id = a.id and m.role = 'owner' order by m.created_at limit 1) as "ownerName",
       (select u.email from memberships m join users u on u.id = m.user_id where m.account_id = a.id and m.role = 'owner' order by m.created_at limit 1) as "ownerEmail",
       (select count(*) from memberships m where m.account_id = a.id) as members,
@@ -128,7 +129,7 @@ platformRouter.get('/accounts', asyncHandler(async (req, res) => {
     select * from (${base}) x ${where} order by x."createdAt" desc limit ${size} offset ${(q.page - 1) * size}`));
   const [{ total }] = rows<{ total: string }>(await db.execute(sql`select count(*) as total from (${base}) x ${where}`));
   res.json({
-    accounts: list.map((r) => ({ ...r, members: n(r.members), numbers: n(r.numbers), numbersOn: n(r.numbersOn), aiTokens30: n(r.aiTokens30), instances: n(r.instances) })),
+    accounts: list.map((r) => ({ ...r, members: n(r.members), numbers: n(r.numbers), numbersOn: n(r.numbersOn), aiTokens30: n(r.aiTokens30), aiBalance: n(r.aiBalance), instances: n(r.instances) })),
     total: n(total), page: q.page, pageSize: size,
   });
 }));
@@ -223,6 +224,25 @@ platformRouter.post('/accounts/:id/courtesy', asyncHandler(async (req, res) => {
   });
   await audit(req, a.id, a.name, 'courtesy', { days: body.days, instances, until: until.toISOString(), note: body.note || undefined });
   res.json({ ok: true, until, instances });
+}));
+
+/** Créditos de IA: soma (ou tira, para corrigir) tokens no saldo da empresa, sem cobrança. */
+platformRouter.post('/accounts/:id/ai-credits', asyncHandler(async (req, res) => {
+  const a = await accountOr404(req.params.id);
+  const body = z.object({
+    tokens: z.coerce.number().int().min(1, 'Mínimo 1 token').max(100_000_000, 'Máximo 100 milhões de tokens por vez'),
+    mode: z.enum(['add', 'remove']).optional().default('add'),
+    note: z.string().trim().max(200).optional().default(''),
+  }).parse(req.body ?? {});
+  const [sub] = await db.select().from(schema.subscriptions).where(eq(schema.subscriptions.accountId, a.id)).limit(1);
+  if (sub?.house) throw new AppError(409, 'Conta da casa já tem tokens de IA sem limite');
+  const before = sub?.aiTokensBalance ?? 0;
+  if (body.mode === 'add' && before + body.tokens > 2_000_000_000) throw new AppError(422, 'O saldo passaria do limite de 2 bilhões de tokens');
+  const balance = body.mode === 'add' ? await creditTokens(a.id, body.tokens) : await removeTokens(a.id, body.tokens);
+  await audit(req, a.id, a.name, body.mode === 'add' ? 'ai_credits' : 'ai_credits_remove', {
+    tokens: body.mode === 'add' ? body.tokens : before - balance, before, balance, note: body.note || undefined,
+  });
+  res.json({ ok: true, balance, before });
 }));
 
 /* ------------------------------------------------------------------ registro */

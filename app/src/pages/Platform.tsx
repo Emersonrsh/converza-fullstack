@@ -18,7 +18,7 @@ const FILTERS: ['all' | Status, string][] = [
   ['all', 'Todas'], ['paying', 'Pagando'], ['canceling', 'Cancelando'], ['past_due', 'Atrasadas'], ['courtesy', 'Cortesia'],
   ['house', 'Da casa'], ['inactive', 'Sem assinatura'], ['canceled', 'Canceladas'], ['suspended', 'Suspensas'],
 ];
-const ACTION: Record<string, string> = { suspend: 'Suspendeu', reactivate: 'Reativou', courtesy: 'Deu cortesia' };
+const ACTION: Record<string, string> = { suspend: 'Suspendeu', reactivate: 'Reativou', courtesy: 'Deu cortesia', ai_credits: 'Adicionou créditos de IA', ai_credits_remove: 'Tirou créditos de IA' };
 const ROLE: Record<string, string> = { owner: 'Dono', admin: 'Administrador', agent: 'Atendente' };
 const INV: Record<string, [string, string]> = { paid: ['Paga', 'green'], pending: ['Pendente', 'amber'], overdue: ['Atrasada', 'red'], refunded: ['Reembolsada', ''], canceled: ['Cancelada', ''] };
 
@@ -33,7 +33,7 @@ interface Overview {
 interface Row {
   id: string; name: string; number: number; createdAt: string; status: Status; suspendedReason: string | null;
   instances: number; periodEnd: string | null; ownerName: string | null; ownerEmail: string | null;
-  members: number; numbers: number; numbersOn: number; lastAccess: string | null; aiTokens30: number;
+  members: number; numbers: number; numbersOn: number; lastAccess: string | null; aiTokens30: number; aiBalance: number;
 }
 interface AuditRow { id: string; actorEmail: string; accountName: string; action: string; detail: Record<string, any>; createdAt: string }
 interface Detail {
@@ -150,6 +150,49 @@ function CourtesyModal({ d, onClose, onDone }: { d: Detail; onClose: () => void;
   );
 }
 
+const CREDIT_PRESETS = [10_000, 50_000, 100_000, 500_000, 1_000_000];
+
+function CreditsModal({ d, onClose, onDone }: { d: Detail; onClose: () => void; onDone: () => void }) {
+  const [mode, setMode] = useState<'add' | 'remove'>('add');
+  const [tokens, setTokens] = useState(100_000);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const balance = d.subscription?.aiTokensBalance ?? 0;
+  const after = mode === 'add' ? balance + tokens : Math.max(0, balance - tokens);
+  const active = d.subscription?.status === 'active';
+  async function save() {
+    setBusy(true); setErr(null);
+    try {
+      const r = await api.post<{ balance: number }>(`/platform/accounts/${d.account.id}/ai-credits`, { tokens, mode, note });
+      toast(`${mode === 'add' ? 'Créditos adicionados' : 'Créditos retirados'} · saldo ${num(r.balance)} tokens`); onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Erro'); setBusy(false); }
+  }
+  return (
+    <Modal title="Créditos de IA" icon="bolt" width={480} onClose={onClose} footer={<>
+      <button type="button" className="btn" onClick={onClose}>Cancelar</button>
+      <button type="button" className={cx('btn', mode === 'add' ? 'primary' : 'pf-danger')} disabled={busy || tokens < 1 || (mode === 'remove' && balance === 0)} onClick={() => void save()} data-testid="pf-credits-save">
+        {busy ? 'Salvando…' : mode === 'add' ? `Adicionar ${num(tokens)} tokens` : `Tirar ${num(Math.min(tokens, balance))} tokens`}</button>
+    </>}>
+      <div className="pf-form">
+        <div className="gen-tabs" role="tablist">
+          <button type="button" className={cx(mode === 'add' && 'on')} onClick={() => setMode('add')} data-testid="pf-credits-add"><Icon name="plus" size={14} />Adicionar</button>
+          <button type="button" className={cx(mode === 'remove' && 'on')} onClick={() => setMode('remove')} data-testid="pf-credits-remove"><Icon name="trash" size={14} />Tirar (corrigir)</button>
+        </div>
+        <p className="muted">Os tokens entram no saldo de IA de <b>{d.account.name}</b> sem gerar cobrança — servem para bônus, testes e compensações. Tudo fica no registro de ações.</p>
+        <div className="pf-days pf-presets">{CREDIT_PRESETS.map((v) => <button type="button" key={v} className={cx(tokens === v && 'on')} onClick={() => setTokens(v)}>{v >= 1_000_000 ? `${v / 1_000_000} mi` : `${v / 1000} mil`}</button>)}</div>
+        <label><span className="label">Quantidade de tokens</span>
+          <input className="input" type="number" min={1} max={100_000_000} step={1000} value={tokens}
+            onChange={(e) => setTokens(Math.min(100_000_000, Math.max(0, Math.floor(Number(e.target.value) || 0))))} data-testid="pf-credits-tokens" /></label>
+        <label><span className="label">Anotação (só você vê, opcional)</span><input className="input" maxLength={200} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex.: bônus de boas-vindas" data-testid="pf-credits-note" /></label>
+        <div className="hint" data-testid="pf-credits-after"><Icon name="bolt" size={14} /><span>Saldo: <b>{num(balance)}</b> → <b>{num(after)}</b> tokens</span></div>
+        {!active && <div className="hint"><Icon name="info" size={14} /><span>Esta empresa está sem assinatura ativa: o saldo fica guardado, mas a IA só funciona quando ela assinar (ou com uma cortesia).</span></div>}
+        {err && <div className="hint bad"><Icon name="alert" size={14} /><span>{err}</span></div>}
+      </div>
+    </Modal>
+  );
+}
+
 function SuspendModal({ d, onClose, onDone }: { d: Detail; onClose: () => void; onDone: () => void }) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -185,13 +228,14 @@ function AuditList({ items, showAccount }: { items: AuditRow[]; showAccount?: bo
     <ul className="pf-audit" data-testid="pf-audit">
       {items.map((a) => (
         <li key={a.id}>
-          <span className={cx('pf-audit-ic', a.action)}><Icon name={a.action === 'suspend' ? 'alert' : a.action === 'courtesy' ? 'gift' : 'check'} size={13} /></span>
+          <span className={cx('pf-audit-ic', a.action)}><Icon name={a.action === 'suspend' ? 'alert' : a.action === 'courtesy' ? 'gift' : a.action.startsWith('ai_credits') ? 'bolt' : 'check'} size={13} /></span>
           <div>
             <b>{ACTION[a.action] ?? a.action}{showAccount ? ` · ${a.accountName}` : ''}</b>
             <span>
               {a.action === 'courtesy' && `${a.detail.days} dias, ${a.detail.instances} ${a.detail.instances === 1 ? 'número' : 'números'}, até ${date(a.detail.until)}${a.detail.note ? ` · ${a.detail.note}` : ''}`}
               {a.action === 'suspend' && `Motivo: ${a.detail.reason}`}
               {a.action === 'reactivate' && (a.detail.reason ? `Estava suspensa por: ${a.detail.reason}` : 'Acesso devolvido')}
+              {a.action.startsWith('ai_credits') && `${a.action === 'ai_credits' ? '+' : '−'}${num(a.detail.tokens)} tokens · saldo ${num(a.detail.before)} → ${num(a.detail.balance)}${a.detail.note ? ` · ${a.detail.note}` : ''}`}
             </span>
             <small>{a.actorEmail} · {dateTime(a.createdAt)}</small>
           </div>
@@ -205,7 +249,7 @@ function AccountDrawer({ id, onClose, onChanged }: { id: string; onClose: () => 
   const bg = useBackdrop(onClose);
   const [d, setD] = useState<Detail | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [modal, setModal] = useState<null | 'courtesy' | 'suspend'>(null);
+  const [modal, setModal] = useState<null | 'courtesy' | 'suspend' | 'credits'>(null);
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => { api.get<Detail>(`/platform/accounts/${id}`).then(setD).catch((e) => setErr(e instanceof Error ? e.message : 'Erro')); }, [id]);
   useEffect(load, [load]);
@@ -301,10 +345,12 @@ function AccountDrawer({ id, onClose, onChanged }: { id: string; onClose: () => 
                 ? <button type="button" className="btn primary" disabled={busy} onClick={() => void reactivate()} data-testid="pf-reactivate"><Icon name="check" size={15} />{busy ? 'Reativando…' : 'Reativar empresa'}</button>
                 : <button type="button" className="btn danger-ghost" onClick={() => setModal('suspend')} data-testid="pf-suspend"><Icon name="alert" size={15} />Suspender</button>}
               <span style={{ flex: 1 }} />
+              {!s?.house && <button type="button" className="btn" onClick={() => setModal('credits')} data-testid="pf-credits"><Icon name="bolt" size={15} />Créditos de IA</button>}
               {!s?.house && !s?.renewing && <button type="button" className="btn" onClick={() => setModal('courtesy')} data-testid="pf-courtesy"><Icon name="gift" size={15} />Dar cortesia</button>}
             </footer>
             {modal === 'courtesy' && <CourtesyModal d={d} onClose={() => setModal(null)} onDone={changed} />}
             {modal === 'suspend' && <SuspendModal d={d} onClose={() => setModal(null)} onDone={changed} />}
+            {modal === 'credits' && <CreditsModal d={d} onClose={() => setModal(null)} onDone={changed} />}
           </>
         )}
       </aside>
@@ -393,7 +439,7 @@ export function Platform() {
           ) : (
             <div className={cx('ct-scroll', loading && 'loading')}>
               <table className="ct-table pf-table" data-testid="pf-table">
-                <thead><tr><th>Empresa</th><th>Situação</th><th>Números</th><th>Vence em</th><th>Último acesso</th><th>IA (30 dias)</th><th>Cadastro</th></tr></thead>
+                <thead><tr><th>Empresa</th><th>Situação</th><th>Números</th><th>Vence em</th><th>Último acesso</th><th>IA: usado (30 d) / saldo</th><th>Cadastro</th></tr></thead>
                 <tbody>
                   {list.accounts.map((r) => (
                     <tr key={r.id} onClick={() => setOpen(r.id)} data-testid="pf-row">
@@ -403,7 +449,7 @@ export function Platform() {
                       <td><span className="pf-num">{r.numbersOn}<small>/{r.numbers}</small></span>{r.instances > 0 && r.status !== 'house' && <small className="pf-sub">{r.instances} {r.instances === 1 ? 'contratado' : 'contratados'}</small>}</td>
                       <td>{['paying', 'canceling', 'courtesy', 'past_due'].includes(r.status) ? date(r.periodEnd) : '—'}</td>
                       <td>{ago(r.lastAccess)}</td>
-                      <td>{r.aiTokens30 ? compact(r.aiTokens30) : '—'}</td>
+                      <td>{r.aiTokens30 ? compact(r.aiTokens30) : '—'}<small className="pf-sub" data-testid="pf-row-balance">{r.status === 'house' ? 'saldo ∞' : `saldo ${compact(r.aiBalance)}`}</small></td>
                       <td>{date(r.createdAt)}</td>
                     </tr>
                   ))}

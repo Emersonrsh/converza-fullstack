@@ -2100,3 +2100,7 @@ html.dark .fbm-plat.tiktok{background:#333;outline:1px solid #555}
 .gen-shots figcaption{display:flex;gap:5px;align-items:center;padding:4px 7px;font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gen-shots figcaption b{flex:none;width:16px;height:16px;border-radius:50%;background:var(--primary);color:#fff;font-size:10px;display:inline-flex;align-items:center;justify-content:center}
 .gen-shots button{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.pf-audit-ic.ai_credits{background:var(--primary-50);color:var(--primary)}
+.pf-audit-ic.ai_credits_remove{background:var(--accent-50, var(--surface-2));color:var(--accent)}
+.pf-presets{flex-wrap:wrap}
+.pf-presets button{flex:1 0 auto}
