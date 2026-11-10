@@ -14,8 +14,11 @@ import {
   BLOCKS, TOOLS, defaultData, emptyLookups, outputsFor, rid, upgradeNode, variablesOf, type BlockType, type Lookups, type Output,
 } from '../flows/blocks';
 import {
-  BuilderContext, EdgeHoverContext, ZoomControls, edgeTypes, nodeTypes, type BlockFlowNode,
+  BuilderContext, DEFAULT_HANDLE, EdgeHoverContext, ZoomControls, edgeTypes, hasOutputRows, nodeTypes, type BlockFlowNode,
 } from '../flows/canvas';
+
+/** id da bolinha na tela → saída do fluxo (a padrão é null) */
+const fromRfHandle = (h: string | null | undefined) => (h == null || h === DEFAULT_HANDLE ? null : h);
 import { BlockModal, type EditorCtx } from '../flows/editors';
 import { Simulator } from '../flows/Simulator';
 import { levelsByNode, validateFlow, type Issue } from '../flows/validate';
@@ -131,6 +134,11 @@ function Builder({ flowId }: { flowId: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [nodes, setNodes] = useState<BlockFlowNode[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
+  // linhas da saída padrão apontam para a bolinha certa ("Fallback", "Resposta"…) nos blocos com várias saídas
+  const rfEdges = useMemo(() => {
+    const rows = new Map(nodes.map((n) => [n.id, hasOutputRows(n.type ?? '', (n.data ?? {}) as Record<string, any>)]));
+    return edges.map((e) => (e.sourceHandle == null && rows.get(e.source) ? { ...e, sourceHandle: DEFAULT_HANDLE } : e));
+  }, [edges, nodes]);
   const nodesRef = useRef(nodes); nodesRef.current = nodes;
   const edgesRef = useRef(edges); edgesRef.current = edges;
   const [name, setName] = useState('');
@@ -351,7 +359,7 @@ function Builder({ flowId }: { flowId: string }) {
   const onConnect = useCallback((c: Connection) => {
     if (!c.source || !c.target || c.source === c.target) return;
     snapshot();
-    link(c.source, c.sourceHandle ?? null, c.target);
+    link(c.source, fromRfHandle(c.sourceHandle), c.target);
   }, [snapshot, link]);
 
   const isValidConnection = useCallback((c: Edge | Connection) => c.source !== c.target, []);
@@ -360,7 +368,7 @@ function Builder({ flowId }: { flowId: string }) {
     if (state.isValid || state.toNode || !state.fromNode || state.fromHandle?.type !== 'source') return;
     const pt = 'changedTouches' in event ? event.changedTouches[0] : event;
     const fromId = state.fromNode.id;
-    const handle = state.fromHandle.id ?? null;
+    const handle = fromRfHandle(state.fromHandle.id);
     // soltou em cima de outro bloco (fora da bolinha): conecta nele
     const el = document.elementFromPoint(pt.clientX, pt.clientY)?.closest('.react-flow__node');
     const targetId = el?.getAttribute('data-id');
@@ -812,7 +820,7 @@ function Builder({ flowId }: { flowId: string }) {
             <EdgeHoverContext.Provider value={hoverEdge}>
               <ReactFlow<BlockFlowNode, Edge>
                 nodes={nodes}
-                edges={edges}
+                edges={rfEdges}
                 nodeTypes={nodeTypes}
                 edgeTypes={edgeTypes}
                 onNodesChange={onNodesChange}

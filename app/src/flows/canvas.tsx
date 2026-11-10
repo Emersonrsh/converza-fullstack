@@ -43,7 +43,7 @@ export const BlockNode = memo(function BlockNode({ id, type, data, selected }: N
   const entries = st?.entries ?? 0;
   const advances = st?.advances ?? 0;
   const rate = entries ? Math.min(100, Math.round((advances / entries) * 100)) : 0;
-  const rows = outs.length > 1 || (outs.length === 1 && outs[0].label !== '');
+  const rows = hasOutputRows(type, data);
   const parts = preview(type, data, ctx.lookups);
   const text = parts.length ? '' : summary(type, data, ctx.lookups);
   const level = ctx.levels[id];
@@ -72,7 +72,7 @@ export const BlockNode = memo(function BlockNode({ id, type, data, selected }: N
           {outs.map((o) => (
             <div key={o.id ?? 'out'} className={cx('blk-out', o.tone)}>
               <span title={o.label}>{o.label || 'Continuar'}</span>
-              <Handle type="source" position={Position.Right} id={o.id ?? undefined} className="blk-hout" />
+              <Handle type="source" position={Position.Right} id={o.id ?? DEFAULT_HANDLE} className="blk-hout" />
             </div>
           ))}
         </div>
@@ -110,6 +110,17 @@ function ImagePreview({ part }: { part: Extract<PreviewPart, { k: 'img' }> }) {
       {part.caption ? <small className="pv-img-cap">{part.caption}</small> : null}
     </div>
   );
+}
+
+/**
+ * A saída padrão (id null no fluxo) precisa de um id na tela quando o bloco tem várias saídas:
+ * sem id, o canvas usa a PRIMEIRA bolinha do bloco e a linha sai do lugar errado.
+ */
+export const DEFAULT_HANDLE = '__default';
+/** O bloco mostra as saídas em linhas (várias, ou uma com nome)? */
+export function hasOutputRows(type: string, data: Record<string, any>) {
+  const outs = outputsFor(type, data);
+  return outs.length > 1 || (outs.length === 1 && outs[0].label !== '');
 }
 
 function Preview({ parts }: { parts: PreviewPart[] }) {
