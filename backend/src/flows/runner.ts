@@ -558,6 +558,7 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
       const [ev] = await db.insert(schema.pixelEvents).values({
         accountId: p.accountId, pixelId: pixel.id, key: `flow:${p.runId}:${px.nodeId}`, trigger: 'flow', eventName: px.event,
         contactId: p.contactId, value: px.value === null ? null : px.value.toFixed(2), currency: px.currency, status: 'queued',
+        ...(px.pageId ? { payload: { pageId: px.pageId } } : {}),
       }).onConflictDoNothing().returning();
       if (!ev) return;
       emitToAccount(p.accountId, 'pixel:event', { pixelId: pixel.id, event: publicEvent(ev) });
