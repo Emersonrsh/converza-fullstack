@@ -169,6 +169,13 @@
       "when": 1794040000000,
       "tag": "0023_platform_admin",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794300000000,
+      "tag": "0024_file_chunks",
+      "breakpoints": true
     }
   ]
 }

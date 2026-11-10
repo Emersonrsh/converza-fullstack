@@ -10,8 +10,9 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
-# ffmpeg: converte os áudios gravados no Chats ao vivo para mensagem de voz do WhatsApp (Ogg/Opus)
-RUN apk add --no-cache ffmpeg
+# ffmpeg: converte e comprime os áudios (Ogg/Opus, mensagem de voz do WhatsApp)
+# ghostscript: comprime os PDFs enviados nos fluxos e respostas rápidas
+RUN apk add --no-cache ffmpeg ghostscript
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist

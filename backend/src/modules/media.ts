@@ -1,3 +1,4 @@
+import { readStoredFile } from '../db/storedFileData';
 import { Router, type Response } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db';
@@ -77,7 +78,7 @@ function send(req: { headers: { range?: string } }, res: Response, data: Buffer,
 mediaRouter.get('/files/:id', asyncHandler(async (req, res) => {
   const id = req.params.id;
   if (!isUuid(id) || !verifyFileSig(id, req.query.e, req.query.s)) throw new AppError(403, 'Link de arquivo inválido ou expirado');
-  const [f] = await db.select().from(schema.storedFiles).where(eq(schema.storedFiles.id, id)).limit(1);
+  const f = await readStoredFile(id);
   if (!f) throw new AppError(404, 'Arquivo não encontrado');
   send(req, res, f.data, f.mime, f.fileName);
 }));

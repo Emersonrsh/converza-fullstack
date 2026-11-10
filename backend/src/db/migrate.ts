@@ -1,5 +1,6 @@
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { db, pool } from './index';
+import { explainDbError } from './explainError';
 
 async function main() {
   console.log('Rodando migrations…');
@@ -9,6 +10,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Falha ao migrar:', err);
+  console.error(`Falha ao migrar.\n${explainDbError(err)}`);
   process.exit(1);
 });

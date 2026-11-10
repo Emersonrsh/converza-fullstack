@@ -10,6 +10,8 @@ export const isWebPhoneId = (id: string | null | undefined): id is string => !!i
 export const connectionIdOf = (phoneNumberId: string) => phoneNumberId.slice(WEB_PREFIX.length);
 /** id de mídia guardada pelo Converza (tabela wa_web_media) */
 export const WEB_MEDIA_PREFIX = 'webm:';
+/** id de mídia que aponta para um arquivo dos fluxos/respostas rápidas (webm:sf-<uuid>), sem cópia */
+export const STORED_REF = 'sf-';
 export const isWebMediaId = (id: string | null | undefined): id is string => !!id && id.startsWith(WEB_MEDIA_PREFIX);
 
 const digits = (s: unknown) => String(s ?? '').replace(/\D/g, '');

@@ -206,11 +206,11 @@ export function Duration({ amount, unit, onAmount, onUnit, units = UNITS, min = 
 /* ------------------------------------------------------------------ arquivos */
 
 export type FileKind = 'image' | 'video' | 'audio' | 'document' | 'sticker';
-export interface FlowFile { id: string; fileName: string; mime: string; size: number; url: string }
+export interface FlowFile { id: string; fileName: string; mime: string; size: number; url: string; originalSize?: number; compressed?: boolean }
 
 const MIME_BY_EXT: Record<string, string> = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', mp4: 'video/mp4', '3gp': 'video/3gpp', mp3: 'audio/mpeg',
-  ogg: 'audio/ogg', m4a: 'audio/mp4', aac: 'audio/aac', amr: 'audio/amr', opus: 'audio/ogg', pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv',
+  ogg: 'audio/ogg', m4a: 'audio/mp4', wav: 'audio/wav', aac: 'audio/aac', amr: 'audio/amr', opus: 'audio/ogg', pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv',
   doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', zip: 'application/zip',
 };
@@ -250,11 +250,11 @@ export async function signedUrl(fileId: string): Promise<string | null> {
 }
 
 const ACCEPT: Record<FileKind, string> = {
-  image: 'image/jpeg,image/png', video: 'video/mp4,video/3gpp', audio: 'audio/*,.ogg,.opus,.m4a,.mp3,.aac,.amr',
+  image: 'image/jpeg,image/png', video: 'video/mp4,video/3gpp', audio: 'audio/*,.ogg,.opus,.m4a,.mp3,.aac,.amr,.wav',
   document: '.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,application/pdf', sticker: 'image/webp',
 };
 /** Tamanho máximo de cada tipo (o mesmo que o servidor aceita). */
-const MAX_MB: Record<FileKind, number> = { image: 5, video: 16, audio: 16, document: 30, sticker: 0.5 };
+const MAX_MB: Record<FileKind, number> = { image: 15, video: 16, audio: 30, document: 30, sticker: 0.5 };
 const sizeLabel = (b: number) => (b >= 1024 * 1024 ? `${(b / (1024 * 1024)).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 const TOO_BIG_TIP: Record<FileKind, string> = {
   document: 'Comprima o PDF (ex.: ilovepdf.com › Comprimir PDF) ou use a aba URL com um link direto do arquivo.',
@@ -265,8 +265,8 @@ const TOO_BIG_TIP: Record<FileKind, string> = {
 };
 
 const RULES: Record<FileKind, string> = {
-  image: 'JPG ou PNG, até 5 MB', video: 'MP4 ou 3GP, até 16 MB', audio: 'MP3, OGG, AAC, AMR ou M4A, até 16 MB',
-  document: 'PDF, planilha, texto… até 30 MB', sticker: 'WEBP 512×512, até 500 KB (formato que o WhatsApp exige)',
+  image: 'JPG ou PNG, até 15 MB — comprimimos automaticamente', video: 'MP4 ou 3GP, até 16 MB', audio: 'MP3, OGG, M4A, WAV…, até 30 MB — comprimimos automaticamente',
+  document: 'PDF, planilha, texto… até 30 MB — PDFs são comprimidos automaticamente', sticker: 'WEBP 512×512, até 500 KB (formato que o WhatsApp exige)',
 };
 
 /** Arquivo enviado aqui ou link (as duas formas que o WhatsApp aceita). */
@@ -295,6 +295,7 @@ export function FileOrUrl({ kind, url, fileId, fileName, onChange, vars, testId,
     try {
       const up = await uploadFlowFile(kind, f);
       onChange({ url: '', fileId: up.id, fileName: up.fileName });
+      if (up.compressed && up.originalSize) toast(`Arquivo comprimido: ${sizeLabel(up.originalSize)} → ${sizeLabel(up.size)} (−${Math.round((1 - up.size / up.originalSize) * 100)}%)`);
     } catch (e) { toast((e as Error).message); }
     finally { setBusy(false); if (input.current) input.current.value = ''; }
   }
@@ -318,7 +319,7 @@ export function FileOrUrl({ kind, url, fileId, fileName, onChange, vars, testId,
             <span className="bm-drop-ic"><Icon name={kind === 'audio' ? 'mic' : kind === 'video' ? 'video' : kind === 'document' ? 'file' : 'image'} size={20} /></span>
             <small>{RULES[kind]}</small>
             <button type="button" className="btn sm primary" disabled={busy} onClick={() => input.current?.click()} data-testid={testId ? `${testId}-pick` : undefined}>
-              <Icon name="upload" size={14} />{busy ? 'Enviando…' : 'Enviar arquivo'}
+              <Icon name="upload" size={14} />{busy ? 'Enviando e comprimindo…' : 'Enviar arquivo'}
             </button>
             <input ref={input} type="file" hidden accept={ACCEPT[kind]} onChange={(e) => void pick(e.target.files?.[0])} data-testid={testId ? `${testId}-input` : undefined} />
           </div>

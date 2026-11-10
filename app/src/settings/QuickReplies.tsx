@@ -9,10 +9,10 @@ import { Badge, EmptyBox, Head, LoadError, SearchBox, errMsg, useDebounced, useL
 
 export const ACTION_META: Record<QuickActionType, { label: string; icon: string; accept: string; hint: string }> = {
   text: { label: 'Texto', icon: 'chat', accept: '', hint: '' },
-  image: { label: 'Imagem', icon: 'image', accept: 'image/jpeg,image/png', hint: 'JPG ou PNG até 5 MB' },
+  image: { label: 'Imagem', icon: 'image', accept: 'image/jpeg,image/png', hint: 'JPG ou PNG até 15 MB (comprimida automaticamente)' },
   video: { label: 'Vídeo', icon: 'play', accept: 'video/mp4,video/3gpp', hint: 'MP4 ou 3GP até 16 MB' },
-  audio: { label: 'Áudio', icon: 'mic', accept: 'audio/*', hint: 'MP3, OGG, AAC, AMR ou M4A até 16 MB' },
-  document: { label: 'Documento', icon: 'file', accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,application/*,text/*', hint: 'PDF, planilha, texto… até 30 MB' },
+  audio: { label: 'Áudio', icon: 'mic', accept: 'audio/*', hint: 'MP3, OGG, M4A, WAV… até 30 MB (comprimido automaticamente)' },
+  document: { label: 'Documento', icon: 'file', accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,application/*,text/*', hint: 'PDF (comprimido automaticamente), planilha, texto… até 30 MB' },
   sticker: { label: 'Sticker', icon: 'smile', accept: 'image/webp', hint: 'WEBP 512×512 até 500 KB' },
 };
 const TYPES = Object.keys(ACTION_META) as QuickActionType[];
@@ -44,6 +44,12 @@ export function quickPreview(q: QuickReply): string {
   const acts = q.actions ?? [{ type: 'text' as const, text: q.text }];
   return acts.map((a) => (a.type === 'text' ? a.text ?? '' : `[${ACTION_META[a.type].label}${a.file?.fileName ? `: ${a.file.fileName}` : ''}]${a.caption ? ` ${a.caption}` : ''}`)).join(' · ');
 }
+/** Avisa quanto o arquivo diminuiu com a compressão automática. */
+function compressedToast(file: { size: number; originalSize?: number; compressed?: boolean }) {
+  if (!file.compressed || !file.originalSize) return;
+  const mb = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+  toast(`Arquivo comprimido: ${mb(file.originalSize)} → ${mb(file.size)} (−${Math.round((1 - file.size / file.originalSize) * 100)}%)`);
+}
 export const isTextOnly = (q: QuickReply) => (q.actions ?? [{ type: 'text' }]).every((a) => a.type === 'text');
 
 function ActionEditor({ a, index, total, onChange, onRemove, onMove }: {
@@ -56,7 +62,7 @@ function ActionEditor({ a, index, total, onChange, onRemove, onMove }: {
   async function pick(f: File | undefined) {
     if (!f) return;
     setBusy(true);
-    try { const file = await uploadFile(a.type, f); onChange({ ...a, fileId: file.id, file }); }
+    try { const file = await uploadFile(a.type, f); onChange({ ...a, fileId: file.id, file }); compressedToast(file); }
     catch (e) { toast(errMsg(e, 'Não foi possível enviar o arquivo')); }
     setBusy(false);
   }

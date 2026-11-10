@@ -953,10 +953,19 @@ export const storedFiles = pgTable('stored_files', {
   fileName: text('file_name').notNull(),
   size: integer('size').notNull(),
   sha256: text('sha256').notNull(),
-  data: bytea('data').notNull(),
+  /** arquivos antigos; os novos ficam em stored_file_chunks (pedaços de 1 MB) */
+  data: bytea('data'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   byAccount: index('stored_files_account_idx').on(t.accountId),
+}));
+
+export const storedFileChunks = pgTable('stored_file_chunks', {
+  fileId: uuid('file_id').notNull().references(() => storedFiles.id, { onDelete: 'cascade' }),
+  idx: integer('idx').notNull(),
+  data: bytea('data').notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.fileId, t.idx] }),
 }));
 
 /** Arquivo já mandado para a Meta por um número (a mídia vale 30 dias lá: reaproveita até perto disso). */
@@ -1164,7 +1173,7 @@ export const schema = {
   tags, flowFolders, flows, flowRuns, flowNodeStats, voices, agents, agentRuns, campaigns, webhooks, products, sales, adSpend, subscriptions,
   kanbanBoards, kanbanColumns, kanbanCards, contactFields, contactExports, webhookEvents, webhookUsage, flowPending,
   campaignRecipients, dispatchUsage, metaProfiles, metaAdAccounts, pixels, pixelEvents, invoices, billingEvents,
-  departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, platformAudit, storedFiles, storedFileMedia,
+  departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, platformAudit, storedFiles, storedFileChunks, storedFileMedia,
   globalVariables, flowTranslations, aiUsage, trackingLinks, trackingClicks, apiKeys, mcpCalls, flowDistributions,
   waWebAuth, waWebMedia, accessLogs,
 };
