@@ -140,10 +140,12 @@ export async function sendPixelEvent(eventId: string, attempt = 1, maxAttempts =
 
   const { token, wabaId } = await pixelCredentials(px);
   if (!token) { await finish(ev, { status: 'failed', error: 'O pixel está sem token de acesso.' }); return; }
-  const built = buildEvent({ platform: px.platform as Platform, pixelId: px.pixelId, wabaId, event: ev.eventName, key: ev.key, time: ev.eventTime, person, money });
+  // Page ID do bloco Pixel do fluxo (guardada no payload para valer também nas novas tentativas)
+  const pageId = (ev.payload as { pageId?: unknown } | null)?.pageId ? String((ev.payload as { pageId: unknown }).pageId) : null;
+  const built = buildEvent({ platform: px.platform as Platform, pixelId: px.pixelId, wabaId, event: ev.eventName, key: ev.key, time: ev.eventTime, person, money, pageId });
   if (!built.ok) { await finish(ev, { status: 'skipped', error: built.skip }); return; }
 
-  const extra = { value: money ? money.value.toFixed(2) : null, currency: money?.currency ?? null, payload: built.preview, attempts: attempt };
+  const extra = { value: money ? money.value.toFixed(2) : null, currency: money?.currency ?? null, payload: pageId ? { ...built.preview, pageId } : built.preview, attempts: attempt };
   try {
     const resp = await deliver(px.platform as Platform, px.pixelId, token, built.body);
     await finish(ev, { ...extra, status: 'sent', error: null, response: resp, sentAt: new Date() });
