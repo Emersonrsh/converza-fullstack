@@ -354,6 +354,8 @@ export async function simulate(rawGraph: unknown, rawState: unknown, input: SimI
   // na simulação as esperas são puladas e o buffer segue na hora
   let guard = 0;
   while (halt && (halt.kind === 'delay' || halt.kind === 'buffer') && guard++ < 120) {
+    // igual ao servidor: o estado é salvo no banco durante a espera e lido de novo na volta
+    state.run = normalizeState(JSON.parse(JSON.stringify(state.run)));
     if (halt.kind === 'delay') {
       if (!typingWait.delete(halt.seconds)) outputs.push({ kind: 'note', text: `⏱️ Espera de ${delayLabel(halt.seconds)} — pulada na simulação` });
       halt = await resumeAfterDelay(graph, halt.nodeId, state.run, exec);

@@ -219,6 +219,25 @@ describe('Delay do gravando (áudio) e intervalo aleatório', () => {
   });
 });
 
+describe('Digitando não entra em loop (estado salvo e lido na espera)', () => {
+  it('delay de 20 s + texto com digitando 6 s: digita uma vez e envia', async () => {
+    const g = { nodes: [T(), N('m', 'message', { items: [
+      { id: 'd', type: 'interval', amount: 20, unit: 'seconds' },
+      { id: 't', type: 'text', text: 'A paz de Deus! Tudo bem? 😊', typingSeconds: 6 },
+      { id: 'a', type: 'audio', url: 'https://ex.com/voz.ogg', recordingSeconds: 5 },
+      { id: 'u', type: 'text', text: 'Fim' },
+    ] })], edges: [E('trigger', 'm')] };
+    const [r] = await chat(g, ['oi']);
+    assert.deepEqual(bots(r), ['A paz de Deus! Tudo bem? 😊', 'Fim']);
+    assert.equal(notes(r).filter((n) => n.includes('Digitando')).length, 1, 'digitando só uma vez');
+    assert.equal(notes(r).filter((n) => n.includes('Gravando')).length, 1, 'gravando só uma vez');
+  });
+  it('normalizeState mantém a marca de digitando', () => {
+    const st = normalizeState(JSON.parse(JSON.stringify({ typed: { m: 1 }, cursor: { m: 1 } })));
+    assert.deepEqual(st.typed, { m: 1 });
+  });
+});
+
 describe('Template WhatsApp', () => {
   const g = {
     nodes: [T(), N('t', 'template', {

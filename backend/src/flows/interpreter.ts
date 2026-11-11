@@ -189,6 +189,8 @@ export function normalizeState(raw: unknown): RunState {
     waitToken: r.waitToken ? String(r.waitToken) : null,
     buffer: Array.isArray(r.buffer) ? r.buffer.map(String).slice(-50) : [],
     cursor: obj(r.cursor),
+    // "digitando/gravando já mostrado" — sem isto, ao voltar da espera o fluxo mostra de novo e nunca envia
+    typed: obj(r.typed),
   };
 }
 
