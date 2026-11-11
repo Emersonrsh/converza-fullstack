@@ -71,7 +71,7 @@ waMockRouter.post('/:connectionId/status', (req, res) => {
 
 /**
  * Mensagem do cliente (ou do próprio celular, com fromMe). Campos: from, text, name, quotedId, lid (número oculto),
- * media: { type: image|audio|video|document|sticker, base64, mime, fileName, caption, ptt, size }, viewOnce, poll.
+ * media: { type: image|audio|video|document|sticker, base64, mime, fileName, caption, ptt, size }, viewOnce, poll, pollVote { pollId, option }.
  */
 waMockRouter.post('/:connectionId/inbound', asyncHandler(async (req, res) => {
   const b = req.body ?? {};
@@ -93,6 +93,9 @@ waMockRouter.post('/:connectionId/inbound', asyncHandler(async (req, res) => {
     // cliente tocou num botão/linha do menu clicável
     const r = b.interactiveReply;
     message = { interactiveResponseMessage: { body: { text: String(r.title ?? '') }, nativeFlowResponseMessage: { name: r.list ? 'single_select' : 'quick_reply', paramsJson: JSON.stringify(r.list ? { selected_row_id: r.id } : { id: r.id }), version: 3 } } };
+  } else if (b.pollVote) {
+    // cliente votou numa enquete (menu): { pollId, option }
+    message = { pollUpdateMessage: { pollCreationMessageKey: { id: String(b.pollVote.pollId), remoteJid: key.remoteJid, fromMe: true }, vote: { encPayload: String(b.pollVote.option ?? ''), encIv: '' }, senderTimestampMs: Date.now() } };
   } else if (b.poll) {
     message = { pollCreationMessage: { name: String(b.poll), options: [{ optionName: 'A' }, { optionName: 'B' }] } };
   } else if (b.reaction) {

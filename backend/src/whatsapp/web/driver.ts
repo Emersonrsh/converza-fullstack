@@ -2,13 +2,14 @@
  * "Motor" da conexão por QR Code. `baileys` fala com o WhatsApp de verdade (protocolo do WhatsApp Web);
  * `mock` simula um celular para os testes automáticos (nunca é usado em produção — ver config.waWeb.driver).
  */
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { config } from '../../config';
 import { loadBaileys, quietLogger } from './baileys';
 import { clearSession, dbAuthState } from './auth';
 import { jidUser } from './convert';
 import { db, schema } from '../../db';
 import { and, eq } from 'drizzle-orm';
+import { redis } from '../../redis';
 
 export interface DriverHandlers {
   onQr(qr: string): void;
@@ -27,6 +28,11 @@ export type InteractiveSpec =
 export interface DriverSocket {
   /** menu clicável; devolve a mensagem enviada (key.id) */
   sendInteractive(jid: string, spec: InteractiveSpec): Promise<any>;
+  /**
+   * Opções escolhidas num voto de enquete (sha256 do texto de cada opção), ou null se não deu para abrir.
+   * `secret` é o messageSecret da enquete que o Converza enviou.
+   */
+  pollVoteHashes(msg: any, secret: Buffer): Buffer[] | null;
   /** devolve a mensagem enviada (formato do Baileys: key.id é o id da mensagem) */
   sendMessage(jid: string, content: Record<string, any>, opts?: Record<string, any>): Promise<any>;
   /** número → JID de verdade no WhatsApp (o celular antigo pode estar sem o 9) */
@@ -65,6 +71,15 @@ async function waVersion(B: Awaited<ReturnType<typeof loadBaileys>>): Promise<[n
 /** Texto das mensagens enviadas (o WhatsApp pede de novo quando o celular do cliente não conseguiu abrir). */
 async function storedMessage(connectionId: string, id: string | null | undefined) {
   if (!id) return undefined;
+  // enquete de menu: reenvia a própria enquete (com o mesmo segredo, para o voto continuar valendo)
+  const poll = await redis.get(`wa-web:poll:${connectionId}:${id}`).catch(() => null);
+  if (poll) {
+    const p = JSON.parse(poll) as { secret: string; name?: string; options: { title: string }[] };
+    return {
+      messageContextInfo: { messageSecret: Buffer.from(p.secret, 'base64') },
+      pollCreationMessageV3: { name: p.name ?? '', selectableOptionsCount: 1, options: p.options.map((o) => ({ optionName: o.title })) },
+    };
+  }
   const r = await db.select({ body: schema.messages.body }).from(schema.messages)
     .innerJoin(schema.conversations, eq(schema.conversations.id, schema.messages.conversationId))
     .where(and(eq(schema.messages.waMessageId, id), eq(schema.conversations.connectionId, connectionId))).limit(1);
@@ -116,6 +131,23 @@ const baileysDriver: Driver = {
 
     return {
       sendMessage: (jid, content, opts) => sock.sendMessage(jid, content as any, opts as any),
+      pollVoteHashes(msg, secret) {
+        const upd = B.normalizeMessageContent(msg.message)?.pollUpdateMessage;
+        const pollId = upd?.pollCreationMessageKey?.id;
+        if (!upd?.vote?.encPayload || !pollId) return null;
+        const me: any = sock.user ?? state.creds.me ?? {};
+        // o WhatsApp assina o voto com o número ou com o LID: tenta as combinações
+        const creators = [...new Set([me.id, me.lid].filter(Boolean).map((j: string) => B.jidNormalizedUser(j)))];
+        const k = msg.key ?? {};
+        const voters = [...new Set([k.participant, k.participantAlt, k.remoteJid, k.remoteJidAlt].filter(Boolean).map((j: string) => B.jidNormalizedUser(j)))];
+        for (const pollCreatorJid of creators) for (const voterJid of voters) {
+          try {
+            const vote = B.decryptPollVote(upd.vote, { pollCreatorJid, pollMsgId: String(pollId), pollEncKey: secret, voterJid });
+            return (vote.selectedOptions ?? []).map((o: Uint8Array) => Buffer.from(o));
+          } catch { /* outra combinação */ }
+        }
+        return null;
+      },
       async sendInteractive(jid, spec) {
         const buttons = spec.kind === 'buttons'
           ? spec.buttons.map((b) => ({ name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: b.title, id: b.id }) }))
@@ -236,8 +268,14 @@ const mockDriver: Driver = {
         mock.sent.push({ connectionId, jid, content: { interactive: spec }, id, at: Date.now() });
         return { key: { id, remoteJid: jid, fromMe: true } };
       },
+      pollVoteHashes(msg) {
+        // simulador: o "voto" traz o texto da opção em claro
+        const p = msg?.message?.pollUpdateMessage?.vote?.encPayload;
+        return p ? [createHash('sha256').update(Buffer.from(String(p))).digest()] : null;
+      },
       async sendMessage(jid, content) {
         if (!s.open) throw new Error('Connection Closed');
+        if (content.poll && mock.rejectInteractive) throw new Error('poll not allowed');
         const id = `3EB0${randomBytes(8).toString('hex').toUpperCase()}`;
         mock.sent.push({ connectionId, jid, content, id, at: Date.now() });
         if (mock.autoDeliver) setTimeout(() => { if (s.open) h.onUpdates([{ key: { id, remoteJid: jid, fromMe: true }, update: { status: 3 } }]); }, 200);

@@ -8,7 +8,7 @@
  * - O que chega vira o mesmo formato do webhook da Cloud API, então chats, fluxos, agentes e disparos
  *   funcionam igual nos dois tipos de conexão.
  */
-import { randomInt, randomUUID } from 'crypto';
+import { createHash, randomBytes, randomInt, randomUUID } from 'crypto';
 import QRCode from 'qrcode';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
@@ -21,7 +21,7 @@ import { maybeAlertInstance } from '../../modules/instanceAlerts';
 import { driver, type DriverSocket } from './driver';
 import { clearSession, hasSession, lidPeerJid, pairedConnectionIds, rememberLidPeer } from './auth';
 import {
-  WEB_PREFIX, formatPhone, isLidJid, isPnJid, isWebMediaId, jidUser, mediaOf, opsFromCloud, peerOf, statusOf, toCloudMessage,
+  WEB_PREFIX, formatPhone, unwrap, isLidJid, isPnJid, isWebMediaId, jidUser, mediaOf, opsFromCloud, peerOf, statusOf, toCloudMessage,
   type WebOp,
 } from './convert';
 import { readWebMedia, storeWebMedia, sweepWebMedia } from './media';
@@ -71,6 +71,8 @@ const lockKey = (id: string) => `wa-web:lock:${id}`;
 const qrKey = (id: string) => `wa-web:qr:${id}`;
 const cooldownKey = (id: string) => `wa-web:cooldown:${id}`;
 const jidKey = (id: string, digits: string) => `wa-web:jid:${id}:${digits}`;
+const pollKey = (id: string, msgId: string) => `wa-web:poll:${id}:${msgId}`;
+const POLL_TTL = 30 * 86400;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const log = (s: Pick<Session, 'connectionId'>, msg: string) => console.log(`[qr ${s.connectionId.slice(0, 8)}] ${msg}`);
 
@@ -360,7 +362,34 @@ async function feedWebhook(s: Session, field: string, value: Record<string, unkn
   });
 }
 
+/**
+ * Voto numa enquete de menu enviada pelo Converza: vira a mesma resposta de um botão/lista da Cloud API,
+ * para o fluxo seguir a opção escolhida. Devolve null quando não é voto num menu nosso.
+ */
+async function pollVoteAsReply(s: Session, msg: any): Promise<any | null> {
+  const upd = unwrap(msg.message)?.pollUpdateMessage;
+  const pollId = upd?.pollCreationMessageKey?.id;
+  if (!pollId || msg.key?.fromMe || !s.sock) return null;
+  const raw = await redis.get(pollKey(s.connectionId, String(pollId))).catch(() => null);
+  if (!raw) return null;
+  const poll = JSON.parse(raw) as { secret: string; list: boolean; options: { id: string; title: string }[] };
+  const hashes = s.sock.pollVoteHashes(msg, Buffer.from(poll.secret, 'base64'));
+  if (!hashes) { log(s, 'não consegui abrir o voto da enquete'); return null; }
+  const hex = new Set(hashes.map((h) => h.toString('hex')));
+  const opt = poll.options.find((o) => hex.has(createHash('sha256').update(Buffer.from(o.title)).digest('hex')));
+  if (!opt) return null; // desmarcou o voto
+  const params = poll.list ? { id: opt.id, selected_row_id: opt.id, title: opt.title } : { id: opt.id, display_text: opt.title };
+  return {
+    ...msg,
+    message: { interactiveResponseMessage: { body: { text: opt.title }, nativeFlowResponseMessage: { name: poll.list ? 'single_select' : 'quick_reply', paramsJson: JSON.stringify(params) } } },
+  };
+}
+
 async function onIncoming(s: Session, msg: any, type: string) {
+  if (msg?.message && unwrap(msg.message)?.pollUpdateMessage) {
+    msg = await pollVoteAsReply(s, msg);
+    if (!msg) return;
+  }
   const key = msg?.key;
   if (!key?.id || !msg.message) return;
   if (s.sentIds.has(String(key.id))) return; // envio do próprio Converza
@@ -473,6 +502,7 @@ async function contentOf(s: Session, jid: string, op: WebOp): Promise<{ content:
   if ((op.kind === 'text' || op.kind === 'media') && op.quoted) opts.quoted = await quotedOf(s, jid, op.quoted);
   switch (op.kind) {
     case 'interactive':
+    case 'poll':
       return { content: { text: op.fallback }, opts };
     case 'text':
       return { content: { text: op.text }, opts };
@@ -568,6 +598,36 @@ async function sendLocal(s: Session, to: string, payload: Record<string, any>): 
   return enqueue(s, async () => {
     let first: string | null = null;
     for (const op of ops) {
+      if (op.kind === 'poll') {
+        if (op.intro) {
+          await s.sock!.presence(jid, 'composing');
+          await sleep(Math.min(1500, Math.max(400, op.intro.length * 25)));
+          try {
+            const t = await s.sock!.sendMessage(jid, { text: op.intro }, {});
+            if (t?.key?.id) { markSent(s, String(t.key.id)); first ??= String(t.key.id); }
+          } catch (err) { throw new WebSendError(`O WhatsApp não aceitou o envio: ${(err as Error).message}`); }
+          await sleep(500 + randomInt(0, 600));
+        }
+        await s.sock!.presence(jid, 'composing');
+        await sleep(Math.min(1500, Math.max(400, op.name.length * 25)));
+        const secret = randomBytes(32);
+        let sent: any = null;
+        try {
+          sent = await s.sock!.sendMessage(jid, { poll: { name: op.name, values: op.options.map((o) => o.title), selectableCount: 1, messageSecret: secret } }, {});
+          if (sent?.key?.id) {
+            await redis.set(pollKey(s.connectionId, String(sent.key.id)), JSON.stringify({ secret: secret.toString('base64'), name: op.name, list: op.list, options: op.options }), 'EX', POLL_TTL);
+          }
+        } catch (err) {
+          console.warn(`[qr ${s.connectionId.slice(0, 8)}] enquete recusada (${(err as Error).message}); enviando como lista numerada`);
+          try { sent = await s.sock!.sendMessage(jid, { text: op.fallback }, {}); } catch (e2) {
+            throw new WebSendError(`O WhatsApp não aceitou o envio: ${(e2 as Error).message}`);
+          }
+        }
+        const id = sent?.key?.id ? String(sent.key.id) : null;
+        if (id) { markSent(s, id); first ??= id; }
+        if (ops.length > 1) await sleep(500 + randomInt(0, 600));
+        continue;
+      }
       if (op.kind === 'interactive') {
         await s.sock!.presence(jid, 'composing');
         await sleep(Math.min(1500, Math.max(400, op.spec.body.length * 25)));

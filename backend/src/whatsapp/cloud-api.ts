@@ -242,8 +242,15 @@ export function carouselInteractive(text: string, cards: {
   };
 }
 
+/** Limite de caracteres dos títulos da Meta; no QR Code o menu vai como enquete, que aceita até 100. */
+function titleCut(conn: WaConnection, max: number) {
+  const n = conn.phoneNumberId && isWebPhoneId(conn.phoneNumberId) ? 100 : max;
+  return (t: string) => [...t].slice(0, n).join('');
+}
+
 /** Até 3 botões de resposta rápida (título até 20 caracteres). */
 export function sendButtons(conn: WaConnection, to: string, body: string, buttons: { id: string; title: string }[]): Promise<SendResult> {
+  const cut = titleCut(conn, 20);
   return post(conn, {
     to,
     type: 'interactive',
@@ -251,7 +258,7 @@ export function sendButtons(conn: WaConnection, to: string, body: string, button
       type: 'button',
       body: { text: body.slice(0, 1024) || 'Escolha uma opção:' },
       action: {
-        buttons: buttons.slice(0, 3).map((b) => ({ type: 'reply', reply: { id: b.id.slice(0, 256), title: b.title.slice(0, 20) } })),
+        buttons: buttons.slice(0, 3).map((b) => ({ type: 'reply', reply: { id: b.id.slice(0, 256), title: cut(b.title) } })),
       },
     },
   });
@@ -262,6 +269,7 @@ export function sendList(
   conn: WaConnection, to: string, body: string, buttonLabel: string,
   rows: { id: string; title: string; description?: string }[],
 ): Promise<SendResult> {
+  const cut = titleCut(conn, 24);
   return post(conn, {
     to,
     type: 'interactive',
@@ -274,7 +282,7 @@ export function sendList(
           title: 'Opções',
           rows: rows.slice(0, 10).map((r) => ({
             id: r.id.slice(0, 200),
-            title: r.title.slice(0, 24),
+            title: cut(r.title),
             ...(r.description ? { description: r.description.slice(0, 72) } : {}),
           })),
         }],

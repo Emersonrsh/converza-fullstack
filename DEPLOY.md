@@ -52,7 +52,7 @@ O Render faz deploy a partir de um repositório. Sem instalar Git pela linha de 
    | `SUPPORT_EMAILS` | (opcional) e-mails da sua equipe de suporte, separados por vírgula — veja a Parte 9. |
    | `HOUSE_EMAILS` / `HOUSE_INSTANCES` | (opcional) **conta da casa** — veja a Parte 10. |
    | `PLATFORM_ADMIN_EMAILS` | seu e-mail (pode ter vários, separados por vírgula): libera o **Painel da plataforma** — veja a Parte 12. |
-| `WA_WEB_INTERACTIVE` | Opcional, experimental. `on` faz os menus dos fluxos no QR Code saírem como botões clicáveis. Sem ela vai a lista numerada, que sempre chega (o WhatsApp pode aceitar os botões e não entregá-los). |
+| `WA_WEB_MENU` | Opcional. Como os menus dos fluxos saem no QR Code: `poll` (padrão, enquete clicável), `text` (lista numerada) ou `buttons` (botões nativos, experimental: o WhatsApp costuma não entregar). |
    | `LEGAL_TRADE_NAME` / `LEGAL_COMPANY_NAME` / `LEGAL_CNPJ` / `LEGAL_ADDRESS` / `LEGAL_EMAIL` / `LEGAL_DPO_NAME` / `LEGAL_DPO_EMAIL` / `LEGAL_CITY` | dados da sua empresa (ou seus, se vende com CPF: `LEGAL_CNPJ` aceita CPF) nos **Termos de Uso**, na **Política de Privacidade** e na **Exclusão de dados** — veja a Parte 10. |
    | `WA_WEB_ENABLED` e demais `WA_WEB_*` | (opcional) **WhatsApp por QR Code** (API não oficial) — veja a Parte 11. |
 4. Crie o serviço. O Render builda a imagem, roda as migrations e sobe a API. A URL final será algo como `https://converza-api.onrender.com`.

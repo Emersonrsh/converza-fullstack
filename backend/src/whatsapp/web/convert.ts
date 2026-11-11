@@ -228,7 +228,9 @@ export type WebOp =
   | { kind: 'media'; media: 'image' | 'video' | 'audio' | 'document' | 'sticker'; link?: string; id?: string; caption?: string; fileName?: string; voice?: boolean; quoted?: string | null }
   | { kind: 'contacts'; displayName: string; vcards: string[] }
   | { kind: 'react'; messageId: string; emoji: string }
-  | { kind: 'interactive'; spec: InteractiveSpec; fallback: string; quoted?: string | null };
+  | { kind: 'interactive'; spec: InteractiveSpec; fallback: string; quoted?: string | null }
+  /** menu como enquete (clicável e entregue pelo QR Code); o voto volta como resposta de botão/lista */
+  | { kind: 'poll'; name: string; intro: string | null; options: { id: string; title: string }[]; list: boolean; fallback: string; quoted?: string | null };
 
 const nums = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 const numLabel = (i: number) => nums[i] ?? `${i}.`;
@@ -285,10 +287,37 @@ export function opsFromCloud(payload: Record<string, any>): WebOp[] {
   }
 }
 
-/** Menus clicáveis no QR Code: experimental (WA_WEB_INTERACTIVE=on). Sem a variável vai a lista numerada,
- *  que sempre chega: o WhatsApp pode aceitar os botões e não entregar ao cliente. */
-const interactiveOn = () => process.env.WA_WEB_INTERACTIVE === 'on';
+/**
+ * Menu dos fluxos no QR Code (WA_WEB_MENU):
+ *  - poll (padrão): enquete, que é clicável e o WhatsApp entrega pela conexão por QR Code;
+ *  - text: lista numerada; - buttons: botões nativos (experimental: o WhatsApp costuma aceitar e não entregar).
+ * WA_WEB_INTERACTIVE=on (nome antigo) equivale a buttons.
+ */
+export function menuMode(): 'poll' | 'text' | 'buttons' {
+  const v = String(process.env.WA_WEB_MENU ?? '').toLowerCase();
+  if (v === 'text' || v === 'buttons' || v === 'poll') return v;
+  if (process.env.WA_WEB_INTERACTIVE === 'on') return 'buttons';
+  if (process.env.WA_WEB_INTERACTIVE === 'off') return 'text';
+  return 'poll';
+}
 const headerPlain = (it: Record<string, any>) => (it.header?.type === 'text' && it.header.text ? String(it.header.text) : undefined);
+const POLL_MAX_OPTIONS = 12;
+const POLL_NAME_MAX = 255;
+
+function pollOp(question: string, opts: { id: string; title: string; description?: string }[], list: boolean, fallback: string, quoted: string | null): WebOp | null {
+  if (opts.length < 2 || opts.length > POLL_MAX_OPTIONS) return null;
+  const seen = new Set<string>();
+  const options = opts.map((o, i) => {
+    let t = `${o.title}${o.description ? ` — ${o.description}` : ''}`.trim().slice(0, 100) || `Opção ${i + 1}`;
+    if (seen.has(t)) t = `${t} (${i + 1})`; // a enquete não aceita opções iguais
+    seen.add(t);
+    return { id: o.id, title: t };
+  });
+  const q = question.trim();
+  // pergunta longa vai antes, como texto; a enquete fica só com o pedido de escolha
+  if (!q || q.length > POLL_NAME_MAX) return { kind: 'poll', name: 'Escolha uma opção 👇', intro: q || null, options, list, fallback, quoted };
+  return { kind: 'poll', name: q, intro: null, options, list, fallback, quoted };
+}
 
 function interactiveOps(it: Record<string, any>, quoted: string | null): WebOp[] {
   const body = String(it.body?.text ?? '');
@@ -298,7 +327,9 @@ function interactiveOps(it: Record<string, any>, quoted: string | null): WebOp[]
     case 'button': {
       const opts = (it.action?.buttons ?? []).map((b: any) => ({ id: String(b.reply?.id ?? b.reply?.title ?? ''), title: String(b.reply?.title ?? '') }));
       const fallback = numbered(headerText + body, opts, footer);
-      if (!interactiveOn()) return [{ kind: 'text', text: fallback, quoted }];
+      const mode = menuMode();
+      if (mode === 'poll') { const p = pollOp([headerPlain(it), body].filter(Boolean).join('\n'), opts, false, fallback, quoted); if (p) return [p]; }
+      if (mode !== 'buttons') return [{ kind: 'text', text: fallback, quoted }];
       return [{ kind: 'interactive', spec: { kind: 'buttons', body, header: headerPlain(it), footer, buttons: opts }, fallback, quoted }];
     }
     case 'list': {
@@ -308,7 +339,9 @@ function interactiveOps(it: Record<string, any>, quoted: string | null): WebOp[]
       }));
       const rows = sections.flatMap((s: any) => s.rows);
       const fallback = numbered(headerText + body, rows, footer);
-      if (!interactiveOn()) return [{ kind: 'text', text: fallback, quoted }];
+      const mode = menuMode();
+      if (mode === 'poll') { const p = pollOp([headerPlain(it), body].filter(Boolean).join('\n'), rows, true, fallback, quoted); if (p) return [p]; }
+      if (mode !== 'buttons') return [{ kind: 'text', text: fallback, quoted }];
       // poucas opções sem descrição: botões na própria mensagem (como no app); senão, lista que abre ao tocar
       if (rows.length <= 6 && !rows.some((r: any) => r.description)) {
         return [{ kind: 'interactive', spec: { kind: 'buttons', body, header: headerPlain(it), footer, buttons: rows.map((r: any) => ({ id: r.id, title: r.title })) }, fallback, quoted }];

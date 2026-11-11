@@ -110,10 +110,32 @@ describe('QR Code: o que sai (payload da Cloud API → WhatsApp Web)', () => {
     assert.match(ct.kind === 'contacts' ? ct.vcards[0] : '', /waid=5511912345678/);
     assert.deepEqual(opsFromCloud({ type: 'reaction', reaction: { message_id: 'M1', emoji: '❤️' } }), [{ kind: 'react', messageId: 'M1', emoji: '❤️' }]);
   });
-  it('sem WA_WEB_INTERACTIVE=on, menu vai como lista numerada (sempre chega)', () => {
-    const [b] = opsFromCloud({ type: 'interactive', interactive: { type: 'button', body: { text: 'Prefere?' }, action: { buttons: [{ type: 'reply', reply: { id: 'a', title: 'Manhã' } }, { type: 'reply', reply: { id: 'b', title: 'Tarde' } }] } } });
-    assert.equal(b.kind, 'text');
-    assert.match(b.kind === 'text' ? b.text : '', /1️⃣ Manhã\n2️⃣ Tarde/);
+  it('menu vira enquete por padrão (clicável e entregue pelo QR Code)', () => {
+    const [b] = opsFromCloud({ type: 'interactive', interactive: { type: 'button', header: { type: 'text', text: 'Agenda' }, body: { text: 'Prefere?' }, action: { buttons: [{ type: 'reply', reply: { id: 'a', title: 'Manhã' } }, { type: 'reply', reply: { id: 'b', title: 'Tarde' } }] } } });
+    assert.equal(b.kind, 'poll');
+    if (b.kind !== 'poll') return;
+    assert.equal(b.name, 'Agenda\nPrefere?');
+    assert.equal(b.intro, null);
+    assert.equal(b.list, false);
+    assert.deepEqual(b.options, [{ id: 'a', title: 'Manhã' }, { id: 'b', title: 'Tarde' }]);
+    assert.match(b.fallback, /1️⃣ Manhã\n2️⃣ Tarde/);
+    // lista: descrição entra na opção; pergunta longa vai antes, como texto
+    const long = 'x'.repeat(300);
+    const [l] = opsFromCloud({ type: 'interactive', interactive: { type: 'list', body: { text: long }, action: { sections: [{ rows: [{ id: 'r1', title: 'Corte', description: 'R$ 50' }, { id: 'r2', title: 'Corte' }] }] } } });
+    assert.equal(l.kind, 'poll');
+    if (l.kind !== 'poll') return;
+    assert.equal(l.list, true);
+    assert.equal(l.intro, long);
+    assert.deepEqual(l.options.map((o) => o.title), ['Corte — R$ 50', 'Corte']);
+    // mais de 12 opções (limite da enquete) ou só uma: lista numerada
+    const rows = Array.from({ length: 13 }, (_, i) => ({ id: `o${i}`, title: `Opção ${i}` }));
+    assert.equal(opsFromCloud({ type: 'interactive', interactive: { type: 'list', body: { text: 'Qual?' }, action: { sections: [{ rows }] } } })[0].kind, 'text');
+    assert.equal(opsFromCloud({ type: 'interactive', interactive: { type: 'button', body: { text: 'Ok?' }, action: { buttons: [{ type: 'reply', reply: { id: 'a', title: 'Ok' } }] } } })[0].kind, 'text');
+    // WA_WEB_MENU=text: lista numerada
+    process.env.WA_WEB_MENU = 'text';
+    const [t] = opsFromCloud({ type: 'interactive', interactive: { type: 'button', body: { text: 'Prefere?' }, action: { buttons: [{ type: 'reply', reply: { id: 'a', title: 'Manhã' } }, { type: 'reply', reply: { id: 'b', title: 'Tarde' } }] } } });
+    delete process.env.WA_WEB_MENU;
+    assert.equal(t.kind, 'text');
   });
 
   it('com WA_WEB_INTERACTIVE=on, botões e lista viram menu clicável', () => {
