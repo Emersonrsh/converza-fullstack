@@ -110,7 +110,14 @@ describe('QR Code: o que sai (payload da Cloud API → WhatsApp Web)', () => {
     assert.match(ct.kind === 'contacts' ? ct.vcards[0] : '', /waid=5511912345678/);
     assert.deepEqual(opsFromCloud({ type: 'reaction', reaction: { message_id: 'M1', emoji: '❤️' } }), [{ kind: 'react', messageId: 'M1', emoji: '❤️' }]);
   });
-  it('botões e lista viram menu clicável (com a lista numerada de reserva)', () => {
+  it('sem WA_WEB_INTERACTIVE=on, menu vai como lista numerada (sempre chega)', () => {
+    const [b] = opsFromCloud({ type: 'interactive', interactive: { type: 'button', body: { text: 'Prefere?' }, action: { buttons: [{ type: 'reply', reply: { id: 'a', title: 'Manhã' } }, { type: 'reply', reply: { id: 'b', title: 'Tarde' } }] } } });
+    assert.equal(b.kind, 'text');
+    assert.match(b.kind === 'text' ? b.text : '', /1️⃣ Manhã\n2️⃣ Tarde/);
+  });
+
+  it('com WA_WEB_INTERACTIVE=on, botões e lista viram menu clicável', () => {
+    process.env.WA_WEB_INTERACTIVE = 'on';
     const [b] = opsFromCloud({ type: 'interactive', interactive: { type: 'button', body: { text: 'Prefere?' }, action: { buttons: [{ type: 'reply', reply: { id: 'a', title: 'Manhã' } }, { type: 'reply', reply: { id: 'b', title: 'Tarde' } }] } } });
     assert.equal(b.kind, 'interactive');
     if (b.kind !== 'interactive') return;

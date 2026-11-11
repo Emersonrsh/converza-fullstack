@@ -285,8 +285,9 @@ export function opsFromCloud(payload: Record<string, any>): WebOp[] {
   }
 }
 
-/** Menus clicáveis no QR Code (WA_WEB_INTERACTIVE=off volta para a lista numerada). */
-const interactiveOn = () => process.env.WA_WEB_INTERACTIVE !== 'off';
+/** Menus clicáveis no QR Code: experimental (WA_WEB_INTERACTIVE=on). Sem a variável vai a lista numerada,
+ *  que sempre chega: o WhatsApp pode aceitar os botões e não entregar ao cliente. */
+const interactiveOn = () => process.env.WA_WEB_INTERACTIVE === 'on';
 const headerPlain = (it: Record<string, any>) => (it.header?.type === 'text' && it.header.text ? String(it.header.text) : undefined);
 
 function interactiveOps(it: Record<string, any>, quoted: string | null): WebOp[] {

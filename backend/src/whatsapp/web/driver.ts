@@ -129,13 +129,13 @@ const baileysDriver: Driver = {
           header: { title: spec.header ?? '', subtitle: '', hasMediaAttachment: false },
           nativeFlowMessage: { buttons, messageParamsJson: '' },
         };
-        const content = { viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 }, interactiveMessage } } };
+        // formato atual: interactiveMessage direto (o invólucro viewOnce deixou de ser exibido)
+        const content = { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 }, interactiveMessage };
         const msg = B.generateWAMessageFromContent(jid, content as any, { userJid: String(sock.user?.id ?? '') } as any);
-        await sock.relayMessage(jid, msg.message as any, {
-          messageId: msg.key.id!,
-          // marca de mensagem interativa: sem ela o celular do cliente não mostra os botões
-          additionalNodes: [{ tag: 'biz', attrs: {}, content: [{ tag: 'interactive', attrs: { type: 'native_flow', v: '1' }, content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }] }] }] as any,
-        });
+        const nodes: any[] = [{ tag: 'biz', attrs: {}, content: [{ tag: 'interactive', attrs: { type: 'native_flow', v: '1' }, content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }] }] }];
+        // conversa individual: o celular só mostra os botões com a marca de bot comercial
+        if (!jid.endsWith('@g.us')) nodes.push({ tag: 'bot', attrs: { biz_bot: '1' } });
+        await sock.relayMessage(jid, msg.message as any, { messageId: msg.key.id!, additionalNodes: nodes });
         return msg;
       },
       async onWhatsApp(phone) {
