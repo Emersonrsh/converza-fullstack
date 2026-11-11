@@ -204,7 +204,7 @@ export const mock = {
   sockets: new Map<string, { h: DriverHandlers; open: boolean; me: { jid: string; name: string } | null; qrTimer: NodeJS.Timeout | null; qrs: number }>(),
   sent: [] as MockSent[],
   /** simula o WhatsApp recusando a mensagem interativa (testa a volta para a lista numerada) */
-  rejectInteractive: false,
+  rejectInteractive: false, failSends: false,
   /** números que "não têm WhatsApp" no simulador */
   missing: new Set<string>(),
   /** responde os envios como entregues? (desligue para testar o status) */
@@ -276,6 +276,7 @@ const mockDriver: Driver = {
       async sendMessage(jid, content) {
         if (!s.open) throw new Error('Connection Closed');
         if (content.poll && mock.rejectInteractive) throw new Error('poll not allowed');
+        if (mock.failSends) throw new Error('simulado: envio recusado');
         const id = `3EB0${randomBytes(8).toString('hex').toUpperCase()}`;
         mock.sent.push({ connectionId, jid, content, id, at: Date.now() });
         if (mock.autoDeliver) setTimeout(() => { if (s.open) h.onUpdates([{ key: { id, remoteJid: jid, fromMe: true }, update: { status: 3 } }]); }, 200);

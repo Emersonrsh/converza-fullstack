@@ -6,11 +6,12 @@ import { parsePrice } from '../components/Products';
 import { fmtPhone } from './util';
 import type { AccountTag, ChatContact, ChatDetail, ChatRun, ChatSale } from './types';
 import { ContactKanban } from '../kanban/ContactKanban';
+import { ACTIVE, FLOW_RUNS_EVENT, flowRunsChanged, pauseRuns, resumeRun } from './FlowControls';
 import { FieldInput, useContactFields } from '../contacts/CustomFields';
 
 const STAGES: [string, string][] = [['new', 'Novo'], ['in_service', 'Em atendimento'], ['negotiating', 'Negociação'], ['won', 'Ganho'], ['lost', 'Perdido']];
 const RUN_LABEL: Record<string, string> = {
-  running: 'executando', waiting: 'em espera', waiting_input: 'aguardando resposta', waiting_payment: 'aguardando pagamento',
+  running: 'executando', waiting: 'em espera', waiting_input: 'aguardando resposta', waiting_payment: 'aguardando pagamento', paused: '⏸️ pausado', failed: '⚠️ parado: msg não saiu',
 };
 const SALE: Record<ChatSale['status'], [string, string]> = {
   approved: ['Aprovada', 'green'], pending: ['Pendente', 'amber'], refused: ['Recusada', 'red'], refunded: ['Reembolsada', ''],
@@ -54,11 +55,19 @@ export function ContactPanel({ detail, tags, refreshKey, onContact, onAutomation
   useEffect(() => { setValue(valueText(c.value)); }, [c.id, c.value]);
   useEffect(() => { setCustom({ ...(c.custom ?? {}) }); setCustomState('idle'); setEmail(c.email ?? ''); setEditingEmail(false); }, [c.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [runsTick, setRunsTick] = useState(0);
+  useEffect(() => {
+    const h = () => setRunsTick((t) => t + 1);
+    window.addEventListener(FLOW_RUNS_EVENT, h);
+    return () => window.removeEventListener(FLOW_RUNS_EVENT, h);
+  }, []);
   useEffect(() => {
     let alive = true;
-    api.get<{ runs: ChatRun[] }>(`/conversations/${conv.id}/flow-runs`).then((r) => alive && setRuns(r.runs)).catch(() => alive && setRuns([]));
-    return () => { alive = false; };
-  }, [conv.id, conv.botPaused, refreshKey]);
+    const t = setTimeout(() => {
+      api.get<{ runs: ChatRun[] }>(`/conversations/${conv.id}/flow-runs`).then((r) => alive && setRuns(r.runs)).catch(() => alive && setRuns([]));
+    }, 300);
+    return () => { alive = false; clearTimeout(t); };
+  }, [conv.id, conv.botPaused, refreshKey, runsTick]);
   useEffect(() => {
     let alive = true;
     api.get<{ sales: ChatSale[] }>(`/conversations/${conv.id}/sales`).then((r) => alive && setSales(r.sales)).catch(() => alive && setSales([]));
@@ -137,6 +146,7 @@ export function ContactPanel({ detail, tags, refreshKey, onContact, onAutomation
       await api.post(`/conversations/${conv.id}/flow-runs/${id}/stop`);
       setRuns((r) => r?.filter((x) => x.id !== id) ?? r);
       toast('Fluxo interrompido nesta conversa');
+      flowRunsChanged();
     } catch (e) { toast(e instanceof Error ? e.message : 'Não foi possível parar'); }
   }
 
@@ -196,8 +206,11 @@ export function ContactPanel({ detail, tags, refreshKey, onContact, onAutomation
           {runs && runs.length > 0 && (
             <div className="cp-runs">
               {runs.map((r) => (
-                <div key={r.id} className="cp-run" data-testid="flow-run">
-                  <Icon name="flow" size={14} /><span><b>{r.flowName}</b><small>{RUN_LABEL[r.status] ?? r.status}</small></span>
+                <div key={r.id} className={cx('cp-run', r.status === 'paused' && 'held', r.status === 'failed' && 'failed')} data-testid="flow-run">
+                  <Icon name="flow" size={14} /><span><b>{r.flowName}</b><small title={r.error ?? undefined}>{RUN_LABEL[r.status] ?? r.status}</small></span>
+                  {ACTIVE.includes(r.status)
+                    ? <button type="button" className="btn sm ghost" onClick={() => void pauseRuns(conv.id, r.id)} data-testid="run-pause">Pausar</button>
+                    : <button type="button" className="btn sm ghost" onClick={() => void resumeRun(conv.id, { runId: r.id })} data-testid="run-resume">Retomar</button>}
                   <button type="button" className="btn sm ghost" onClick={() => stopRun(r.id)}>Parar</button>
                 </div>
               ))}

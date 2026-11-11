@@ -3,6 +3,7 @@
  * registra no inbox, conta estatísticas por bloco e agenda esperas na fila.
  */
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { redis } from '../redis';
 import { db, schema } from '../db';
 import { isUuid } from '../utils/http';
 import { emitToAccount } from '../realtime/io';
@@ -44,6 +45,15 @@ type ConversationRow = typeof schema.conversations.$inferSelect;
 type MsgType = 'text' | 'image' | 'audio' | 'video' | 'document' | 'template' | 'sticker' | 'contacts';
 
 export const ACTIVE_RUN_STATUSES = ['running', 'waiting', 'waiting_input', 'waiting_payment'];
+/** parados no meio: 'paused' (a equipe pausou) e 'failed' (uma mensagem não saiu) — retomam do mesmo ponto */
+export const HELD_RUN_STATUSES = ['paused', 'failed'];
+
+/** Uma mensagem do fluxo não saiu: a execução para nesse ponto para poder ser retomada dali. */
+export class FlowSendFailed extends Error {
+  nodeId?: string;
+  constructor(public messageId: string, message: string) { super(message); this.name = 'FlowSendFailed'; }
+}
+const pauseKey = (runId: string) => `flow:pause:${runId}`;
 const DAY_MS = 24 * 3600 * 1000;
 /** Mídia do cliente para o Bloco de IA: até 15 MB. */
 const MAX_AI_MEDIA = 15 * 1024 * 1024;
@@ -158,7 +168,9 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
     }).returning();
     await db.update(schema.conversations).set({ lastMessageAt: new Date() }).where(eq(schema.conversations.id, conv.id));
     emitToAccount(p.accountId, 'message:new', { conversationId: conv.id, message: msg });
-    return status === 'sent';
+    // o fluxo não segue adiante sem essa mensagem: para aqui e espera alguém retomar
+    if (status !== 'sent') throw new FlowSendFailed(msg.id, error ?? 'Não foi possível enviar');
+    return true;
   };
 
   const bump = async (nodeId: string, col: 'entries' | 'advances') => {
@@ -697,6 +709,14 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
 async function persist(runId: string, halt: Halt, state: RunState) {
   const set = (patch: Partial<RunRow>) =>
     db.update(schema.flowRuns).set({ context: state as any, ...patch }).where(eq(schema.flowRuns.id, runId));
+  // pediram para pausar enquanto o fluxo enviava: guarda o ponto e não agenda nada
+  if (halt.kind !== 'end' && (await redis.get(pauseKey(runId)).catch(() => null))) {
+    await redis.del(pauseKey(runId)).catch(() => undefined);
+    const from = halt.kind === 'delay' ? 'waiting' : halt.kind === 'payment' ? 'waiting_payment' : 'waiting_input';
+    state.held = { from, at: new Date().toISOString(), ...(halt.kind === 'buffer' ? { buffer: true } : {}) };
+    await set({ status: 'paused', currentNodeId: halt.nodeId });
+    return;
+  }
   switch (halt.kind) {
     case 'end':
       await set({ status: 'done', currentNodeId: null, finishedAt: new Date() });
@@ -728,6 +748,13 @@ async function execute(run: RunRow, flow: FlowRow, state: RunState, fn: (exec: F
   try {
     halt = await fn(exec);
   } catch (err) {
+    if (err instanceof FlowSendFailed && err.nodeId) {
+      console.warn(`[flow ${flow.id}] parado no bloco ${err.nodeId}: mensagem não saiu (${err.message})`);
+      state.held = { from: 'failed', at: new Date().toISOString(), messageId: err.messageId, error: err.message.slice(0, 300) };
+      await db.update(schema.flowRuns).set({ status: 'failed', currentNodeId: err.nodeId, context: state as any })
+        .where(eq(schema.flowRuns.id, run.id));
+      return;
+    }
     console.error(`[flow ${flow.id}] erro na execução ${run.id}:`, (err as Error).message);
     await db.update(schema.flowRuns).set({ status: 'error', finishedAt: new Date(), context: state as any })
       .where(eq(schema.flowRuns.id, run.id));
@@ -773,6 +800,11 @@ async function startRun(flow: FlowRow, contactId: string, state: RunState, opts:
       if (Date.now() - last.startedAt.getTime() < hours * 3_600_000) return false;
     }
   }
+
+  // parado (pausado ou com falha) para esse contato: não começa outro por cima
+  const [held] = await db.select({ id: schema.flowRuns.id }).from(schema.flowRuns)
+    .where(and(eq(schema.flowRuns.flowId, flow.id), eq(schema.flowRuns.contactId, contactId), inArray(schema.flowRuns.status, HELD_RUN_STATUSES))).limit(1);
+  if (held) return false;
 
   // índice único parcial: no máximo uma execução em andamento por fluxo + contato
   const [run] = await db.insert(schema.flowRuns)
@@ -864,6 +896,14 @@ export async function triggerFlowsForInbound(ev: InboundEvent): Promise<boolean>
     }
   }
   if (ev.onlyResume) return false;
+
+  // fluxo pausado ou parado por falha nesta conversa: nenhuma outra automação entra por cima até retomar ou parar
+  if (ev.source === 'inbound_message') {
+    const [held] = await db.select({ id: schema.flowRuns.id }).from(schema.flowRuns).where(and(
+      eq(schema.flowRuns.accountId, ev.accountId), eq(schema.flowRuns.contactId, ev.contactId), inArray(schema.flowRuns.status, HELD_RUN_STATUSES),
+    )).limit(1);
+    if (held) return true;
+  }
 
   // 1b) respondeu o modelo mandado pelo webhook → começa o fluxo que estava esperando
   if (ev.source === 'inbound_message' && await startPendingFlow(ev)) return true;
@@ -1011,7 +1051,7 @@ export async function cleanupOrphanRuns() {
 export async function stopRunsForContact(accountId: string, contactId: string, runId?: string) {
   const conds = [
     eq(schema.flowRuns.accountId, accountId), eq(schema.flowRuns.contactId, contactId),
-    inArray(schema.flowRuns.status, ACTIVE_RUN_STATUSES),
+    inArray(schema.flowRuns.status, [...ACTIVE_RUN_STATUSES, ...HELD_RUN_STATUSES]),
   ];
   if (runId) conds.push(eq(schema.flowRuns.id, runId));
   return db.update(schema.flowRuns).set({ status: 'canceled', finishedAt: new Date() }).where(and(...conds)).returning({ id: schema.flowRuns.id });
@@ -1026,4 +1066,70 @@ export async function sweepFlowFiles() {
       and not exists (select 1 from flows w where w.account_id = f.account_id and w.graph::text like '%' || f.id::text || '%')
     returning f.id`);
   return r.rows.length;
+}
+
+/* ------------------------------------------------------------ pausar / retomar */
+
+/**
+ * Pausa os fluxos em andamento do contato, guardando o ponto. Quem está enviando agora
+ * pausa assim que terminar o passo atual.
+ */
+export async function pauseRunsForContact(accountId: string, contactId: string, runId?: string): Promise<number> {
+  const conds = [eq(schema.flowRuns.accountId, accountId), eq(schema.flowRuns.contactId, contactId), inArray(schema.flowRuns.status, ACTIVE_RUN_STATUSES)];
+  if (runId) conds.push(eq(schema.flowRuns.id, runId));
+  const runs = await db.select().from(schema.flowRuns).where(and(...conds));
+  let n = 0;
+  for (const r of runs) {
+    if (r.status === 'running') {
+      await redis.set(pauseKey(r.id), '1', 'EX', 600).catch(() => undefined);
+      n++;
+      continue;
+    }
+    const state = normalizeState(r.context);
+    state.held = { from: r.status, at: new Date().toISOString() };
+    const [row] = await db.update(schema.flowRuns).set({ status: 'paused', context: state as any })
+      .where(and(eq(schema.flowRuns.id, r.id), eq(schema.flowRuns.status, r.status))).returning({ id: schema.flowRuns.id });
+    if (row) n++;
+  }
+  return n;
+}
+
+/**
+ * Retoma um fluxo pausado ou parado por falha, do ponto exato:
+ * falha → reenvia a mensagem que não saiu e segue; pausa numa espera → volta a esperar
+ * (um "digitando"/intervalo pausado continua na hora).
+ */
+export async function resumeHeldRun(accountId: string, contactId: string, runId: string):
+  Promise<'resumed' | 'not_found' | 'inactive' | 'conflict'> {
+  const [cur] = await db.select().from(schema.flowRuns)
+    .where(and(eq(schema.flowRuns.id, runId), eq(schema.flowRuns.accountId, accountId), eq(schema.flowRuns.contactId, contactId), inArray(schema.flowRuns.status, HELD_RUN_STATUSES)))
+    .limit(1);
+  if (!cur) return 'not_found';
+  const [flow] = await db.select().from(schema.flows).where(eq(schema.flows.id, cur.flowId)).limit(1);
+  if (!flow || flow.status !== 'active' || flow.archivedAt) return 'inactive';
+  const state = normalizeState(cur.context);
+  const held = (state.held ?? {}) as Dict;
+  const nodeId = cur.currentNodeId;
+  delete state.held;
+  const back = cur.status === 'paused' && (held.from === 'waiting_input' || held.from === 'waiting_payment') ? String(held.from) : 'running';
+  let run: RunRow | undefined;
+  try {
+    [run] = await db.update(schema.flowRuns).set({ status: back, context: state as any })
+      .where(and(eq(schema.flowRuns.id, cur.id), eq(schema.flowRuns.status, cur.status))).returning();
+  } catch { return 'conflict'; } // outra execução do mesmo fluxo já está em andamento
+  if (!run) return 'not_found';
+  if (back !== 'running') {
+    // estava esperando o cliente: volta a esperar (o tempo limite recomeça)
+    if (back === 'waiting_input' && nodeId) {
+      if (held.buffer && state.waitToken) await enqueueFlowJob({ runId: run.id, nodeId, kind: 'buffer_flush', token: state.waitToken }, 1000);
+    }
+    return 'resumed';
+  }
+  const graph = normalizeGraph(flow.graph);
+  void execute(run, flow, state, (exec) => (!nodeId
+    ? runFrom(graph, graph.nodes.find((n) => n.type === 'trigger')?.id, state, exec)
+    : held.from === 'waiting' ? resumeAfterDelay(graph, nodeId, state, exec)
+      : runFrom(graph, nodeId, state, exec, { resume: true })))
+    .catch((err) => console.error('[flow] retomar falhou:', (err as Error).message));
+  return 'resumed';
 }

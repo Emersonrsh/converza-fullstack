@@ -6,6 +6,7 @@ import { EMOJIS, dayLabel, fillVars, fmtPhone, msgTime, quoteText } from './util
 import { isTextOnly, quickPreview } from '../settings/QuickReplies';
 import { toast } from '../components/ui';
 import type { ChatDetail, ChatMessage, QuickReply, ReplyPreview } from './types';
+import { FlowLauncher, FlowPauseButton, resumeRun, useFlowRuns } from './FlowControls';
 
 /* ---------------------------------------------------------------- texto */
 
@@ -64,9 +65,11 @@ function Quote({ q, contactName, meId, onJump }: { q: Quoted | null; contactName
   );
 }
 
-function Bubble({ m, quoted, contactName, meId, onRetry, onReply, onJump }: {
+function Bubble({ m, quoted, contactName, meId, onRetry, onReply, onJump, heldAt, onResume }: {
   m: ChatMessage; quoted: Quoted | null; contactName: string; meId: string;
   onRetry: (m: ChatMessage) => void; onReply: (m: ChatMessage) => void; onJump: (id: string) => void;
+  /** o fluxo parou nesta mensagem (ela não saiu): Retomar fluxo reenvia e segue */
+  heldAt?: boolean; onResume?: (m: ChatMessage) => void;
 }) {
   if (m.type === 'note' && !m.senderUserId) {
     return <div className="bub-event" data-testid="event"><span>{m.body}<small>{msgTime(m.createdAt)}</small></span></div>;
@@ -101,7 +104,9 @@ function Bubble({ m, quoted, contactName, meId, onRetry, onReply, onJump }: {
       {m.status === 'failed' && (
         <div className="bub-err">
           <Icon name="alert" size={12} />{m.error ?? 'Não foi possível enviar'}
-          {m.type === 'text' && <button type="button" onClick={() => onRetry(m)}>Tentar de novo</button>}
+          {heldAt && onResume
+            ? <button type="button" className="bub-err-resume" onClick={() => onResume(m)} data-testid="resume-flow">Retomar fluxo daqui</button>
+            : m.type === 'text' && <button type="button" onClick={() => onRetry(m)}>Tentar de novo</button>}
         </div>
       )}
     </div>
@@ -165,6 +170,9 @@ export function ChatView({
   }, [messages, meId]);
   useEffect(() => { prevCount.current = 0; prevFirst.current = null; prevHeight.current = 0; }, [c.id]);
 
+  const runs = useFlowRuns(c.id, messages.length);
+  const failedIds = useMemo(() => new Set(runs.map((r) => r.failedMessageId).filter(Boolean) as string[]), [runs]);
+
   // mensagens agrupadas por dia (o separador do dia fica fixo no topo enquanto o dia está na tela)
   const groups = useMemo(() => {
     const list: { key: string; label: string; msgs: ChatMessage[] }[] = [];
@@ -212,6 +220,8 @@ export function ChatView({
             </div>
           )}
         </div>
+        {!resolved && <FlowPauseButton convId={c.id} runs={runs} />}
+        <FlowLauncher convId={c.id} />
         <button type="button" className={cx('btn icon sm', panelOpen ? 'on' : 'ghost')} onClick={onTogglePanel} title="Dados do contato" aria-label="Dados do contato" data-testid="toggle-panel"><Icon name="user" size={16} /></button>
       </header>
 
@@ -226,7 +236,8 @@ export function ChatView({
             <div className="cv-day"><span>{g.label}</span></div>
             {g.msgs.map((m) => (
               <Bubble key={m.id} m={m} quoted={m.replyToId ? byId.get(m.replyToId) ?? m.reply ?? null : null} contactName={contactName} meId={meId}
-                onRetry={onRetry} onReply={(x) => setReplyTo(x)} onJump={jump} />
+                onRetry={onRetry} onReply={(x) => setReplyTo(x)} onJump={jump}
+                heldAt={m.status === 'failed' && failedIds.has(m.id)} onResume={(x) => void resumeRun(c.id, { messageId: x.id })} />
             ))}
           </div>
         ))}

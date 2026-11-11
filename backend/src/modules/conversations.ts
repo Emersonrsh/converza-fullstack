@@ -11,7 +11,7 @@ import {
   markRead, mediaKind, sendMediaId, sendSticker, sendTemplate, sendText, uploadMedia, WhatsAppError, type MediaKind, type TemplateSend,
 } from '../whatsapp/cloud-api';
 import { emitToAccount } from '../realtime/io';
-import { ACTIVE_RUN_STATUSES, stopRunsForContact } from '../flows/runner';
+import { ACTIVE_RUN_STATUSES, HELD_RUN_STATUSES, pauseRunsForContact, resumeHeldRun, startFlowForContact, stopRunsForContact } from '../flows/runner';
 import { ensureConversation, systemNote } from './conversationStore';
 import { queueVisibility } from './queueRules';
 import { FfmpegMissingError, toOggOpus } from '../utils/audio';
@@ -622,17 +622,71 @@ conversationsRouter.patch('/:id/automation', asyncHandler(async (req, res) => {
   res.json({ conversation: row });
 }));
 
-/** Fluxos em andamento para o contato desta conversa. */
+/** Fluxos em andamento (ou pausados / parados por falha) para o contato desta conversa. */
 conversationsRouter.get('/:id/flow-runs', asyncHandler(async (req, res) => {
   const conv = await ownConversation(req.accountId!, req.params.id);
-  const runs = await db.select({
-    id: schema.flowRuns.id, status: schema.flowRuns.status, startedAt: schema.flowRuns.startedAt,
+  const rows = await db.select({
+    id: schema.flowRuns.id, status: schema.flowRuns.status, startedAt: schema.flowRuns.startedAt, context: schema.flowRuns.context,
     flowId: schema.flows.id, flowName: schema.flows.name,
   }).from(schema.flowRuns)
     .innerJoin(schema.flows, eq(schema.flows.id, schema.flowRuns.flowId))
-    .where(and(eq(schema.flowRuns.accountId, req.accountId!), eq(schema.flowRuns.contactId, conv.contactId), inArray(schema.flowRuns.status, ACTIVE_RUN_STATUSES)))
+    .where(and(eq(schema.flowRuns.accountId, req.accountId!), eq(schema.flowRuns.contactId, conv.contactId),
+      inArray(schema.flowRuns.status, [...ACTIVE_RUN_STATUSES, ...HELD_RUN_STATUSES])))
     .orderBy(desc(schema.flowRuns.startedAt));
+  const runs = rows.map(({ context, ...r }) => {
+    const held = ((context as Record<string, any>)?.held ?? null) as Record<string, any> | null;
+    return { ...r, failedMessageId: r.status === 'failed' ? held?.messageId ?? null : null, error: r.status === 'failed' ? held?.error ?? null : null };
+  });
   res.json({ runs });
+}));
+
+/** Dispara um fluxo nesta conversa agora (botão "Disparar fluxo"). */
+conversationsRouter.post('/:id/flows/start', asyncHandler(async (req, res) => {
+  const { flowId } = z.object({ flowId: z.string().uuid() }).parse(req.body);
+  const accountId = req.accountId!;
+  const conv = await ownConversation(accountId, req.params.id);
+  // quem dispara à mão quer a automação respondendo nesta conversa
+  if (conv.botPaused) await setConv(accountId, conv.id, { botPaused: false });
+  const r = await startFlowForContact(accountId, flowId, conv.contactId, { connectionId: conv.connectionId });
+  if (r === 'inactive') throw new AppError(400, 'Esse fluxo está pausado ou arquivado. Ative o fluxo antes de disparar.');
+  if (r === 'running') throw new AppError(409, 'Esse fluxo já está em andamento (ou pausado) nesta conversa. Retome ou pare o atual no painel do contato.');
+  const [f] = await db.select({ name: schema.flows.name }).from(schema.flows).where(eq(schema.flows.id, flowId)).limit(1);
+  await systemNote(accountId, conv.id, `▶️ ${await userName(req.user!.id)} disparou o fluxo “${f?.name ?? 'fluxo'}”`);
+  res.status(201).json({ ok: true });
+}));
+
+/** Pausa os fluxos desta conversa (todos ou um), guardando o ponto para retomar. */
+conversationsRouter.post('/:id/flow-runs/pause', asyncHandler(async (req, res) => {
+  const { runId } = z.object({ runId: z.string().uuid().optional() }).parse(req.body ?? {});
+  const accountId = req.accountId!;
+  const conv = await ownConversation(accountId, req.params.id);
+  const n = await pauseRunsForContact(accountId, conv.contactId, runId);
+  if (!n) throw new AppError(404, 'Nenhum fluxo em andamento nesta conversa');
+  await systemNote(accountId, conv.id, `⏸️ ${await userName(req.user!.id)} pausou ${n === 1 ? 'o fluxo' : `${n} fluxos`}`);
+  res.json({ paused: n });
+}));
+
+/** Retoma um fluxo pausado ou parado por falha, do ponto exato. `messageId`: a mensagem que falhou. */
+conversationsRouter.post('/:id/flow-runs/resume', asyncHandler(async (req, res) => {
+  const b = z.object({ runId: z.string().uuid().optional(), messageId: z.string().uuid().optional() }).refine((d) => d.runId || d.messageId).parse(req.body ?? {});
+  const accountId = req.accountId!;
+  const conv = await ownConversation(accountId, req.params.id);
+  let runId = b.runId;
+  if (!runId && b.messageId) {
+    const [r] = await db.select({ id: schema.flowRuns.id }).from(schema.flowRuns).where(and(
+      eq(schema.flowRuns.accountId, accountId), eq(schema.flowRuns.contactId, conv.contactId), eq(schema.flowRuns.status, 'failed'),
+      sql`${schema.flowRuns.context}->'held'->>'messageId' = ${b.messageId}`,
+    )).limit(1);
+    if (!r) throw new AppError(404, 'O fluxo dessa mensagem não está mais parado aqui (ele foi retomado, parado ou já terminou).');
+    runId = r.id;
+  }
+  if (conv.botPaused) await setConv(accountId, conv.id, { botPaused: false });
+  const r = await resumeHeldRun(accountId, conv.contactId, runId!);
+  if (r === 'not_found') throw new AppError(404, 'Esse fluxo não está pausado nesta conversa');
+  if (r === 'inactive') throw new AppError(400, 'Esse fluxo está pausado ou arquivado na tela de Fluxos. Ative o fluxo para retomar.');
+  if (r === 'conflict') throw new AppError(409, 'Esse mesmo fluxo já está rodando de novo nesta conversa. Pare um dos dois.');
+  await systemNote(accountId, conv.id, `▶️ ${await userName(req.user!.id)} retomou o fluxo`);
+  res.json({ ok: true });
 }));
 
 conversationsRouter.post('/:id/flow-runs/:runId/stop', asyncHandler(async (req, res) => {

@@ -13,6 +13,7 @@ const id = () => `MOCKIN${randomBytes(6).toString('hex').toUpperCase()}`;
 
 waMockRouter.post('/reset', (_req, res) => {
   mock.rejectInteractive = false;
+  mock.failSends = false;
   mock.sent.length = 0;
   mock.missing.clear();
   mock.media.clear();
@@ -28,6 +29,11 @@ waMockRouter.post('/missing', (req, res) => {
 
 waMockRouter.post('/reject-interactive', (req, res) => {
   mock.rejectInteractive = !!req.body?.on;
+  res.json({ ok: true });
+});
+
+waMockRouter.post('/fail-sends', (req, res) => {
+  mock.failSends = !!req.body?.on;
   res.json({ ok: true });
 });
 

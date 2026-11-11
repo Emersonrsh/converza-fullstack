@@ -142,6 +142,8 @@ export interface RunState {
   cursor: Dict;
   /** bloco → item de texto cujo "digitando…" já foi mostrado (na volta da espera, envia o texto) */
   typed?: Dict;
+  /** execução parada (pausa da equipe ou mensagem que falhou): de onde veio e qual mensagem */
+  held?: Dict;
 }
 
 export type Halt =
@@ -191,6 +193,7 @@ export function normalizeState(raw: unknown): RunState {
     cursor: obj(r.cursor),
     // "digitando/gravando já mostrado" — sem isto, ao voltar da espera o fluxo mostra de novo e nunca envia
     typed: obj(r.typed),
+    ...(r.held && typeof r.held === 'object' ? { held: { ...(r.held as Dict) } } : {}),
   };
 }
 
@@ -474,7 +477,12 @@ export async function runFrom(graph: FlowGraph, startId: string | null | undefin
     }
     if (!resume) await exec.onEnter(node.id);
     resume = false;
-    const r = await step(graph, node, state, exec);
+    let r: StepResult;
+    try { r = await step(graph, node, state, exec); } catch (err) {
+      // quem parou o fluxo precisa saber em qual bloco (para retomar dali)
+      if (err && typeof err === 'object' && !(err as Dict).nodeId) (err as Dict).nodeId = node.id;
+      throw err;
+    }
     if (isHalt(r)) return r;
     // o contato passou pelo bloco (seguiu para o próximo ou concluiu o fluxo nele)
     await exec.onAdvance(node.id);
@@ -500,6 +508,7 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
       for (let i = start; i < items.length; i++) {
         const it = items[i];
         const type = String(it.type ?? 'text');
+        try {
         if (type === 'text') {
           const text = render(it.text, s);
           const typing = Math.min(TYPING_MAX_SECONDS, Math.max(0, Math.round(Number(it.typingSeconds ?? 0)) || 0));
@@ -541,6 +550,12 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
             if (state.typed) delete state.typed[node.id];
           }
           await exec.sendMediaRef(kind, ref, it.caption ? render(it.caption, s) : undefined);
+        }
+        } catch (err) {
+          // não saiu: ao retomar, volta para este conteúdo (sem repetir o digitando/gravando)
+          state.cursor[node.id] = i;
+          state.typed = { ...(state.typed ?? {}), [node.id]: i };
+          throw err;
         }
       }
       return go(null);
