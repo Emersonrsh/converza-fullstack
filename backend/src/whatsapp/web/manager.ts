@@ -472,6 +472,8 @@ async function contentOf(s: Session, jid: string, op: WebOp): Promise<{ content:
   const opts: Record<string, any> = {};
   if ((op.kind === 'text' || op.kind === 'media') && op.quoted) opts.quoted = await quotedOf(s, jid, op.quoted);
   switch (op.kind) {
+    case 'interactive':
+      return { content: { text: op.fallback }, opts };
     case 'text':
       return { content: { text: op.text }, opts };
     case 'contacts':
@@ -566,6 +568,21 @@ async function sendLocal(s: Session, to: string, payload: Record<string, any>): 
   return enqueue(s, async () => {
     let first: string | null = null;
     for (const op of ops) {
+      if (op.kind === 'interactive') {
+        await s.sock!.presence(jid, 'composing');
+        await sleep(Math.min(1500, Math.max(400, op.spec.body.length * 25)));
+        let sent: any = null;
+        try { sent = await s.sock!.sendInteractive(jid, op.spec); } catch (err) {
+          console.warn(`[qr ${s.connectionId.slice(0, 8)}] menu clicável recusado (${(err as Error).message}); enviando como lista numerada`);
+          try { sent = await s.sock!.sendMessage(jid, { text: op.fallback }, {}); } catch (e2) {
+            throw new WebSendError(`O WhatsApp não aceitou o envio: ${(e2 as Error).message}`);
+          }
+        }
+        const id = sent?.key?.id ? String(sent.key.id) : null;
+        if (id) { markSent(s, id); first ??= id; }
+        if (ops.length > 1) await sleep(500 + randomInt(0, 600));
+        continue;
+      }
       const { content, opts } = await contentOf(s, jid, op);
       if (op.kind === 'text' && op.text.length > 0) {
         await s.sock!.presence(jid, 'composing');

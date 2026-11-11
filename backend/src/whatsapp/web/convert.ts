@@ -1,3 +1,4 @@
+import type { InteractiveSpec } from './driver';
 /**
  * QR Code (WhatsApp Web): conversões puras entre as mensagens do WhatsApp Web (formato do Baileys) e o formato
  * da Cloud API que o resto do Converza já entende — assim chats, fluxos, agentes e disparos funcionam igual.
@@ -175,6 +176,16 @@ export function toCloudMessage(msg: any, mediaId: string | null = null): Record<
   if (m.templateButtonReplyMessage) {
     return { ...base, type: 'button', button: { text: m.templateButtonReplyMessage.selectedDisplayText ?? '', payload: m.templateButtonReplyMessage.selectedId ?? '' } };
   }
+  if (m.interactiveResponseMessage) {
+    const r = m.interactiveResponseMessage;
+    let params: any = {};
+    try { params = JSON.parse(r.nativeFlowResponseMessage?.paramsJson ?? '{}'); } catch { /* sem id */ }
+    const id = String(params.id ?? params.selected_row_id ?? '');
+    const title = String(r.body?.text ?? params.title ?? params.display_text ?? '');
+    return { ...base, type: 'interactive', interactive: params.selected_row_id || r.nativeFlowResponseMessage?.name === 'single_select'
+      ? { type: 'list_reply', list_reply: { id, title } }
+      : { type: 'button_reply', button_reply: { id, title } } };
+  }
   if (m.listResponseMessage) {
     return { ...base, type: 'interactive', interactive: { type: 'list_reply', list_reply: { id: m.listResponseMessage.singleSelectReply?.selectedRowId ?? '', title: m.listResponseMessage.title ?? '' } } };
   }
@@ -216,7 +227,8 @@ export type WebOp =
   | { kind: 'text'; text: string; quoted?: string | null }
   | { kind: 'media'; media: 'image' | 'video' | 'audio' | 'document' | 'sticker'; link?: string; id?: string; caption?: string; fileName?: string; voice?: boolean; quoted?: string | null }
   | { kind: 'contacts'; displayName: string; vcards: string[] }
-  | { kind: 'react'; messageId: string; emoji: string };
+  | { kind: 'react'; messageId: string; emoji: string }
+  | { kind: 'interactive'; spec: InteractiveSpec; fallback: string; quoted?: string | null };
 
 const nums = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 const numLabel = (i: number) => nums[i] ?? `${i}.`;
@@ -273,18 +285,34 @@ export function opsFromCloud(payload: Record<string, any>): WebOp[] {
   }
 }
 
+/** Menus clicáveis no QR Code (WA_WEB_INTERACTIVE=off volta para a lista numerada). */
+const interactiveOn = () => process.env.WA_WEB_INTERACTIVE !== 'off';
+const headerPlain = (it: Record<string, any>) => (it.header?.type === 'text' && it.header.text ? String(it.header.text) : undefined);
+
 function interactiveOps(it: Record<string, any>, quoted: string | null): WebOp[] {
   const body = String(it.body?.text ?? '');
   const footer = it.footer?.text ? String(it.footer.text) : undefined;
   const headerText = it.header?.type === 'text' && it.header.text ? `*${String(it.header.text)}*\n` : '';
   switch (String(it.type)) {
     case 'button': {
-      const opts = (it.action?.buttons ?? []).map((b: any) => ({ title: String(b.reply?.title ?? '') }));
-      return [{ kind: 'text', text: numbered(headerText + body, opts, footer), quoted }];
+      const opts = (it.action?.buttons ?? []).map((b: any) => ({ id: String(b.reply?.id ?? b.reply?.title ?? ''), title: String(b.reply?.title ?? '') }));
+      const fallback = numbered(headerText + body, opts, footer);
+      if (!interactiveOn()) return [{ kind: 'text', text: fallback, quoted }];
+      return [{ kind: 'interactive', spec: { kind: 'buttons', body, header: headerPlain(it), footer, buttons: opts }, fallback, quoted }];
     }
     case 'list': {
-      const rows = (it.action?.sections ?? []).flatMap((s: any) => s.rows ?? []).map((r: any) => ({ title: String(r.title ?? ''), description: r.description ? String(r.description) : undefined }));
-      return [{ kind: 'text', text: numbered(headerText + body, rows, footer), quoted }];
+      const sections = (it.action?.sections ?? []).map((s: any) => ({
+        title: String(s.title ?? ''),
+        rows: (s.rows ?? []).map((r: any) => ({ id: String(r.id ?? r.title ?? ''), title: String(r.title ?? ''), description: r.description ? String(r.description) : undefined })),
+      }));
+      const rows = sections.flatMap((s: any) => s.rows);
+      const fallback = numbered(headerText + body, rows, footer);
+      if (!interactiveOn()) return [{ kind: 'text', text: fallback, quoted }];
+      // poucas opções sem descrição: botões na própria mensagem (como no app); senão, lista que abre ao tocar
+      if (rows.length <= 6 && !rows.some((r: any) => r.description)) {
+        return [{ kind: 'interactive', spec: { kind: 'buttons', body, header: headerPlain(it), footer, buttons: rows.map((r: any) => ({ id: r.id, title: r.title })) }, fallback, quoted }];
+      }
+      return [{ kind: 'interactive', spec: { kind: 'list', body, header: headerPlain(it), footer, buttonText: String(it.action?.button ?? 'Ver opções'), sections }, fallback, quoted }];
     }
     case 'cta_url': {
       const p = it.action?.parameters ?? {};

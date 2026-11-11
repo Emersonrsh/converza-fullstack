@@ -12,6 +12,7 @@ export const waMockRouter = Router();
 const id = () => `MOCKIN${randomBytes(6).toString('hex').toUpperCase()}`;
 
 waMockRouter.post('/reset', (_req, res) => {
+  mock.rejectInteractive = false;
   mock.sent.length = 0;
   mock.missing.clear();
   mock.media.clear();
@@ -22,6 +23,11 @@ waMockRouter.post('/reset', (_req, res) => {
 waMockRouter.post('/missing', (req, res) => {
   const d = String(req.body?.phone ?? '').replace(/\D/g, '');
   if (d) mock.missing.add(d);
+  res.json({ ok: true });
+});
+
+waMockRouter.post('/reject-interactive', (req, res) => {
+  mock.rejectInteractive = !!req.body?.on;
   res.json({ ok: true });
 });
 
@@ -83,6 +89,10 @@ waMockRouter.post('/:connectionId/inbound', asyncHandler(async (req, res) => {
     mock.media.set(msgId, data);
     const field = `${m.type}Message`;
     message = { [field]: { mimetype: m.mime, caption: m.caption, fileName: m.fileName, ptt: !!m.ptt, fileLength: m.size ?? data.length, ...(b.viewOnce ? { viewOnce: true } : {}), ...ctx } };
+  } else if (b.interactiveReply) {
+    // cliente tocou num botão/linha do menu clicável
+    const r = b.interactiveReply;
+    message = { interactiveResponseMessage: { body: { text: String(r.title ?? '') }, nativeFlowResponseMessage: { name: r.list ? 'single_select' : 'quick_reply', paramsJson: JSON.stringify(r.list ? { selected_row_id: r.id } : { id: r.id }), version: 3 } } };
   } else if (b.poll) {
     message = { pollCreationMessage: { name: String(b.poll), options: [{ optionName: 'A' }, { optionName: 'B' }] } };
   } else if (b.reaction) {

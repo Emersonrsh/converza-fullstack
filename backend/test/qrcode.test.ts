@@ -110,13 +110,24 @@ describe('QR Code: o que sai (payload da Cloud API → WhatsApp Web)', () => {
     assert.match(ct.kind === 'contacts' ? ct.vcards[0] : '', /waid=5511912345678/);
     assert.deepEqual(opsFromCloud({ type: 'reaction', reaction: { message_id: 'M1', emoji: '❤️' } }), [{ kind: 'react', messageId: 'M1', emoji: '❤️' }]);
   });
-  it('botões e lista viram opções numeradas', () => {
+  it('botões e lista viram menu clicável (com a lista numerada de reserva)', () => {
     const [b] = opsFromCloud({ type: 'interactive', interactive: { type: 'button', body: { text: 'Prefere?' }, action: { buttons: [{ type: 'reply', reply: { id: 'a', title: 'Manhã' } }, { type: 'reply', reply: { id: 'b', title: 'Tarde' } }] } } });
-    assert.equal(b.kind, 'text');
-    const t = b.kind === 'text' ? b.text : '';
-    assert.match(t, /^Prefere\?\n\n1️⃣ Manhã\n2️⃣ Tarde\n\n_Responda com o número da opção._$/);
-    const [l] = opsFromCloud({ type: 'interactive', interactive: { type: 'list', body: { text: 'Escolha' }, footer: { text: 'Loja' }, action: { sections: [{ rows: [{ id: 'r1', title: 'Corte', description: 'R$ 50' }] }] } } });
-    assert.match(l.kind === 'text' ? l.text : '', /1️⃣ Corte — R\$ 50\n\n_Loja_/);
+    assert.equal(b.kind, 'interactive');
+    if (b.kind !== 'interactive') return;
+    assert.deepEqual(b.spec, { kind: 'buttons', body: 'Prefere?', header: undefined, footer: undefined, buttons: [{ id: 'a', title: 'Manhã' }, { id: 'b', title: 'Tarde' }] });
+    assert.match(b.fallback, /^Prefere\?\n\n1️⃣ Manhã\n2️⃣ Tarde\n\n_Responda com o número da opção._$/);
+    // lista com descrição: lista que abre ao tocar
+    const [l] = opsFromCloud({ type: 'interactive', interactive: { type: 'list', body: { text: 'Escolha' }, footer: { text: 'Loja' }, action: { button: 'Ver', sections: [{ title: 'Serviços', rows: [{ id: 'r1', title: 'Corte', description: 'R$ 50' }] }] } } });
+    assert.equal(l.kind === 'interactive' && l.spec.kind, 'list');
+    assert.match(l.kind === 'interactive' ? l.fallback : '', /1️⃣ Corte — R\$ 50\n\n_Loja_/);
+    // lista curta sem descrição: botões
+    const [l2] = opsFromCloud({ type: 'interactive', interactive: { type: 'list', body: { text: 'Posso enviar?' }, action: { sections: [{ rows: [1, 2, 3, 4].map((n) => ({ id: `o${n}`, title: `Opção ${n}` })) }] } } });
+    assert.equal(l2.kind === 'interactive' && l2.spec.kind, 'buttons');
+    // desligado: volta para o texto numerado
+    process.env.WA_WEB_INTERACTIVE = 'off';
+    const [t] = opsFromCloud({ type: 'interactive', interactive: { type: 'button', body: { text: 'Prefere?' }, action: { buttons: [{ type: 'reply', reply: { id: 'a', title: 'Manhã' } }] } } });
+    delete process.env.WA_WEB_INTERACTIVE;
+    assert.equal(t.kind, 'text');
   });
   it('link com botão, Pix (texto + código) e carrossel (imagens + opções numeradas, link no cartão)', () => {
     const [u] = opsFromCloud({ type: 'interactive', interactive: { type: 'cta_url', body: { text: 'Veja' }, action: { name: 'cta_url', parameters: { display_text: 'Abrir loja', url: 'https://loja' } } } });

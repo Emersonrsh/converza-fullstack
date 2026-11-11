@@ -19,7 +19,14 @@ export interface DriverHandlers {
   onLidMapping?(m: { lid: string; pn: string }): void;
 }
 
+/** Menu clicável (mensagem interativa "nativa" do WhatsApp): botões de resposta ou lista. */
+export type InteractiveSpec =
+  | { kind: 'buttons'; body: string; header?: string; footer?: string; buttons: { id: string; title: string }[] }
+  | { kind: 'list'; body: string; header?: string; footer?: string; buttonText: string; sections: { title: string; rows: { id: string; title: string; description?: string }[] }[] };
+
 export interface DriverSocket {
+  /** menu clicável; devolve a mensagem enviada (key.id) */
+  sendInteractive(jid: string, spec: InteractiveSpec): Promise<any>;
   /** devolve a mensagem enviada (formato do Baileys: key.id é o id da mensagem) */
   sendMessage(jid: string, content: Record<string, any>, opts?: Record<string, any>): Promise<any>;
   /** número → JID de verdade no WhatsApp (o celular antigo pode estar sem o 9) */
@@ -109,6 +116,28 @@ const baileysDriver: Driver = {
 
     return {
       sendMessage: (jid, content, opts) => sock.sendMessage(jid, content as any, opts as any),
+      async sendInteractive(jid, spec) {
+        const buttons = spec.kind === 'buttons'
+          ? spec.buttons.map((b) => ({ name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: b.title, id: b.id }) }))
+          : [{ name: 'single_select', buttonParamsJson: JSON.stringify({
+            title: spec.buttonText,
+            sections: spec.sections.map((sec) => ({ title: sec.title, highlight_label: '', rows: sec.rows.map((r) => ({ header: '', title: r.title, description: r.description ?? '', id: r.id })) })),
+          }) }];
+        const interactiveMessage = {
+          body: { text: spec.body },
+          ...(spec.footer ? { footer: { text: spec.footer } } : {}),
+          header: { title: spec.header ?? '', subtitle: '', hasMediaAttachment: false },
+          nativeFlowMessage: { buttons, messageParamsJson: '' },
+        };
+        const content = { viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 }, interactiveMessage } } };
+        const msg = B.generateWAMessageFromContent(jid, content as any, { userJid: String(sock.user?.id ?? '') } as any);
+        await sock.relayMessage(jid, msg.message as any, {
+          messageId: msg.key.id!,
+          // marca de mensagem interativa: sem ela o celular do cliente não mostra os botões
+          additionalNodes: [{ tag: 'biz', attrs: {}, content: [{ tag: 'interactive', attrs: { type: 'native_flow', v: '1' }, content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }] }] }] as any,
+        });
+        return msg;
+      },
       async onWhatsApp(phone) {
         const r = await sock.onWhatsApp(phone);
         const hit = r?.[0];
@@ -142,6 +171,8 @@ export interface MockSent { connectionId: string; jid: string; content: Record<s
 export const mock = {
   sockets: new Map<string, { h: DriverHandlers; open: boolean; me: { jid: string; name: string } | null; qrTimer: NodeJS.Timeout | null; qrs: number }>(),
   sent: [] as MockSent[],
+  /** simula o WhatsApp recusando a mensagem interativa (testa a volta para a lista numerada) */
+  rejectInteractive: false,
   /** números que "não têm WhatsApp" no simulador */
   missing: new Set<string>(),
   /** responde os envios como entregues? (desligue para testar o status) */
@@ -198,6 +229,13 @@ const mockDriver: Driver = {
       s.qrTimer = setInterval(qr, Number(process.env.WA_WEB_MOCK_QR_MS ?? 20_000));
     }, 150);
     return {
+      async sendInteractive(jid, spec) {
+        if (!s.open) throw new Error('Connection Closed');
+        if (mock.rejectInteractive) throw new Error('interactive not allowed');
+        const id = `3EB0${randomBytes(8).toString('hex').toUpperCase()}`;
+        mock.sent.push({ connectionId, jid, content: { interactive: spec }, id, at: Date.now() });
+        return { key: { id, remoteJid: jid, fromMe: true } };
+      },
       async sendMessage(jid, content) {
         if (!s.open) throw new Error('Connection Closed');
         const id = `3EB0${randomBytes(8).toString('hex').toUpperCase()}`;
