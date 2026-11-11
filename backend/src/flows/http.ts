@@ -50,10 +50,10 @@ function safeLookup(hostname: string, options: any, callback: (...args: any[]) =
   });
 }
 
-interface RawResult { ok: boolean; status: number; headers: http.IncomingHttpHeaders; text: string; error?: string }
+interface RawResult { ok: boolean; status: number; headers: http.IncomingHttpHeaders; text: string; buf?: Buffer; error?: string }
 
 /** Pedido HTTP com as travas de segurança. `truncate`: em vez de falhar, guarda só o começo de respostas grandes. */
-function rawRequest(urlStr: string, req: { method: string; headers: Record<string, string>; body?: string }, opts: { maxBytes: number; truncate?: boolean; userAgent: string }): Promise<RawResult> {
+function rawRequest(urlStr: string, req: { method: string; headers: Record<string, string>; body?: string }, opts: { maxBytes: number; truncate?: boolean; userAgent: string; binary?: boolean; timeoutMs?: number }): Promise<RawResult> {
   let url: URL;
   try { url = new URL(urlStr); } catch { return Promise.resolve({ ok: false, status: 0, headers: {}, text: '', error: 'URL inválida' }); }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -75,12 +75,12 @@ function rawRequest(urlStr: string, req: { method: string; headers: Record<strin
       method,
       headers: { 'User-Agent': opts.userAgent, Accept: 'application/json, text/plain, */*', ...req.headers },
       lookup: safeLookup as any,
-      timeout: TIMEOUT_MS,
+      timeout: opts.timeoutMs ?? TIMEOUT_MS,
     }, (res) => {
       const chunks: Buffer[] = [];
       let size = 0;
       const status = res.statusCode ?? 0;
-      const end = () => finish({ ok: status >= 200 && status < 300, status, headers: res.headers, text: Buffer.concat(chunks).toString('utf8') });
+      const end = () => { const buf = Buffer.concat(chunks); finish({ ok: status >= 200 && status < 300, status, headers: res.headers, text: opts.binary ? '' : buf.toString('utf8'), buf: opts.binary ? buf : undefined }); };
       res.on('data', (c: Buffer) => {
         if (done) return;
         size += c.length;
@@ -133,4 +133,26 @@ export async function safeFetchPage(urlStr: string): Promise<{ ok: boolean; stat
     return { ok: r.ok, status: r.status, url: current, contentType: String(r.headers['content-type'] ?? ''), text: r.text };
   }
   return { ok: false, status: 0, url: current, contentType: '', text: '', error: 'Redirecionamentos demais' };
+}
+
+/**
+ * Baixa um arquivo (ex.: o áudio de um bloco por link) com as mesmas travas contra SSRF,
+ * seguindo até 3 redirecionamentos. Lança erro com mensagem amigável.
+ */
+export async function safeDownload(urlStr: string, maxBytes = 16 * 1024 * 1024): Promise<{ data: Buffer; mime: string; fileName: string }> {
+  let current = urlStr;
+  for (let hop = 0; hop <= 3; hop++) {
+    const r = await rawRequest(current, { method: 'GET', headers: { Accept: '*/*' } }, { maxBytes, userAgent: 'Converza-Flows/1.0', binary: true, timeoutMs: 60_000 });
+    if (r.error) throw new Error(`Não consegui baixar o arquivo do link (${r.error}).`);
+    const loc = r.headers.location;
+    if (r.status >= 300 && r.status < 400 && loc) {
+      try { current = new URL(Array.isArray(loc) ? loc[0] : loc, current).toString(); } catch { throw new Error('Redirecionamento inválido no link do arquivo.'); }
+      continue;
+    }
+    if (!r.ok || !r.buf?.length) throw new Error(`Não consegui baixar o arquivo do link (HTTP ${r.status}).`);
+    let fileName = 'audio';
+    try { fileName = decodeURIComponent(new URL(current).pathname.split('/').pop() || 'audio'); } catch { /* sem nome */ }
+    return { data: r.buf, mime: String(r.headers['content-type'] ?? 'application/octet-stream').split(';')[0].trim(), fileName };
+  }
+  throw new Error('Redirecionamentos demais no link do arquivo.');
 }

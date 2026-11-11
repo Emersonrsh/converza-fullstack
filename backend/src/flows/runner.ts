@@ -16,16 +16,16 @@ import { aiCall } from '../ai/usage';
 import { byokBaseUrl, chatCompleteWith, transcribeWith, type ChatMsg } from '../ai/provider';
 import { toChatParts } from './aiBlock';
 import { chargeTokens, sttTokens, transcribe, voiceEnabled } from '../ai/voice';
-import { toMp3 } from '../utils/audio';
+import { isVoiceFormat, toMp3, toOggOpus } from '../utils/audio';
 import { PLATFORMS, type Platform } from '../pixels/engine';
 import { publicEvent } from '../pixels/sender';
 import {
   sendText, showTyping, sendMedia, sendButtons, sendList, sendMediaId, sendSticker, sendStickerLink, sendContactCard, sendReaction,
-  sendInteractive, sendTemplate as waSendTemplate, pixOrderInteractive, carouselInteractive, downloadMedia,
+  sendInteractive, sendTemplate as waSendTemplate, pixOrderInteractive, carouselInteractive, downloadMedia, uploadMedia,
   type WaConnection, type SendResult,
 } from '../whatsapp/cloud-api';
 import { templateAsText } from '../whatsapp/web/convert';
-import { safeHttpRequest } from './http';
+import { safeDownload, safeHttpRequest } from './http';
 import { flowExtras, setGlobalValue } from './globals';
 import { openNow } from '../modules/businessHours';
 import { defaultFlowsFor } from '../modules/defaultFlows';
@@ -197,6 +197,25 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
   };
 
   /** mídia por link ou arquivo guardado (vira um ID da Meta para este número) */
+  /** Áudio por link: baixa, converte para Ogg/Opus e envia como mensagem de voz nativa (com onda). */
+  const sendVoiceLink = async (url: string) => {
+    const conn = await connection();
+    let mediaId: string | null = null;
+    let err: string | null = null;
+    if (conn) {
+      try {
+        const file = await safeDownload(url);
+        const data = isVoiceFormat(file.mime) ? file.data : await toOggOpus(file.data);
+        mediaId = await uploadMedia({ phoneNumberId: conn.phoneNumberId, accessToken: conn.accessToken }, data, 'audio/ogg', 'audio.ogg');
+      } catch (e) { err = (e as Error).message; }
+    }
+    const quote = takeQuote();
+    await deliver((c, to) => {
+      if (!mediaId) throw new Error(err ?? 'O áudio do link não pôde ser enviado.');
+      return sendMediaId(c, to, 'audio', mediaId, undefined, undefined, { contextId: quote, voice: true });
+    }, '', 'audio', url, { waMediaId: mediaId, mimeType: 'audio/ogg', fileName: null });
+  };
+
   const sendRef = async (kind: 'image' | 'video' | 'audio' | 'document' | 'sticker', ref: { url?: string; fileId?: string; filename?: string }, caption?: string) => {
     if (ref.fileId && isUuid(ref.fileId)) {
       const [f] = await db.select({ mime: schema.storedFiles.mime, fileName: schema.storedFiles.fileName }).from(schema.storedFiles)
@@ -205,17 +224,18 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
       let upErr: string | null = f ? null : 'O arquivo do bloco não existe mais. Envie de novo no fluxo.';
       const conn = await connection();
       if (f && conn) {
-        try { mediaId = await mediaIdFor(ref.fileId, { id: conn.id, phoneNumberId: conn.phoneNumberId, accessToken: conn.accessToken }); }
+        try { mediaId = await mediaIdFor(ref.fileId, { id: conn.id, phoneNumberId: conn.phoneNumberId, accessToken: conn.accessToken }, { asVoice: kind === 'audio' }); }
         catch (err) { upErr = (err as Error).message; }
       }
       const quote = takeQuote();
       await deliver((c, to) => {
         if (!mediaId) throw new Error(upErr ?? 'O arquivo não pôde ser enviado para o WhatsApp.');
-        return kind === 'sticker' ? sendSticker(c, to, mediaId) : sendMediaId(c, to, kind, mediaId, caption, ref.filename || f?.fileName, { contextId: quote });
+        return kind === 'sticker' ? sendSticker(c, to, mediaId) : sendMediaId(c, to, kind, mediaId, caption, ref.filename || f?.fileName, { contextId: quote, voice: kind === 'audio' });
       }, caption ?? (kind === 'sticker' ? '' : ''), kind, null, { waMediaId: mediaId, mimeType: f?.mime ?? null, fileName: ref.filename || f?.fileName || null });
       return;
     }
     if (!ref.url) return;
+    if (kind === 'audio') { await sendVoiceLink(ref.url); return; }
     const quote = takeQuote();
     await deliver((c, to) => (kind === 'sticker'
       ? sendStickerLink(c, to, ref.url!)
@@ -251,6 +271,7 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
       await deliver((conn, to) => sendText(conn, to, text, quote), text, 'text', null);
     },
     async sendMedia(kind, url, caption, filename) {
+      if (kind === 'audio') { await sendVoiceLink(url); return; }
       const quote = takeQuote();
       await deliver((conn, to) => sendMedia(conn, to, kind, url, caption, filename, quote), caption ?? '', kind, url);
     },

@@ -25,6 +25,7 @@ import {
   type WebOp,
 } from './convert';
 import { readWebMedia, storeWebMedia, sweepWebMedia } from './media';
+import { isVoiceFormat, toOggOpus, voiceNoteMeta } from '../../utils/audio';
 
 export const PROCESS_ID = randomUUID();
 
@@ -495,8 +496,14 @@ async function contentOf(s: Session, jid: string, op: WebOp): Promise<{ content:
         case 'video': return { content: { video: file.data, caption, mimetype: file.mime.startsWith('video/') ? file.mime : 'video/mp4' }, opts };
         case 'sticker': return { content: { sticker: file.data }, opts };
         case 'audio': {
-          const ogg = /ogg|opus/i.test(file.mime);
-          return { content: { audio: file.data, mimetype: ogg ? 'audio/ogg; codecs=opus' : file.mime || 'audio/mpeg', ptt: !!op.voice || ogg }, opts };
+          const ogg = isVoiceFormat(file.mime);
+          const voice = !!op.voice || ogg;
+          if (!voice) return { content: { audio: file.data, mimetype: file.mime || 'audio/mpeg', ptt: false }, opts };
+          // mensagem de voz nativa: Ogg/Opus + duração + onda (o WhatsApp mostra o player de voz)
+          const data = ogg ? file.data : await toOggOpus(file.data).catch(() => null);
+          if (!data) return { content: { audio: file.data, mimetype: file.mime || 'audio/mpeg', ptt: false }, opts };
+          const meta = await voiceNoteMeta(data);
+          return { content: { audio: data, mimetype: 'audio/ogg; codecs=opus', ptt: true, ...(meta ? { seconds: meta.seconds, waveform: meta.waveform } : {}) }, opts };
         }
         default:
           return { content: { document: file.data, mimetype: file.mime || 'application/octet-stream', fileName: op.fileName || file.fileName || 'arquivo', caption }, opts };

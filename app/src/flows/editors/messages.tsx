@@ -130,7 +130,7 @@ function ItemBody({ it, upd, vars, i }: { it: D; upd: (p: D) => void; vars: stri
     case 'audio':
       return (<>
         {media('audio')}
-        <div className="bm-hint">Em OGG (Opus) o áudio aparece como mensagem de voz; nos outros formatos, como arquivo de áudio.</div>
+        <div className="bm-hint">O áudio chega ao cliente como mensagem de voz (gravado na hora), com a onda e a duração, em qualquer formato que você enviar.</div>
         <RecordingDelay value={Number(it.recordingSeconds ?? 0)} onChange={(recordingSeconds) => upd({ recordingSeconds })} testId={`item-${i}-recording`} />
       </>);
     case 'file':

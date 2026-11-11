@@ -8,6 +8,7 @@ import { uploadMedia, type WaConnection } from '../whatsapp/cloud-api';
 import { isWebPhoneId, STORED_REF, WEB_MEDIA_PREFIX } from '../whatsapp/web/convert';
 import { CHUNK, readStoredFile } from '../db/storedFileData';
 import { compressFile } from '../utils/compress';
+import { isVoiceFormat, toOggOpus } from '../utils/audio';
 export { readStoredFile };
 
 export type FileKind = 'image' | 'video' | 'audio' | 'document' | 'sticker';
@@ -79,7 +80,7 @@ export function verifyFileSig(fileId: string, e: unknown, s: unknown) {
 /* ------------------------------------------------------------ envio */
 
 /** ID da mídia na Meta para este número: reaproveita o envio anterior por até 25 dias (a Meta guarda 30). */
-export async function mediaIdFor(fileId: string, conn: WaConnection & { id: string }) {
+export async function mediaIdFor(fileId: string, conn: WaConnection & { id: string }, opts: { asVoice?: boolean } = {}) {
   const fresh = new Date(Date.now() - 25 * 86_400_000);
   const [hit] = await db.select().from(schema.storedFileMedia)
     .where(and(eq(schema.storedFileMedia.fileId, fileId), eq(schema.storedFileMedia.connectionId, conn.id), gt(schema.storedFileMedia.uploadedAt, fresh))).limit(1);
@@ -92,6 +93,11 @@ export async function mediaIdFor(fileId: string, conn: WaConnection & { id: stri
   }
   const f = await readStoredFile(fileId);
   if (!f) throw new AppError(410, 'O anexo desta resposta rápida não existe mais.');
+  // mensagem de voz na API oficial precisa ser Ogg/Opus (arquivos antigos podem ser MP3/M4A)
+  if (opts.asVoice && !isVoiceFormat(f.mime)) {
+    const ogg = await toOggOpus(f.data).catch(() => null);
+    if (ogg) { f.data = ogg; f.mime = 'audio/ogg'; f.fileName = f.fileName.replace(/\.[a-z0-9]{1,5}$/i, '') + '.ogg'; }
+  }
   const id = await uploadMedia(conn, f.data, f.mime, f.fileName);
   await db.insert(schema.storedFileMedia).values({ fileId, connectionId: conn.id, waMediaId: id })
     .onConflictDoUpdate({ target: [schema.storedFileMedia.fileId, schema.storedFileMedia.connectionId], set: { waMediaId: id, uploadedAt: new Date() } });

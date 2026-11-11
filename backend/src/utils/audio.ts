@@ -74,3 +74,41 @@ export async function audioSeconds(input: Buffer, timeoutMs = 60_000): Promise<n
     await fs.rm(src, { force: true });
   }
 }
+
+/** O áudio já está no formato da mensagem de voz do WhatsApp (Ogg/Opus)? */
+export const isVoiceFormat = (mime: string | null | undefined) => /ogg|opus/i.test(String(mime ?? ''));
+
+/**
+ * Duração e "onda" (64 barras de 0 a 100) para a mensagem de voz nativa do WhatsApp,
+ * como o próprio app gera. Decodifica com o ffmpeg; em caso de erro devolve null.
+ */
+export async function voiceNoteMeta(input: Buffer, timeoutMs = 60_000): Promise<{ seconds: number; waveform: Uint8Array } | null> {
+  const src = join(tmpdir(), `cvz-${randomUUID()}.in`);
+  await fs.writeFile(src, input);
+  try {
+    const pcm = await new Promise<Buffer>((resolve, reject) => {
+      const p = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-i', src, '-vn', '-ac', '1', '-ar', '8000', '-f', 's16le', '-'], { stdio: ['ignore', 'pipe', 'ignore'] });
+      const parts: Buffer[] = [];
+      const timer = setTimeout(() => { p.kill('SIGKILL'); reject(new Error('timeout')); }, timeoutMs);
+      p.stdout.on('data', (c: Buffer) => parts.push(c));
+      p.on('error', (e) => { clearTimeout(timer); reject(e); });
+      p.on('close', (code) => { clearTimeout(timer); code === 0 ? resolve(Buffer.concat(parts)) : reject(new Error(`ffmpeg ${code}`)); });
+    });
+    const n = Math.floor(pcm.length / 2);
+    if (!n) return null;
+    const seconds = Math.max(1, Math.round(n / 8000));
+    const bars = 64; const block = Math.max(1, Math.floor(n / bars));
+    const avg: number[] = [];
+    for (let b = 0; b < bars; b++) {
+      let sum = 0; const start = b * block; const end = Math.min(n, start + block);
+      for (let i = start; i < end; i++) sum += Math.abs(pcm.readInt16LE(i * 2));
+      avg.push(end > start ? sum / (end - start) : 0);
+    }
+    const max = Math.max(...avg) || 1;
+    return { seconds, waveform: new Uint8Array(avg.map((v) => Math.min(100, Math.floor((v / max) * 100)))) };
+  } catch {
+    return null;
+  } finally {
+    await fs.rm(src, { force: true });
+  }
+}

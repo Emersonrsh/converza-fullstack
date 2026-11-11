@@ -425,13 +425,13 @@ conversationsRouter.post('/:id/quick-replies/:qrId', asyncHandler(async (req, re
         .where(eq(schema.storedFiles.id, a.fileId ?? '')).limit(1);
       let mediaId: string | null = null;
       let upErr: string | null = null;
-      try { mediaId = await mediaIdFor(a.fileId!, connRow); } catch (err) { upErr = (err as Error).message; }
+      try { mediaId = await mediaIdFor(a.fileId!, connRow, { asVoice: a.type === 'audio' }); } catch (err) { upErr = (err as Error).message; }
       const caption = a.caption ? render(a.caption, scope) : null;
       const kind = a.type;
       msg = await deliver(req, conv, { type: kind, body: caption, waMediaId: mediaId, mimeType: f?.mime ?? null, fileName: f?.fileName ?? null },
         (c, to) => {
           if (!mediaId) throw new WhatsAppError(upErr ?? 'O anexo não pôde ser enviado para o WhatsApp.');
-          return kind === 'sticker' ? sendSticker(c, to, mediaId) : sendMediaId(c, to, kind, mediaId, caption ?? undefined, f?.fileName);
+          return kind === 'sticker' ? sendSticker(c, to, mediaId) : sendMediaId(c, to, kind, mediaId, caption ?? undefined, f?.fileName, { voice: kind === 'audio' });
         });
     }
     sent.push(msg);
