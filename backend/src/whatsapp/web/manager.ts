@@ -585,6 +585,31 @@ async function typingLocal(s: Session, connectionId: string, to: string, seconds
   typingTimers.set(`${connectionId}|${jid}`, { timer, until });
 }
 
+/**
+ * O socket da sessão pronto para enviar. Se a conexão caiu no meio do envio (ex.: durante o "digitando"),
+ * espera ela voltar em vez de falhar na hora.
+ */
+async function liveSock(s: Session): Promise<DriverSocket> {
+  if (s.state !== 'open' || !s.sock) await waitOpen(s, 30_000);
+  if (s.state !== 'open' || !s.sock) throw new WebSendError(offlineText(s.state));
+  return s.sock;
+}
+/** "digitando"/"gravando": enfeite, nunca derruba o envio */
+async function presence(s: Session, jid: string, p: 'composing' | 'recording' | 'paused') {
+  if (s.state !== 'open' || !s.sock) return;
+  try { await s.sock.presence(jid, p); } catch { /* conexão oscilando */ }
+}
+const closedErr = (err: unknown) => /connection closed|connection lost|reading 'sendMessage'|not open/i.test(String((err as Error)?.message ?? err));
+/** envia; se a conexão caiu nesse instante, espera religar e tenta mais uma vez */
+async function sendRetry(s: Session, jid: string, content: any, opts: any) {
+  try { return await (await liveSock(s)).sendMessage(jid, content, opts); } catch (err) {
+    if (err instanceof WebSendError || !closedErr(err)) throw err;
+    console.warn(`[qr ${s.connectionId.slice(0, 8)}] conexão caiu no envio; esperando religar para tentar de novo`);
+    await sleep(1500);
+    return (await liveSock(s)).sendMessage(jid, content, opts);
+  }
+}
+
 async function sendLocal(s: Session, to: string, payload: Record<string, any>): Promise<WebSendResult> {
   if (s.state !== 'open' && !(await waitOpen(s, 25_000))) throw new WebSendError(offlineText(s.state));
   if (!s.sock) throw new WebSendError(offlineText(s.state));
@@ -600,26 +625,26 @@ async function sendLocal(s: Session, to: string, payload: Record<string, any>): 
     for (const op of ops) {
       if (op.kind === 'poll') {
         if (op.intro) {
-          await s.sock!.presence(jid, 'composing');
+          await presence(s, jid, 'composing');
           await sleep(Math.min(1500, Math.max(400, op.intro.length * 25)));
           try {
-            const t = await s.sock!.sendMessage(jid, { text: op.intro }, {});
+            const t = await sendRetry(s, jid, { text: op.intro }, {});
             if (t?.key?.id) { markSent(s, String(t.key.id)); first ??= String(t.key.id); }
           } catch (err) { throw new WebSendError(`O WhatsApp não aceitou o envio: ${(err as Error).message}`); }
           await sleep(500 + randomInt(0, 600));
         }
-        await s.sock!.presence(jid, 'composing');
+        await presence(s, jid, 'composing');
         await sleep(Math.min(1500, Math.max(400, op.name.length * 25)));
         const secret = randomBytes(32);
         let sent: any = null;
         try {
-          sent = await s.sock!.sendMessage(jid, { poll: { name: op.name, values: op.options.map((o) => o.title), selectableCount: 1, messageSecret: secret } }, {});
+          sent = await sendRetry(s, jid, { poll: { name: op.name, values: op.options.map((o) => o.title), selectableCount: 1, messageSecret: secret } }, {});
           if (sent?.key?.id) {
             await redis.set(pollKey(s.connectionId, String(sent.key.id)), JSON.stringify({ secret: secret.toString('base64'), name: op.name, list: op.list, options: op.options }), 'EX', POLL_TTL);
           }
         } catch (err) {
           console.warn(`[qr ${s.connectionId.slice(0, 8)}] enquete recusada (${(err as Error).message}); enviando como lista numerada`);
-          try { sent = await s.sock!.sendMessage(jid, { text: op.fallback }, {}); } catch (e2) {
+          try { sent = await sendRetry(s, jid, { text: op.fallback }, {}); } catch (e2) {
             throw new WebSendError(`O WhatsApp não aceitou o envio: ${(e2 as Error).message}`);
           }
         }
@@ -629,12 +654,12 @@ async function sendLocal(s: Session, to: string, payload: Record<string, any>): 
         continue;
       }
       if (op.kind === 'interactive') {
-        await s.sock!.presence(jid, 'composing');
+        await presence(s, jid, 'composing');
         await sleep(Math.min(1500, Math.max(400, op.spec.body.length * 25)));
         let sent: any = null;
-        try { sent = await s.sock!.sendInteractive(jid, op.spec); } catch (err) {
+        try { sent = await (await liveSock(s)).sendInteractive(jid, op.spec); } catch (err) {
           console.warn(`[qr ${s.connectionId.slice(0, 8)}] menu clicável recusado (${(err as Error).message}); enviando como lista numerada`);
-          try { sent = await s.sock!.sendMessage(jid, { text: op.fallback }, {}); } catch (e2) {
+          try { sent = await sendRetry(s, jid, { text: op.fallback }, {}); } catch (e2) {
             throw new WebSendError(`O WhatsApp não aceitou o envio: ${(e2 as Error).message}`);
           }
         }
@@ -645,18 +670,18 @@ async function sendLocal(s: Session, to: string, payload: Record<string, any>): 
       }
       const { content, opts } = await contentOf(s, jid, op);
       if (op.kind === 'text' && op.text.length > 0) {
-        await s.sock!.presence(jid, 'composing');
+        await presence(s, jid, 'composing');
         await sleep(Math.min(1500, Math.max(400, op.text.length * 25)));
       }
       let sent: any;
-      try { sent = await s.sock!.sendMessage(jid, content, opts); } catch (err) {
+      try { sent = await sendRetry(s, jid, content, opts); } catch (err) {
         throw new WebSendError(`O WhatsApp não aceitou o envio: ${(err as Error).message}`);
       }
       const id = sent?.key?.id ? String(sent.key.id) : null;
       if (id) { markSent(s, id); first ??= id; }
       if (ops.length > 1) await sleep(500 + randomInt(0, 600));
     }
-    await s.sock!.presence(jid, 'paused');
+    await presence(s, jid, 'paused');
     return { waMessageId: first, waId: isPnJid(jid) ? jidUser(jid) : null };
   });
 }
