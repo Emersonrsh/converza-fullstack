@@ -627,6 +627,7 @@ conversationsRouter.get('/:id/flow-runs', asyncHandler(async (req, res) => {
   const conv = await ownConversation(req.accountId!, req.params.id);
   const rows = await db.select({
     id: schema.flowRuns.id, status: schema.flowRuns.status, startedAt: schema.flowRuns.startedAt, context: schema.flowRuns.context,
+    currentNodeId: schema.flowRuns.currentNodeId,
     flowId: schema.flows.id, flowName: schema.flows.name,
   }).from(schema.flowRuns)
     .innerJoin(schema.flows, eq(schema.flows.id, schema.flowRuns.flowId))
@@ -668,7 +669,7 @@ conversationsRouter.post('/:id/flow-runs/pause', asyncHandler(async (req, res) =
 
 /** Retoma um fluxo pausado ou parado por falha, do ponto exato. `messageId`: a mensagem que falhou. */
 conversationsRouter.post('/:id/flow-runs/resume', asyncHandler(async (req, res) => {
-  const b = z.object({ runId: z.string().uuid().optional(), messageId: z.string().uuid().optional() }).refine((d) => d.runId || d.messageId).parse(req.body ?? {});
+  const b = z.object({ runId: z.string().uuid().optional(), messageId: z.string().uuid().optional(), nodeId: z.string().max(120).optional().nullable() }).refine((d) => d.runId || d.messageId).parse(req.body ?? {});
   const accountId = req.accountId!;
   const conv = await ownConversation(accountId, req.params.id);
   let runId = b.runId;
@@ -681,7 +682,8 @@ conversationsRouter.post('/:id/flow-runs/resume', asyncHandler(async (req, res) 
     runId = r.id;
   }
   if (conv.botPaused) await setConv(accountId, conv.id, { botPaused: false });
-  const r = await resumeHeldRun(accountId, conv.contactId, runId!);
+  const r = await resumeHeldRun(accountId, conv.contactId, runId!, b.nodeId);
+  if (r === 'bad_node') throw new AppError(400, 'Esse bloco não existe mais no fluxo. Escolha outro.');
   if (r === 'not_found') throw new AppError(404, 'Esse fluxo não está pausado nesta conversa');
   if (r === 'inactive') throw new AppError(400, 'Esse fluxo está pausado ou arquivado na tela de Fluxos. Ative o fluxo para retomar.');
   if (r === 'conflict') throw new AppError(409, 'Esse mesmo fluxo já está rodando de novo nesta conversa. Pare um dos dois.');

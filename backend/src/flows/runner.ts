@@ -1135,8 +1135,8 @@ export async function pauseRunsForContact(accountId: string, contactId: string, 
  * falha → reenvia a mensagem que não saiu e segue; pausa numa espera → volta a esperar
  * (um "digitando"/intervalo pausado continua na hora).
  */
-export async function resumeHeldRun(accountId: string, contactId: string, runId: string):
-  Promise<'resumed' | 'not_found' | 'inactive' | 'conflict'> {
+export async function resumeHeldRun(accountId: string, contactId: string, runId: string, fromNodeId?: string | null):
+  Promise<'resumed' | 'not_found' | 'inactive' | 'conflict' | 'bad_node'> {
   const [cur] = await db.select().from(schema.flowRuns)
     .where(and(eq(schema.flowRuns.id, runId), eq(schema.flowRuns.accountId, accountId), eq(schema.flowRuns.contactId, contactId), inArray(schema.flowRuns.status, HELD_RUN_STATUSES)))
     .limit(1);
@@ -1145,9 +1145,18 @@ export async function resumeHeldRun(accountId: string, contactId: string, runId:
   if (!flow || flow.status !== 'active' || flow.archivedAt) return 'inactive';
   const state = normalizeState(cur.context);
   const held = (state.held ?? {}) as Dict;
-  const nodeId = cur.currentNodeId;
+  const graph = normalizeGraph(flow.graph);
+  // escolheram outro bloco para recomeçar: ele roda do início (sem o ponto exato onde parou)
+  const chosen = fromNodeId && fromNodeId !== cur.currentNodeId ? fromNodeId : null;
+  if (chosen && !graph.nodes.some((n) => n.id === chosen)) return 'bad_node';
+  const nodeId = chosen ?? cur.currentNodeId;
   delete state.held;
-  const back = cur.status === 'paused' && (held.from === 'waiting_input' || held.from === 'waiting_payment') ? String(held.from) : 'running';
+  if (chosen) {
+    delete state.cursor[chosen];
+    if (state.typed) delete state.typed[chosen];
+    state.waitToken = null;
+  }
+  const back = !chosen && cur.status === 'paused' && (held.from === 'waiting_input' || held.from === 'waiting_payment') ? String(held.from) : 'running';
   let run: RunRow | undefined;
   try {
     [run] = await db.update(schema.flowRuns).set({ status: back, context: state as any })
@@ -1161,11 +1170,12 @@ export async function resumeHeldRun(accountId: string, contactId: string, runId:
     }
     return 'resumed';
   }
-  const graph = normalizeGraph(flow.graph);
+  if (chosen) await db.update(schema.flowRuns).set({ currentNodeId: chosen }).where(eq(schema.flowRuns.id, run.id));
   void execute(run, flow, state, (exec) => (!nodeId
     ? runFrom(graph, graph.nodes.find((n) => n.type === 'trigger')?.id, state, exec)
-    : held.from === 'waiting' ? resumeAfterDelay(graph, nodeId, state, exec)
-      : runFrom(graph, nodeId, state, exec, { resume: true })))
+    : chosen ? runFrom(graph, nodeId, state, exec)
+      : held.from === 'waiting' ? resumeAfterDelay(graph, nodeId, state, exec)
+        : runFrom(graph, nodeId, state, exec, { resume: true })))
     .catch((err) => console.error('[flow] retomar falhou:', (err as Error).message));
   return 'resumed';
 }

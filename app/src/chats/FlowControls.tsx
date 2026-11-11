@@ -30,7 +30,11 @@ export function useFlowRuns(convId: string, bump: unknown) {
   return runs;
 }
 
-export async function resumeRun(convId: string, body: { runId?: string; messageId?: string }) {
+/** abre o popup "Retomar fluxo" (escolher o bloco) para uma execução parada */
+export const RESUME_OPEN_EVENT = 'cv:resume-open';
+export const openResume = (runId: string) => window.dispatchEvent(new CustomEvent(RESUME_OPEN_EVENT, { detail: runId }));
+
+export async function resumeRun(convId: string, body: { runId?: string; messageId?: string; nodeId?: string | null }) {
   try {
     await api.post(`/conversations/${convId}/flow-runs/resume`, body);
     toast('Fluxo retomado de onde parou');
@@ -136,8 +140,8 @@ export function FlowPauseButton({ convId, runs }: { convId: string; runs: ChatRu
   if (held.length) {
     const r = held[0];
     return (
-      <button type="button" className={cx('btn icon sm cv-resume', r.status === 'failed' && 'failed')} onClick={() => void resumeRun(convId, { runId: r.id })} data-testid="flow-resume"
-        title={r.status === 'failed' ? `“${r.flowName}” parou porque uma mensagem não saiu. Clique para reenviar essa mensagem e seguir o fluxo.` : `Retomar “${r.flowName}” de onde parou`}
+      <button type="button" className={cx('btn icon sm cv-resume', r.status === 'failed' && 'failed')} onClick={() => openResume(r.id)} data-testid="flow-resume"
+        title={r.status === 'failed' ? `Retomar fluxo: “${r.flowName}” parou porque uma mensagem não saiu` : `Retomar fluxo: “${r.flowName}” está pausado`}
         aria-label="Retomar fluxo">
         <Icon name="play" size={16} />
       </button>

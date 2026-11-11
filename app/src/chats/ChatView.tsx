@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Icon } from '../icons';
 import { Avatar, cx } from '../components/ui';
 import { api, mediaSrc } from '../api';
@@ -6,7 +6,8 @@ import { EMOJIS, dayLabel, fillVars, fmtPhone, msgTime, quoteText } from './util
 import { isTextOnly, quickPreview } from '../settings/QuickReplies';
 import { toast } from '../components/ui';
 import type { ChatDetail, ChatMessage, QuickReply, ReplyPreview } from './types';
-import { FlowLauncher, FlowPauseButton, resumeRun, useFlowRuns } from './FlowControls';
+import { FlowLauncher, FlowPauseButton, RESUME_OPEN_EVENT, openResume, useFlowRuns } from './FlowControls';
+const ResumeFlowModal = lazy(() => import('./ResumeFlowModal').then((m) => ({ default: m.ResumeFlowModal })));
 
 /* ---------------------------------------------------------------- texto */
 
@@ -105,7 +106,7 @@ function Bubble({ m, quoted, contactName, meId, onRetry, onReply, onJump, heldAt
         <div className="bub-err">
           <Icon name="alert" size={12} />{m.error ?? 'Não foi possível enviar'}
           {heldAt && onResume
-            ? <button type="button" className="bub-err-resume" onClick={() => onResume(m)} data-testid="resume-flow">Retomar fluxo daqui</button>
+            ? <button type="button" className="bub-err-resume" onClick={() => onResume(m)} data-testid="resume-flow">Retomar fluxo</button>
             : m.type === 'text' && <button type="button" onClick={() => onRetry(m)}>Tentar de novo</button>}
         </div>
       )}
@@ -172,6 +173,15 @@ export function ChatView({
 
   const runs = useFlowRuns(c.id, messages.length);
   const failedIds = useMemo(() => new Set(runs.map((r) => r.failedMessageId).filter(Boolean) as string[]), [runs]);
+  // popup "Retomar fluxo" (aberto pela mensagem que falhou, pelo cabeçalho ou pelo painel do contato)
+  const [resumeId, setResumeId] = useState<string | null>(null);
+  useEffect(() => {
+    const h = (e: Event) => setResumeId(String((e as CustomEvent<string>).detail));
+    window.addEventListener(RESUME_OPEN_EVENT, h);
+    return () => window.removeEventListener(RESUME_OPEN_EVENT, h);
+  }, []);
+  useEffect(() => { setResumeId(null); }, [c.id]);
+  const resumeRunRow = runs.find((r) => r.id === resumeId) ?? null;
 
   // mensagens agrupadas por dia (o separador do dia fica fixo no topo enquanto o dia está na tela)
   const groups = useMemo(() => {
@@ -224,6 +234,12 @@ export function ChatView({
         <FlowLauncher convId={c.id} />
         <button type="button" className={cx('btn icon sm', panelOpen ? 'on' : 'ghost')} onClick={onTogglePanel} title="Dados do contato" aria-label="Dados do contato" data-testid="toggle-panel"><Icon name="user" size={16} /></button>
       </header>
+      {resumeRunRow && (
+        <Suspense fallback={null}>
+          <ResumeFlowModal convId={c.id} runId={resumeRunRow.id} flowId={resumeRunRow.flowId} flowName={resumeRunRow.flowName}
+            stoppedAt={resumeRunRow.currentNodeId ?? null} failed={resumeRunRow.status === 'failed'} onClose={() => setResumeId(null)} />
+        </Suspense>
+      )}
 
       <div className="cv-msgs" ref={scroller} onScroll={(e) => {
         const el = e.currentTarget;
@@ -237,7 +253,7 @@ export function ChatView({
             {g.msgs.map((m) => (
               <Bubble key={m.id} m={m} quoted={m.replyToId ? byId.get(m.replyToId) ?? m.reply ?? null : null} contactName={contactName} meId={meId}
                 onRetry={onRetry} onReply={(x) => setReplyTo(x)} onJump={jump}
-                heldAt={m.status === 'failed' && failedIds.has(m.id)} onResume={(x) => void resumeRun(c.id, { messageId: x.id })} />
+                heldAt={m.status === 'failed' && failedIds.has(m.id)} onResume={(x) => { const r = runs.find((y) => y.failedMessageId === x.id); if (r) openResume(r.id); }} />
             ))}
           </div>
         ))}

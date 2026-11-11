@@ -69,7 +69,7 @@ export interface TemplatePayload {
   buttons?: { index: number; subType: 'url' | 'copy_code'; value: string }[];
 }
 export interface TeamMember { userId: string; name: string; email: string; role: string; }
-export interface ChatRun { id: string; status: string; startedAt: string; flowId: string; flowName: string; failedMessageId?: string | null; error?: string | null }
+export interface ChatRun { id: string; status: string; startedAt: string; flowId: string; flowName: string; failedMessageId?: string | null; error?: string | null; currentNodeId?: string | null }
 export interface ChatSale {
   id: string; amount: number; currency: string; status: 'pending' | 'approved' | 'refused' | 'refunded'; productName: string | null; createdAt: string;
 }

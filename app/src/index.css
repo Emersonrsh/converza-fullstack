@@ -2132,3 +2132,16 @@ html.dark .fbm-plat.tiktok{background:#333;outline:1px solid #555}
 .cv-resume.failed{color:var(--danger);border-color:color-mix(in srgb, var(--danger) 45%, var(--border));background:var(--danger-50)}
 .dash-adwarn{display:flex;gap:8px;align-items:flex-start;margin:-4px 0 14px;padding:10px 12px;border-radius:12px;font-size:12.5px;line-height:1.45}
 .dash-adwarn svg{flex:none;margin-top:2px}
+
+/* popup "Retomar fluxo" */
+.rfm-canvas{height:min(62vh,560px);border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--bg);position:relative}
+.rfm-canvas .blk-tools,.rfm-canvas .blk-ft{display:none}
+.rfm-canvas .react-flow__node{cursor:pointer}
+.rfm-canvas .react-flow__node.rf-stopped .blk{outline:2px dashed #f59e0b;outline-offset:4px}
+.rfm-canvas .blk.sim{animation:none}
+.rfm-load{display:flex;align-items:center;justify-content:center;height:100%}
+.rfm-hint{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--muted);margin-bottom:10px}
+.rfm-hint svg{flex:none;margin-top:2px;color:var(--primary)}
+.rfm-ft{display:flex;align-items:center;gap:8px;width:100%}
+.rfm-pick{flex:1;font-size:13px;color:var(--muted)}
+.rfm-pick b{color:var(--text)}

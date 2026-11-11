@@ -6,7 +6,7 @@ import { parsePrice } from '../components/Products';
 import { fmtPhone } from './util';
 import type { AccountTag, ChatContact, ChatDetail, ChatRun, ChatSale } from './types';
 import { ContactKanban } from '../kanban/ContactKanban';
-import { ACTIVE, FLOW_RUNS_EVENT, flowRunsChanged, pauseRuns, resumeRun } from './FlowControls';
+import { ACTIVE, FLOW_RUNS_EVENT, flowRunsChanged, openResume, pauseRuns } from './FlowControls';
 import { FieldInput, useContactFields } from '../contacts/CustomFields';
 
 const STAGES: [string, string][] = [['new', 'Novo'], ['in_service', 'Em atendimento'], ['negotiating', 'Negociação'], ['won', 'Ganho'], ['lost', 'Perdido']];
@@ -210,7 +210,7 @@ export function ContactPanel({ detail, tags, refreshKey, onContact, onAutomation
                   <Icon name="flow" size={14} /><span><b>{r.flowName}</b><small title={r.error ?? undefined}>{RUN_LABEL[r.status] ?? r.status}</small></span>
                   {ACTIVE.includes(r.status)
                     ? <button type="button" className="btn sm ghost" onClick={() => void pauseRuns(conv.id, r.id)} data-testid="run-pause">Pausar</button>
-                    : <button type="button" className="btn sm ghost" onClick={() => void resumeRun(conv.id, { runId: r.id })} data-testid="run-resume">Retomar</button>}
+                    : <button type="button" className="btn sm ghost" onClick={() => openResume(r.id)} data-testid="run-resume">Retomar</button>}
                   <button type="button" className="btn sm ghost" onClick={() => stopRun(r.id)}>Parar</button>
                 </div>
               ))}
