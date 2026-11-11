@@ -649,7 +649,9 @@ function Builder({ flowId }: { flowId: string }) {
         const byMessage = ['any_message', 'keyword', 'first_message'].includes(trig);
         toast(byMessage && !lookups.connections.length
           ? 'Fluxo ativo — conecte um número em Conexões para ele responder no WhatsApp'
-          : 'Fluxo ativo ✓ — já está respondendo no WhatsApp');
+          : trig === 'any_message'
+            ? 'Fluxo ativo ✓ — atenção: o gatilho é “Qualquer mensagem”, então ele começa com qualquer mensagem de qualquer contato. Se é para disparar à mão, troque o gatilho para “Somente quando outro fluxo, agente ou disparo chamar”.'
+            : 'Fluxo ativo ✓ — já está respondendo no WhatsApp');
       } else toast('Fluxo pausado');
     } catch (e) { toast(errMsg(e)); }
   }

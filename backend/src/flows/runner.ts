@@ -952,17 +952,34 @@ export async function triggerFlowsForInbound(ev: InboundEvent): Promise<boolean>
     // boas-vindas: primeira mensagem de um contato novo, quando nenhum fluxo tem gatilho para ela
     if (!matched.length && ev.isFirstMessage && defaults?.welcomeFlowId && await startDefaultFlow(defaults.welcomeFlowId, ev, 0)) return true;
   }
-  const selected = byKeyword.length ? byKeyword : matched;
+  // um fluxo por mensagem: dois fluxos começando juntos misturam as mensagens na conversa.
+  // Prioridade: palavra-chave > primeira mensagem > qualquer mensagem; empate: o fluxo mais antigo.
+  const rank = (t: Dict) => (t.type === 'keyword' ? 0 : t.type === 'first_message' ? 1 : 2);
+  const candidates = [...matched].sort((a, b) => rank(a.trigger) - rank(b.trigger)
+    || a.flow.createdAt.getTime() - b.flow.createdAt.getTime());
+  if (!candidates.length) return false;
 
-  let started = false;
-  for (const { flow } of selected) {
+  // já tem fluxo rodando nesta conversa: só palavra-chave (pedido explícito do cliente) começa outro por cima
+  if (ev.source === 'inbound_message') {
+    const [busy] = await db.select({ id: schema.flowRuns.id }).from(schema.flowRuns).where(and(
+      eq(schema.flowRuns.accountId, ev.accountId), eq(schema.flowRuns.contactId, ev.contactId), inArray(schema.flowRuns.status, ACTIVE_RUN_STATUSES),
+    )).limit(1);
+    if (busy && !byKeyword.length) return true;
+  }
+
+  for (const { flow } of byKeyword.length ? candidates.filter((c) => c.trigger.type === 'keyword') : candidates) {
     try {
-      if (await startRun(flow, ev.contactId, inboundState(ev))) started = true;
+      // o primeiro que de fato começar (os outros podem ter regra de repetição que não deixa)
+      if (await startRun(flow, ev.contactId, inboundState(ev))) {
+        const others = candidates.filter((c) => c.flow.id !== flow.id);
+        if (others.length) console.info(`[flow] ${others.length} outro(s) fluxo(s) também tinham gatilho para esta mensagem; começou só “${flow.name}”`);
+        return true;
+      }
     } catch (err) {
       console.error(`[flow ${flow.id}] erro ao iniciar:`, (err as Error).message);
     }
   }
-  return started;
+  return false;
 }
 
 /**
