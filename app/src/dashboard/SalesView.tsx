@@ -33,6 +33,10 @@ export function SalesView({ data, query, currency: cur, refreshKey, products, co
     { icon: 'megaphone', tone: 'red', valueTone: 'red', label: 'Gasto Meta (Ad)', value: money(k.adSpend), t: trend(k.adSpend, p.adSpend), invert: true, info: 'Investimento em anúncios no período. Clique no ícone de filtro para lançar ou ver os gastos.', action: { icon: 'filter', title: 'Lançar / ver gastos com anúncios', onClick: onAdSpend } },
   ] as const;
 
+  // por que o gasto (e o ROAS) pode estar zerado: conta com erro, conta em outra moeda ou nenhuma conta no painel
+  const adAccs = data.adAccounts ?? [];
+  const adBroken = adAccs.filter((a) => a.error);
+  const adOtherCur = adAccs.length > 0 && adAccs.every((a) => a.currency !== cur);
   const periodData = data.series.period;
   const hourData = data.series.byHour;
   const products2 = data.byProduct.filter((x) => !hiddenProducts.includes(x.id));
@@ -46,6 +50,24 @@ export function SalesView({ data, query, currency: cur, refreshKey, products, co
             testId={`kpi-${x.label}`} />
         ))}
       </div>
+      {adBroken.length > 0 && (
+        <div className="hint warn dash-adwarn" data-testid="dash-ad-warn">
+          <Icon name="alert" size={14} />
+          <span>
+            <b>Gasto e ROAS incompletos:</b> a Meta não está liberando o gasto de {adBroken.map((a) => `“${a.name}”`).join(', ')}. {adBroken[0].error}
+          </span>
+        </div>
+      )}
+      {!adBroken.length && k.adSpend === 0 && (adAccs.length === 0 || adOtherCur) && (
+        <div className="hint dash-adwarn" data-testid="dash-ad-info">
+          <Icon name="info" size={14} />
+          <span>
+            {adAccs.length === 0
+              ? <>Nenhuma conta de anúncios entra no Dashboard. Ligue a conta em <b>Facebook → Perfis e contas</b> (ou lance o gasto à mão no ícone de filtro do card “Gasto Meta”) para ver o ROAS.</>
+              : <>As contas de anúncios do painel estão em {[...new Set(adAccs.map((a) => a.currency))].join(', ')}. Troque a moeda do Dashboard para ver o gasto e o ROAS delas.</>}
+          </span>
+        </div>
+      )}
 
       <div className="drow two">
         <Panel title="Vendas por período" sub="Histórico temporal das conversões e faturamento" actions={<ValueQty value={mode} onChange={setMode} />} testId="chart-period">

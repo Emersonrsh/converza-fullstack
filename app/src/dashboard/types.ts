@@ -33,6 +33,8 @@ export interface SalesDash {
   byState: { state: string | null; count: number; revenue: number }[];
   byProduct: { id: string; name: string; count: number; revenue: number }[];
   currencies: string[];
+  /** contas de anúncios que entram no Dashboard (gasto vem delas) */
+  adAccounts?: { name: string; currency: string; lastSyncAt: string | null; error: string | null }[];
 }
 
 export interface SaleRow {

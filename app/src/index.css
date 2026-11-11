@@ -2130,3 +2130,5 @@ html.dark .fbm-plat.tiktok{background:#333;outline:1px solid #555}
 .bub-err .bub-err-resume{font-weight:700}
 .cv-resume{color:#d97706;border-color:color-mix(in srgb, #f59e0b 45%, var(--border));background:color-mix(in srgb, #f59e0b 12%, transparent)}
 .cv-resume.failed{color:var(--danger);border-color:color-mix(in srgb, var(--danger) 45%, var(--border));background:var(--danger-50)}
+.dash-adwarn{display:flex;gap:8px;align-items:flex-start;margin:-4px 0 14px;padding:10px 12px;border-radius:12px;font-size:12.5px;line-height:1.45}
+.dash-adwarn svg{flex:none;margin-top:2px}

@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { eq, sql, type SQL } from 'drizzle-orm';
+import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { asyncHandler, AppError, isUuid } from '../utils/http';
 
@@ -193,6 +193,21 @@ dashboardRouter.get('/sales', asyncHandler(async (req, res) => {
     rows(sql`select distinct currency from sales where account_id = ${accountId}`),
   ]);
 
+  // contas de anúncios do painel: período com hoje → busca o gasto na Meta agora (sem esperar a rodada de hora em hora)
+  const adAccs = await db.select({
+    id: schema.metaAdAccounts.id, name: schema.metaAdAccounts.name, currency: schema.metaAdAccounts.currency,
+    lastSyncAt: schema.metaAdAccounts.lastSyncAt, lastError: schema.metaAdAccounts.lastError, profileStatus: schema.metaProfiles.status,
+  }).from(schema.metaAdAccounts)
+    .innerJoin(schema.metaProfiles, eq(schema.metaProfiles.id, schema.metaAdAccounts.profileId))
+    .where(and(eq(schema.metaAdAccounts.accountId, accountId), eq(schema.metaAdAccounts.selected, true)));
+  if (r.d1 >= todayIn(r.tz)) {
+    for (const a of adAccs) {
+      if (a.profileStatus !== 'connected') continue;
+      if (a.lastSyncAt && Date.now() - a.lastSyncAt.getTime() < 10 * 60_000 && !a.lastError) continue;
+      void import('../meta/adsSync').then((m) => m.syncAdAccountSpend(a.id, 3)).catch(() => undefined); // termina e avisa a tela (sale:changed)
+    }
+  }
+
   const byKey = new Map(series.map((x) => [String(x.k), x]));
   const hours = new Map(byHour.map((x) => [n(x.h), x]));
   res.json({
@@ -212,6 +227,10 @@ dashboardRouter.get('/sales', asyncHandler(async (req, res) => {
     byState: byState.map((x) => ({ state: x.state || null, count: n(x.count), revenue: n(x.revenue) })),
     byProduct: byProduct.map((x) => ({ id: String(x.id), name: x.name, count: n(x.count), revenue: n(x.revenue) })),
     currencies: [...new Set(['BRL', ...currencies.map((c) => String(c.currency))])],
+    adAccounts: adAccs.map((a) => ({
+      name: a.name, currency: a.currency, lastSyncAt: a.lastSyncAt,
+      error: a.profileStatus !== 'connected' ? 'O login do perfil do Facebook venceu. Reconecte em Facebook → Perfis e contas.' : a.lastError,
+    })),
   });
 }));
 
