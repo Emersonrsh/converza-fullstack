@@ -11,7 +11,7 @@ import {
   markRead, mediaKind, sendMediaId, sendSticker, sendTemplate, sendText, uploadMedia, WhatsAppError, type MediaKind, type TemplateSend,
 } from '../whatsapp/cloud-api';
 import { emitToAccount } from '../realtime/io';
-import { ACTIVE_RUN_STATUSES, HELD_RUN_STATUSES, pauseRunsForContact, resumeHeldRun, startFlowForContact, stopRunsForContact } from '../flows/runner';
+import { ACTIVE_RUN_STATUSES, HELD_RUN_STATUSES, pauseRunsForContact, resumeHeldRun, startFlowManually, stopRunsForContact } from '../flows/runner';
 import { ensureConversation, systemNote } from './conversationStore';
 import { queueVisibility } from './queueRules';
 import { FfmpegMissingError, toOggOpus } from '../utils/audio';
@@ -647,9 +647,9 @@ conversationsRouter.post('/:id/flows/start', asyncHandler(async (req, res) => {
   const conv = await ownConversation(accountId, req.params.id);
   // quem dispara à mão quer a automação respondendo nesta conversa
   if (conv.botPaused) await setConv(accountId, conv.id, { botPaused: false });
-  const r = await startFlowForContact(accountId, flowId, conv.contactId, { connectionId: conv.connectionId });
-  if (r === 'inactive') throw new AppError(400, 'Esse fluxo está pausado ou arquivado. Ative o fluxo antes de disparar.');
-  if (r === 'running') throw new AppError(409, 'Esse fluxo já está em andamento (ou pausado) nesta conversa. Retome ou pare o atual no painel do contato.');
+  const r = await startFlowManually(accountId, flowId, conv.contactId, conv.connectionId);
+  if (r === 'inactive') throw new AppError(400, 'Esse fluxo está pausado ou arquivado na tela de Fluxos. Ative o fluxo antes de disparar.');
+  if (r === 'busy') throw new AppError(409, 'O fluxo está terminando um envio agora. Tente de novo em alguns segundos.');
   const [f] = await db.select({ name: schema.flows.name }).from(schema.flows).where(eq(schema.flows.id, flowId)).limit(1);
   await systemNote(accountId, conv.id, `▶️ ${await userName(req.user!.id)} disparou o fluxo “${f?.name ?? 'fluxo'}”`);
   res.status(201).json({ ok: true });

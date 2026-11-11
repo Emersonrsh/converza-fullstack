@@ -784,7 +784,7 @@ async function loadRunnableFlow(run: RunRow): Promise<FlowRow | null> {
   return flow;
 }
 
-async function startRun(flow: FlowRow, contactId: string, state: RunState, opts: { ignoreReentry?: boolean } = {}): Promise<boolean> {
+async function startRun(flow: FlowRow, contactId: string, state: RunState, opts: { ignoreReentry?: boolean; manual?: boolean } = {}): Promise<boolean> {
   const graph = normalizeGraph(flow.graph);
   const t = triggerOf(flow.trigger, graph);
   const trigger = graph.nodes.find((n) => n.type === 'trigger');
@@ -801,10 +801,17 @@ async function startRun(flow: FlowRow, contactId: string, state: RunState, opts:
     }
   }
 
-  // parado (pausado ou com falha) para esse contato: não começa outro por cima
-  const [held] = await db.select({ id: schema.flowRuns.id }).from(schema.flowRuns)
-    .where(and(eq(schema.flowRuns.flowId, flow.id), eq(schema.flowRuns.contactId, contactId), inArray(schema.flowRuns.status, HELD_RUN_STATUSES))).limit(1);
-  if (held) return false;
+  if (opts.manual) {
+    // disparo manual: começa do zero agora, mesmo que esse fluxo já esteja rodando/pausado na conversa
+    await db.update(schema.flowRuns).set({ status: 'canceled', finishedAt: new Date() }).where(and(
+      eq(schema.flowRuns.flowId, flow.id), eq(schema.flowRuns.contactId, contactId),
+      inArray(schema.flowRuns.status, [...ACTIVE_RUN_STATUSES, ...HELD_RUN_STATUSES])));
+  } else {
+    // parado (pausado ou com falha) para esse contato: não começa outro por cima
+    const [held] = await db.select({ id: schema.flowRuns.id }).from(schema.flowRuns)
+      .where(and(eq(schema.flowRuns.flowId, flow.id), eq(schema.flowRuns.contactId, contactId), inArray(schema.flowRuns.status, HELD_RUN_STATUSES))).limit(1);
+    if (held) return false;
+  }
 
   // índice único parcial: no máximo uma execução em andamento por fluxo + contato
   const [run] = await db.insert(schema.flowRuns)
@@ -1132,4 +1139,19 @@ export async function resumeHeldRun(accountId: string, contactId: string, runId:
       : runFrom(graph, nodeId, state, exec, { resume: true })))
     .catch((err) => console.error('[flow] retomar falhou:', (err as Error).message));
   return 'resumed';
+}
+
+/**
+ * Botão "Disparar fluxo" do chat: ignora a regra de início do gatilho (palavra-chave, primeira mensagem,
+ * uma vez por contato, conexão…) e começa o fluxo agora nesta conversa. Se ele já estava rodando
+ * ou pausado para o contato, recomeça do início.
+ */
+export async function startFlowManually(accountId: string, flowId: string, contactId: string, connectionId: string | null):
+  Promise<'started' | 'inactive' | 'busy'> {
+  if (!isUuid(flowId)) return 'inactive';
+  const [flow] = await db.select().from(schema.flows)
+    .where(and(eq(schema.flows.id, flowId), eq(schema.flows.accountId, accountId))).limit(1);
+  if (!flow || flow.status !== 'active' || flow.archivedAt) return 'inactive';
+  const state = carryState({ lastMessage: '', vars: {}, connectionId });
+  return (await startRun(flow, contactId, state, { ignoreReentry: true, manual: true })) ? 'started' : 'busy';
 }
