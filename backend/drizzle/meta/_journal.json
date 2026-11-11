@@ -176,6 +176,13 @@
       "when": 1794300000000,
       "tag": "0024_file_chunks",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794450000000,
+      "tag": "0025_pixel_page",
+      "breakpoints": true
     }
   ]
 }

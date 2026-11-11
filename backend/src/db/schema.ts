@@ -808,6 +808,8 @@ export const pixels = pgTable('pixels', {
   accessToken: text('access_token'),
   connectionId: uuid('connection_id').references(() => connections.id, { onDelete: 'set null' }),
   wabaId: text('waba_id'),
+  /** Página do Facebook ligada ao WhatsApp (anúncios de clique para o WhatsApp sem WABA, ex.: QR Code) */
+  pageId: text('page_id'),
   /** nome do pixel na plataforma (quando ela informa) */
   remoteName: text('remote_name'),
   /** [{ id, trigger: lead|sale|stage, scope?, columnId?, event }] */

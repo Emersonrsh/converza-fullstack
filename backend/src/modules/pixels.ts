@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { pageIdForAd } from '../pixels/adPage';
+import { and, desc, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { emitToAccount } from '../realtime/io';
 import { enqueuePixelEvent } from '../queue';
@@ -24,7 +25,7 @@ function publicPixel(p: PixelRow, stats?: { sent: number; failed: number; skippe
   return {
     id: p.id, name: p.name, platform: p.platform, platformLabel: PLATFORMS[p.platform as Platform]?.label ?? p.platform,
     pixelId: p.pixelId, remoteName: p.remoteName, tokenHint: mask(p.accessToken), usesConnectionToken: p.platform === 'meta_whatsapp' && !p.accessToken,
-    connectionId: p.connectionId, connectionName: connName ?? null, wabaId: p.wabaId,
+    connectionId: p.connectionId, connectionName: connName ?? null, wabaId: p.wabaId, pageId: p.pageId,
     rules: (p.rules as Rule[]) ?? [], status: p.status, lastError: p.lastError, lastEventAt: p.lastEventAt,
     createdAt: p.createdAt, updatedAt: p.updatedAt,
     stats: stats ?? { sent: 0, failed: 0, skipped: 0, queued: 0 },
@@ -186,10 +187,16 @@ pixelsRouter.put('/:id', asyncHandler(async (req, res) => {
     accessToken: z.string().trim().max(1000).optional().nullable(),
     rules: z.array(ruleSchema).max(12).optional(),
     status: z.enum(['active', 'paused']).optional(),
+    pageId: z.string().trim().max(40).optional().nullable(),
   }).parse(req.body);
   const platform = px.platform as Platform;
   const patch: Partial<typeof schema.pixels.$inferInsert> = { updatedAt: new Date() };
   if (d.name) patch.name = d.name;
+  if (d.pageId !== undefined) {
+    const pg = String(d.pageId ?? '').replace(/\D/g, '');
+    if (d.pageId && !pg) throw new AppError(400, 'O ID da Página tem só números', { field: 'pageId' });
+    patch.pageId = pg || null;
+  }
   if (d.rules) {
     const bad = checkRules(platform, d.rules as Rule[]);
     if (bad) throw new AppError(400, bad);
@@ -218,6 +225,25 @@ pixelsRouter.put('/:id', asyncHandler(async (req, res) => {
   const [row] = await db.update(schema.pixels).set(patch).where(eq(schema.pixels.id, px.id)).returning();
   emitToAccount(accountId, 'pixel:changed', { pixelId: row.id });
   res.json({ pixel: publicPixel(row) });
+}));
+
+/**
+ * Páginas dos anúncios de clique para o WhatsApp que trouxeram contatos recentes (para preencher a Página do pixel).
+ */
+pixelsRouter.get('/:id/ad-pages', asyncHandler(async (req, res) => {
+  managerOnly(req);
+  const accountId = req.accountId!;
+  const px = await ownPixel(accountId, req.params.id);
+  const rows = await db.select({ sourceId: schema.contacts.sourceId }).from(schema.contacts)
+    .where(and(eq(schema.contacts.accountId, accountId), isNotNull(schema.contacts.ctwaClid), isNotNull(schema.contacts.sourceId)))
+    .orderBy(desc(schema.contacts.lastContactAt)).limit(40);
+  const ads = [...new Set(rows.map((r) => String(r.sourceId)))].slice(0, 12);
+  const counts = new Map<string, number>();
+  for (const ad of ads) {
+    const page = await pageIdForAd(accountId, ad, [px.accessToken]);
+    if (page) counts.set(page, (counts.get(page) ?? 0) + 1);
+  }
+  res.json({ adsChecked: ads.length, pages: [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([pageId, ads]) => ({ pageId, ads })) });
 }));
 
 pixelsRouter.delete('/:id', asyncHandler(async (req, res) => {

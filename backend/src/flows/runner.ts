@@ -588,11 +588,23 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
         await note(`📈 O evento “${px.event}” não é aceito pelo pixel “${pixel.name}”.`);
         return;
       }
+      // compra de uma venda já aprovada: mesma chave da regra "venda aprovada → Compra" do pixel,
+      // para a Meta receber essa venda uma vez só (quem chegar depois é ignorado)
+      let key = `flow:${p.runId}:${px.nodeId}`;
+      let saleId: string | null = null;
+      if (px.event === 'Purchase') {
+        const [sale] = await db.select({ id: schema.sales.id }).from(schema.sales).where(and(
+          eq(schema.sales.accountId, p.accountId), eq(schema.sales.contactId, p.contactId), eq(schema.sales.status, 'approved'),
+          sql`${schema.sales.createdAt} > now() - interval '6 hours'`,
+        )).orderBy(desc(schema.sales.createdAt)).limit(1);
+        if (sale) { key = `sale:${sale.id}#Purchase`; saleId = sale.id; }
+      }
       const [ev] = await db.insert(schema.pixelEvents).values({
-        accountId: p.accountId, pixelId: pixel.id, key: `flow:${p.runId}:${px.nodeId}`, trigger: 'flow', eventName: px.event,
+        accountId: p.accountId, pixelId: pixel.id, key, trigger: 'flow', eventName: px.event, saleId,
         contactId: p.contactId, value: px.value === null ? null : px.value.toFixed(2), currency: px.currency, status: 'queued',
         ...(px.pageId ? { payload: { pageId: px.pageId } } : {}),
       }).onConflictDoNothing().returning();
+      if (!ev && saleId) await note(`📈 Compra desta venda já enviada ao pixel “${pixel.name}” (não mandei de novo).`);
       if (!ev) return;
       emitToAccount(p.accountId, 'pixel:event', { pixelId: pixel.id, event: publicEvent(ev) });
       const { enqueuePixelEvent } = await import('../queue');

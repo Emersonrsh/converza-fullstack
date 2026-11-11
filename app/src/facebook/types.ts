@@ -37,7 +37,7 @@ export type Trigger = 'lead' | 'sale' | 'stage';
 export interface PixelRule { id: string; trigger: Trigger; scope?: 'ad' | 'whatsapp' | 'all'; boardId?: string | null; columnId?: string | null; event: string }
 export interface Pixel {
   id: string; name: string; platform: Platform; platformLabel: string; pixelId: string; remoteName: string | null;
-  tokenHint: string | null; usesConnectionToken: boolean; connectionId: string | null; connectionName: string | null; wabaId: string | null;
+  tokenHint: string | null; usesConnectionToken: boolean; connectionId: string | null; connectionName: string | null; wabaId: string | null; pageId?: string | null;
   rules: PixelRule[]; status: 'active' | 'paused' | 'error'; lastError: string | null; lastEventAt: string | null;
   createdAt: string; updatedAt: string; stats: { sent: number; failed: number; skipped: number; queued: number };
 }

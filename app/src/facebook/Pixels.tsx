@@ -486,11 +486,27 @@ function Settings({ pixel, canEdit, onSaved, onDelete }: { pixel: Pixel; canEdit
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const wa = pixel.platform === 'meta_whatsapp';
-  const dirty = name.trim() !== pixel.name || pid.trim() !== pixel.pixelId || !!token.trim();
+  const meta = pixel.platform === 'meta';
+  const [page, setPage] = useState(pixel.pageId ?? '');
+  const [found, setFound] = useState<{ pageId: string; ads: number }[] | null>(null);
+  const [finding, setFinding] = useState(false);
+  const dirty = name.trim() !== pixel.name || pid.trim() !== pixel.pixelId || !!token.trim() || page.trim() !== (pixel.pageId ?? '');
+  async function findPages() {
+    setFinding(true); setErr(null);
+    try {
+      const r = await api.get<{ adsChecked: number; pages: { pageId: string; ads: number }[] }>(`/pixels/${pixel.id}/ad-pages`);
+      setFound(r.pages);
+      if (r.pages.length === 1 && !page.trim()) setPage(r.pages[0].pageId);
+      if (!r.adsChecked) setErr('Ainda não chegou nenhum cliente por anúncio de clique para o WhatsApp.');
+      else if (!r.pages.length) setErr('Não consegui ler a Página dos anúncios. Confira se o perfil do Facebook em "Perfis e contas" tem acesso à conta de anúncios, ou cole o ID da Página.');
+    } catch (e) { setErr(errMsg(e)); }
+    setFinding(false);
+  }
   async function save() {
     setBusy(true); setErr(null);
     try {
-      await api.put(`/pixels/${pixel.id}`, { name: name.trim(), ...(pid.trim() !== pixel.pixelId ? { pixelId: pid.trim() } : {}), ...(token.trim() ? { accessToken: token.trim() } : {}) });
+      await api.put(`/pixels/${pixel.id}`, { name: name.trim(), ...(pid.trim() !== pixel.pixelId ? { pixelId: pid.trim() } : {}), ...(token.trim() ? { accessToken: token.trim() } : {}),
+        ...(page.trim() !== (pixel.pageId ?? '') ? { pageId: page.trim() || null } : {}) });
       setToken(''); toast('Pixel salvo ✓'); onSaved();
     } catch (e) { setErr(errMsg(e)); }
     setBusy(false);
@@ -510,6 +526,27 @@ function Settings({ pixel, canEdit, onSaved, onDelete }: { pixel: Pixel; canEdit
         {canEdit && <SecretInput value={token} onChange={setToken} placeholder="Novo Access Token" testId="fb-set-token" />}
         {wa && !pixel.usesConnectionToken && canEdit && <button type="button" className="linkbtn" style={{ marginTop: 6 }} onClick={() => void useConnToken()}>Usar o token da conexão</button>}
       </div>
+      {meta && (
+        <div>
+          <label className="label">Página do Facebook dos anúncios de WhatsApp</label>
+          <small className="fbm-help" style={{ marginTop: 0, marginBottom: 6 }}>
+            Com ela, vendas e leads de quem clicou num anúncio de clique para o WhatsApp vão para a Meta ligados ao anúncio (aparecem no Gerenciador). Em branco, o Converza descobre a Página pelo anúncio que o cliente clicou, usando o perfil de "Perfis e contas".
+          </small>
+          <div className="row" style={{ gap: 8 }}>
+            <input className="input" inputMode="numeric" disabled={!canEdit} placeholder="Automática (pelo anúncio)" value={page} onChange={(e) => setPage(e.target.value.replace(/\D/g, ''))} data-testid="fb-set-page" />
+            {canEdit && <button type="button" className="btn" disabled={finding} onClick={() => void findPages()} data-testid="fb-set-page-find">{finding ? 'Procurando…' : 'Achar nos anúncios'}</button>}
+          </div>
+          {found && found.length > 0 && (
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+              {found.map((f) => (
+                <button type="button" key={f.pageId} className={cx('chip', page === f.pageId && 'on')} onClick={() => setPage(f.pageId)} data-testid="fb-set-page-opt">
+                  Página {f.pageId} · {f.ads} {f.ads === 1 ? 'anúncio' : 'anúncios'}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {err && <div className="hint bad" data-testid="fb-set-error"><Icon name="alert" size={14} />{err}</div>}
       {canEdit && (
         <div className="row" style={{ gap: 8 }}>

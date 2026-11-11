@@ -214,3 +214,24 @@ export function triggerLabel(r: Pick<Rule, 'trigger' | 'scope'>): string {
   if (r.trigger === 'sale') return 'Venda aprovada';
   return 'Etapa do Kanban';
 }
+
+/* ------------------------------------------------------------------ Página do anúncio */
+
+export type AdRead = {
+  creative?: { effective_object_story_id?: string; object_story_spec?: { page_id?: string } };
+  adcreatives?: { data?: { effective_object_story_id?: string; object_story_spec?: { page_id?: string } }[] };
+};
+
+/** Página dona do anúncio a partir da resposta da Graph (story id = "PAGEID_POSTID"). */
+export function pageFromAd(a: AdRead): string | null {
+  const creatives = [a.creative, ...(a.adcreatives?.data ?? [])].filter(Boolean) as NonNullable<AdRead['creative']>[];
+  for (const c of creatives) {
+    const direct = String(c.object_story_spec?.page_id ?? '').replace(/\D/g, '');
+    if (direct) return direct;
+    const story = String(c.effective_object_story_id ?? '');
+    const m = /^(\d+)_\d+$/.exec(story);
+    if (m) return m[1];
+  }
+  return null;
+}
+

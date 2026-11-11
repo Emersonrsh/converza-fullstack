@@ -2,7 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'crypto';
 import { addMetrics, budgetOf, buildRows, dailySeries, derive, metricsOf, statusOf, totalsByCurrency, zero, accountStatusLabel } from '../src/meta/insights';
-import { buildEvent, checkRules, defaultRules, eventKey, metaUserData, normEmail, normNames, normPhone, ruleMatches, type Rule } from '../src/pixels/engine';
+import { buildEvent, checkRules, pageFromAd, defaultRules, eventKey, metaUserData, normEmail, normNames, normPhone, ruleMatches, type Rule } from '../src/pixels/engine';
 
 const h = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -191,5 +191,14 @@ describe('Pixels: regras', () => {
     assert.match(checkRules('meta_whatsapp', [{ id: 'a', trigger: 'lead', scope: 'all', event: 'LeadSubmitted' }]) ?? '', /anúncio de clique/);
     assert.match(checkRules('tiktok', [{ id: 'a', trigger: 'stage', event: 'Contact' }]) ?? '', /etapa do Kanban/);
     assert.match(checkRules('meta', [{ id: 'a', trigger: 'sale', event: 'Purchase' }, { id: 'a', trigger: 'sale', event: 'Purchase' }]) ?? '', /repetidas/);
+  });
+});
+
+describe('Página do anúncio de clique para o WhatsApp', () => {
+  test('lê a Página do story do criativo ou do object_story_spec', () => {
+    assert.equal(pageFromAd({ creative: { effective_object_story_id: '987654321000_555' } }), '987654321000');
+    assert.equal(pageFromAd({ creative: { object_story_spec: { page_id: '123456' } } }), '123456');
+    assert.equal(pageFromAd({ adcreatives: { data: [{ effective_object_story_id: '42_1' }] } }), '42');
+    assert.equal(pageFromAd({}), null);
   });
 });

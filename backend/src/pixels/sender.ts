@@ -7,6 +7,7 @@ import { db, schema } from '../db';
 import { config } from '../config';
 import { emitToAccount } from '../realtime/io';
 import { MetaApiError, sendCapi } from '../meta/graphAds';
+import { pageIdForAd } from './adPage';
 import { buildEvent, eventKey, ruleMatches, type Person, type Platform, type Rule, type Trigger, type TriggerCtx } from './engine';
 
 type PixelRow = typeof schema.pixels.$inferSelect;
@@ -141,7 +142,12 @@ export async function sendPixelEvent(eventId: string, attempt = 1, maxAttempts =
   const { token, wabaId } = await pixelCredentials(px);
   if (!token) { await finish(ev, { status: 'failed', error: 'O pixel está sem token de acesso.' }); return; }
   // Page ID do bloco Pixel do fluxo (guardada no payload para valer também nas novas tentativas)
-  const pageId = (ev.payload as { pageId?: unknown } | null)?.pageId ? String((ev.payload as { pageId: unknown }).pageId) : null;
+  // Página: a do bloco > a cadastrada no pixel > a dona do anúncio que o cliente clicou (busca automática)
+  let pageId = (ev.payload as { pageId?: unknown } | null)?.pageId ? String((ev.payload as { pageId: unknown }).pageId) : null;
+  if (!pageId && px.pageId) pageId = px.pageId;
+  if (!pageId && px.platform === 'meta' && contact?.ctwaClid && contact.sourceId) {
+    pageId = await pageIdForAd(px.accountId, contact.sourceId, [px.accessToken]);
+  }
   const built = buildEvent({ platform: px.platform as Platform, pixelId: px.pixelId, wabaId, event: ev.eventName, key: ev.key, time: ev.eventTime, person, money, pageId });
   if (!built.ok) { await finish(ev, { status: 'skipped', error: built.skip }); return; }
 
