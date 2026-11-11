@@ -32,7 +32,10 @@ export function metaError(data: unknown, status: number): MetaApiError {
   let msg = raw;
   if (code === 190 || code === 102) msg = 'O login da Meta venceu ou foi revogado. Reconecte o perfil.';
   else if (RATE.includes(code ?? -1)) msg = 'A Meta limitou as consultas desta conta por alguns minutos. Tente de novo daqui a pouco.';
-  else if (code === 10 || code === 294 || (code !== undefined && code >= 200 && code < 300)) msg = `A Meta não deu permissão para isso: ${raw}`;
+  else if (code === 200 && /ads_management or ads_read/i.test(raw)) {
+    msg = 'Essa conta de anúncios não foi liberada para o Converza. Em Perfis e contas, clique em Reconectar e, na janela da Meta, marque esta conta e a empresa dona dela. '
+      + 'Se continuar, a conta pertence a uma empresa sem acesso ao app da Meta do Converza (enquanto o app não tem acesso avançado, só contas de quem é testador funcionam).';
+  } else if (code === 10 || code === 294 || (code !== undefined && code >= 200 && code < 300)) msg = `A Meta não deu permissão para isso: ${raw}`;
   else if (code === 100 && sub === 33) msg = 'A Meta não encontrou esse ID ou o token não tem acesso a ele.';
   else if (code === 100 && (sub === 36008 || /verification code/i.test(raw))) msg = 'A Meta recusou o código do login (ele vale uma vez só e por pouco tempo). Feche a janela e conecte de novo.';
   return new MetaApiError(msg, status >= 500 ? 502 : 422, code, sub, raw);
