@@ -7,7 +7,7 @@ import { redis } from '../redis';
 import { emitToAccount } from '../realtime/io';
 import { asyncHandler, AppError, isUuid } from '../utils/http';
 import {
-  debugUserToken, exchangeAdsCode, extendUserToken, fetchAdAccounts, fetchEntities, fetchInsights, fetchMe, MetaApiError,
+  debugUserToken, exchangeAdsCode, extendUserToken, graphAds, fetchAdAccounts, fetchEntities, fetchInsights, fetchMe, MetaApiError,
   type InsightRow, type Level, type RemoteAdAccount, type RemoteEntity,
 } from '../meta/graphAds';
 import { accountStatusLabel, buildRows, dailySeries, totalsByCurrency, type Attribution, type EntityIn } from '../meta/insights';
@@ -18,6 +18,7 @@ import {
   StepError, uploadAdImage, type CampaignSpec,
 } from '../meta/adsWrite';
 import { linkCampaignFlow, rememberAdCampaign } from '../meta/adFlows';
+import { copyObject, deliveryEstimate, lookup, publishTree, readTree, uploadAdVideo, videoState, type PubTree } from '../meta/editor';
 
 /**
  * Facebook: perfis da Meta (um login por perfil), contas de anúncios que entram no painel e o
@@ -486,4 +487,114 @@ metaRouter.put('/campaign-flows', asyncHandler(async (req, res) => {
   }
   await linkCampaignFlow(accountId, d.actId, d.campaignId, d.flowId);
   res.json({ ok: true });
+}));
+
+
+/* ------------------------------------------------------------------ editor (igual ao da Meta) */
+
+/** Campanha inteira para editar: campanha, conjuntos, anúncios e criativos. */
+metaRouter.get('/editor/campaigns/:id', asyncHandler(async (req, res) => {
+  const w = await writable(req, req.query.actId);
+  try {
+    const tree = await readTree(objectId(req.params.id), w.token, w.currency);
+    const [link] = await db.select({ flowId: schema.metaCampaignFlows.flowId }).from(schema.metaCampaignFlows)
+      .where(and(eq(schema.metaCampaignFlows.accountId, req.accountId!), eq(schema.metaCampaignFlows.campaignId, tree.campaign.id))).limit(1);
+    res.json({ ...tree, currency: w.currency, flowId: link?.flowId ?? null });
+  } catch (err) { metaFail(err); }
+}));
+
+const anyObj = z.record(z.string(), z.unknown());
+const pubSchema = z.object({
+  actId: z.string(),
+  flowId: z.string().uuid().nullable().optional(),
+  tree: z.object({
+    campaign: z.object({ id: z.string().regex(/^\d{6,30}$/).nullable().optional(), fields: anyObj.optional() }),
+    adsets: z.array(z.object({
+      key: z.string().max(60), id: z.string().regex(/^\d{6,30}$/).nullable().optional(), fields: anyObj.optional(),
+      ads: z.array(z.object({ key: z.string().max(60), id: z.string().regex(/^\d{6,30}$/).nullable().optional(), fields: anyObj.optional(), creative: anyObj.nullable().optional(), creativeId: z.string().regex(/^\d{6,30}$/).nullable().optional() })).max(50),
+    })).max(50),
+    remove: z.array(z.string().regex(/^\d{6,30}$/)).max(100).optional(),
+  }),
+});
+
+/** Publica o que foi criado ou mudado no editor. */
+metaRouter.post('/editor/publish', asyncHandler(async (req, res) => {
+  const d = pubSchema.parse(req.body);
+  const accountId = req.accountId!;
+  const w = await writable(req, d.actId);
+  if (d.flowId) {
+    const [f] = await db.select({ id: schema.flows.id }).from(schema.flows).where(and(eq(schema.flows.id, d.flowId), eq(schema.flows.accountId, accountId))).limit(1);
+    if (!f) throw new AppError(400, 'Fluxo não encontrado', { field: 'flowId' });
+  }
+  let out;
+  try { out = await publishTree(w.act, d.tree as PubTree, w.token, w.currency); } catch (err) {
+    await dropManagerCache(accountId, w.profileId, w.act);
+    if (err instanceof StepError) throw new AppError(err.cause.status, `${err.step}: ${err.cause.message}`, { step: err.step, saved: (err as StepError & { saved?: string[] }).saved ?? [] });
+    return metaFail(err);
+  }
+  for (const [ad, camp] of out.adCampaign) await rememberAdCampaign(ad, camp);
+  if (d.flowId !== undefined) await linkCampaignFlow(accountId, w.act, out.campaignId, d.flowId);
+  await dropManagerCache(accountId, w.profileId, w.act);
+  emitToAccount(accountId, 'meta:changed', { campaignId: out.campaignId });
+  res.status(d.tree.campaign.id ? 200 : 201).json({ ...out, url: adsManagerUrl(w.act, out.campaignId) });
+}));
+
+/** Duplicar (sai pausada). */
+metaRouter.post('/objects/:id/copy', asyncHandler(async (req, res) => {
+  const d = z.object({ actId: z.string(), level: z.enum(['campaign', 'adset', 'ad']), deep: z.boolean().default(true) }).parse(req.body);
+  const w = await writable(req, d.actId);
+  let id: string;
+  try { id = await copyObject(objectId(req.params.id), d.level, w.token, d.deep); } catch (err) { return metaFail(err); }
+  await dropManagerCache(req.accountId!, w.profileId, w.act);
+  res.status(201).json({ id });
+}));
+
+/** Excluir campanha, conjunto ou anúncio. */
+metaRouter.delete('/objects/:id', asyncHandler(async (req, res) => {
+  const w = await writable(req, req.query.actId);
+  try { await graphAds(objectId(req.params.id), { token: w.token, method: 'DELETE' }); } catch (err) { return metaFail(err); }
+  await db.delete(schema.metaCampaignFlows).where(and(eq(schema.metaCampaignFlows.accountId, req.accountId!), eq(schema.metaCampaignFlows.campaignId, req.params.id)));
+  await dropManagerCache(req.accountId!, w.profileId, w.act);
+  emitToAccount(req.accountId!, 'meta:changed', { objectId: req.params.id });
+  res.json({ ok: true });
+}));
+
+/** Buscas do editor: pixels, públicos, idiomas, direcionamento, locais, Instagram, formulários, apps, mídia. */
+metaRouter.get('/editor/lookup/:what', asyncHandler(async (req, res) => {
+  const w = await writable(req, req.query.actId);
+  const q = String(req.query.q ?? '').trim().slice(0, 80);
+  const pageId = typeof req.query.pageId === 'string' && /^\d{5,30}$/.test(req.query.pageId) ? req.query.pageId : null;
+  try {
+    if (req.params.what === 'pages') { res.json({ results: await listAdPages(w.act, w.token) }); return; }
+    res.json({ results: await lookup(req.params.what, w.act, w.token, q, pageId) });
+  } catch (err) { metaFail(err); }
+}));
+
+/** Tamanho estimado do público. */
+metaRouter.post('/editor/estimate', asyncHandler(async (req, res) => {
+  const d = z.object({ actId: z.string(), targeting: anyObj, goal: z.string().max(60).optional(), promoted: anyObj.nullable().optional() }).parse(req.body);
+  const w = await writable(req, d.actId);
+  try { res.json(await deliveryEstimate(w.act, w.token, d.targeting, d.goal ?? 'REACH', d.promoted ?? null)); } catch (err) { metaFail(err); }
+}));
+
+/** Imagem para a biblioteca da conta. */
+metaRouter.post('/editor/image', asyncHandler(async (req, res) => {
+  const d = z.object({ actId: z.string(), name: z.string().max(120), data: z.string().min(100).max(16_000_000) }).parse(req.body);
+  const w = await writable(req, d.actId);
+  const name = /\.(jpe?g|png)$/i.test(d.name) ? d.name : `${d.name.replace(/\.[^.]*$/, '') || 'anuncio'}.jpg`;
+  try { res.json(await uploadAdImage(w.act, name, d.data.replace(/^data:[^,]*,/, ''), w.token)); } catch (err) { metaFail(err); }
+}));
+
+/** Vídeo para a biblioteca da conta (o corpo é o arquivo). */
+metaRouter.post('/editor/video', asyncHandler(async (req, res) => {
+  const w = await writable(req, req.header('x-act-id'));
+  const body = req.body as Buffer;
+  if (!Buffer.isBuffer(body) || body.length < 1000) throw new AppError(400, 'Escolha o arquivo de vídeo');
+  const name = decodeURIComponent(String(req.header('x-file-name') ?? 'video.mp4')).slice(0, 120);
+  try { res.status(201).json({ id: await uploadAdVideo(w.act, name, body, String(req.header('content-type') ?? 'video/mp4'), w.token) }); } catch (err) { metaFail(err); }
+}));
+
+metaRouter.get('/editor/video/:id', asyncHandler(async (req, res) => {
+  const w = await writable(req, req.query.actId);
+  try { res.json(await videoState(objectId(req.params.id), w.token)); } catch (err) { metaFail(err); }
 }));

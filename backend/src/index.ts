@@ -58,6 +58,9 @@ app.use(cors({ origin: config.appOrigin, credentials: true, exposedHeaders: ['Co
 app.use('/api/v1/flows/generate', express.json({ limit: '10mb' }));
 // criar campanha da Meta: vem com a imagem do anúncio (já reduzida no navegador)
 app.use('/api/v1/meta/campaigns', express.json({ limit: '16mb' }));
+app.use('/api/v1/meta/editor/image', express.json({ limit: '16mb' }));
+app.use('/api/v1/meta/editor/publish', express.json({ limit: '4mb' }));
+app.use('/api/v1/meta/editor/video', express.raw({ type: () => true, limit: '200mb' }));
 app.use(express.json({
   limit: '2mb',
   // guarda o corpo original para conferir a assinatura dos webhooks da Meta

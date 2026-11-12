@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { Icon } from '../icons';
 import { Spinner, cx, toast } from '../components/ui';
-import { CampaignWizard } from './CampaignWizard';
+import { CreateDialog, Editor, type EditorStart } from './editor/Editor';
 import { TimeChart } from '../dashboard/charts';
 import { money, num, pctTxt, type Level, type ManagerData, type ManagerRow, type Overview } from './types';
 
@@ -116,7 +116,10 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const seq = useRef(0);
-  const [wizard, setWizard] = useState(false);
+  const [create, setCreate] = useState(false);
+  const [editor, setEditor] = useState<EditorStart | null>(null);
+  const [checked, setChecked] = useState<string[]>([]);
+  const [acting, setActing] = useState(false);
   const [flows, setFlows] = useState<{ id: string; name: string }[]>([]);
   const [pending, setPending] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -216,6 +219,35 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
     else if (r.level === 'adset') { setAdset({ id: r.id, name: r.name }); setLevel('ad'); }
   };
   const fm = (v: number, currency = c) => money(v, currency);
+  const picked = rows.filter((r) => checked.includes(r.id));
+  const canAct = picked.length > 0 && picked.every((r) => manageable(r.actId) && r.configured);
+  const editRow = (r: ManagerRow) => {
+    const campaignId = r.level === 'campaign' ? r.id : r.campaignId;
+    if (campaignId) setEditor({ mode: 'edit', actId: r.actId, campaignId, focus: r.level === 'campaign' ? null : r.id });
+  };
+  async function duplicate() {
+    setActing(true);
+    try {
+      for (const r of picked) await api.post(`/meta/objects/${r.id}/copy`, { actId: r.actId, level: r.level, deep: true });
+      toast(picked.length === 1 ? 'Cópia criada (pausada).' : `${picked.length} cópias criadas (pausadas).`);
+      setChecked([]); await load(true);
+    } catch (e) { toast(e instanceof Error ? e.message : 'A Meta não duplicou'); } finally { setActing(false); }
+  }
+  async function removeRows() {
+    if (!window.confirm(`Excluir ${picked.length === 1 ? `“${picked[0].name}”` : `${picked.length} itens`} na Meta? Isso não pode ser desfeito.`)) return;
+    setActing(true);
+    try {
+      for (const r of picked) await api.del(`/meta/objects/${r.id}?actId=${r.actId}`);
+      toast('Excluído na Meta.'); setChecked([]); await load(true);
+    } catch (e) { toast(e instanceof Error ? e.message : 'A Meta não excluiu'); } finally { setActing(false); }
+  }
+  async function setStatusRows(status: 'ACTIVE' | 'PAUSED') {
+    setActing(true);
+    try {
+      for (const r of picked) await api.post(`/meta/objects/${r.id}/status`, { actId: r.actId, status });
+      toast(status === 'ACTIVE' ? 'Ativado na Meta.' : 'Pausado na Meta.'); await load(true);
+    } catch (e) { toast(e instanceof Error ? e.message : 'A Meta não aceitou'); } finally { setActing(false); }
+  }
 
   return (
     <div className="fbm-manager" data-testid="fb-manager">
@@ -242,8 +274,8 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
           <Icon name="refresh" size={14} />{busy ? 'Atualizando…' : 'Atualizar'}
         </button>
         {canEdit && (
-          <button type="button" className="btn sm primary" disabled={!anyManage} onClick={() => setWizard(true)} data-testid="fb-create"
-            title={anyManage ? 'Criar uma campanha de mensagens no WhatsApp' : 'Reconecte o perfil em Perfis e contas e aceite a permissão de gerenciar anúncios'}>
+          <button type="button" className="btn sm primary" disabled={!anyManage} onClick={() => setCreate(true)} data-testid="fb-create"
+            title={anyManage ? 'Criar campanha, conjunto ou anúncio' : 'Reconecte o perfil em Perfis e contas e aceite a permissão de gerenciar anúncios'}>
             <Icon name="plus" size={14} />Criar campanha
           </button>
         )}
@@ -251,9 +283,13 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
       {canEdit && data && !anyManage && data.accounts.length > 0 && (
         <div className="hint" data-testid="fb-no-manage"><Icon name="info" size={14} /><span>Para criar campanhas e pausar ou mudar orçamentos por aqui, reconecte o perfil em <Link className="linkbtn" to="/meta/perfis">Perfis e contas</Link> e aceite a permissão de <b>gerenciar anúncios</b>.</span></div>
       )}
-      {wizard && data && (
-        <CampaignWizard accounts={data.accounts.map((a) => ({ actId: a.actId, name: a.name, currency: a.currency, canManage: !!a.canManage }))}
-          defaultActId={act || undefined} onClose={() => setWizard(false)} onCreated={() => { goLevel('campaign'); void load(true); }} />
+      {create && data && (
+        <CreateDialog accounts={data.accounts.filter((a) => a.canManage && (!act || a.actId === act)).map((a) => ({ actId: a.actId, name: a.name, currency: a.currency, canManage: !!a.canManage }))}
+          onClose={() => setCreate(false)} onStart={(st0) => { setCreate(false); setEditor(st0); }} />
+      )}
+      {editor && data && (
+        <Editor accounts={data.accounts.map((a) => ({ actId: a.actId, name: a.name, currency: a.currency, canManage: !!a.canManage }))} start={editor} flows={flows}
+          onClose={() => { setEditor(null); void load(true); }} onPublished={() => { setChecked([]); }} />
       )}
 
       {err && <div className="hint bad"><Icon name="alert" size={14} />{err}</div>}
@@ -324,11 +360,25 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
               <option value="all">Todas</option><option value="active">Ativas</option><option value="paused">Pausadas e outras</option>
             </select>
           </div>
+          {canEdit && (
+            <div className="fbm-actions" data-testid="fb-actions">
+              <button type="button" className="btn sm primary" disabled={!anyManage} onClick={() => setCreate(true)} data-testid="fb-act-create"><Icon name="plus" size={14} />Criar</button>
+              <button type="button" className="btn sm" disabled={!canAct || acting} onClick={() => void duplicate()} data-testid="fb-act-dup"><Icon name="copy" size={14} />Duplicar</button>
+              <button type="button" className="btn sm" disabled={picked.length !== 1 || !canAct} onClick={() => editRow(picked[0])} data-testid="fb-act-edit"><Icon name="edit" size={14} />Editar</button>
+              <button type="button" className="btn sm" disabled={!canAct || acting} onClick={() => void setStatusRows('ACTIVE')} data-testid="fb-act-on"><Icon name="play" size={14} />Ativar</button>
+              <button type="button" className="btn sm" disabled={!canAct || acting} onClick={() => void setStatusRows('PAUSED')} data-testid="fb-act-off"><Icon name="pause" size={14} />Pausar</button>
+              <button type="button" className="btn sm" disabled={!canAct || acting} onClick={() => void removeRows()} data-testid="fb-act-del"><Icon name="trash" size={14} />Excluir</button>
+              {picked.length > 0 && <small className="faint">{picked.length} selecionado(s) <button type="button" className="linkbtn" onClick={() => setChecked([])}>limpar</button></small>}
+            </div>
+          )}
           <div className="fbm-table-wrap">
             <table className="fbm-tbl">
               <thead>
                 <tr>
-                  <th className="fbm-th-sw" title="Ligada / pausada na Meta">Ligada</th>
+                  <th className="fbm-th-sw" title="Ligada / pausada na Meta">
+                    {canEdit && <input type="checkbox" className="fbm-check" checked={rows.length > 0 && rows.every((r) => checked.includes(r.id))} onChange={(e) => setChecked(e.target.checked ? rows.map((r) => r.id) : [])} aria-label="Marcar todos" data-testid="fb-check-all" />}
+                    Ligada
+                  </th>
                   {head('name', LEVELS.find(([l]) => l === level)![1].replace('Conjuntos de anúncios', 'Conjunto'))}
                   {head('spend', 'Investimento')}
                   {head('impressions', 'Impressões')}
@@ -347,6 +397,7 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
                 {rows.map((r) => (
                   <tr key={`${r.actId}-${r.id}`} data-testid="fb-row">
                     <td className="fbm-sw">
+                      {canEdit && <input type="checkbox" className="fbm-check" checked={checked.includes(r.id)} onChange={(e) => setChecked((x) => (e.target.checked ? [...x, r.id] : x.filter((y) => y !== r.id)))} aria-label="Marcar" data-testid="fb-check" />}
                       {r.configured && (() => {
                         const on = (pending[r.id] ?? r.configured) === 'ACTIVE';
                         const can = manageable(r.actId) && (r.configured === 'ACTIVE' || r.configured === 'PAUSED');
@@ -363,6 +414,7 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
                         {r.level !== 'ad'
                           ? <button type="button" className="fbm-name-btn" onClick={() => drill(r)} title={r.level === 'campaign' ? 'Ver os conjuntos' : 'Ver os anúncios'} data-testid="fb-drill">{r.name}</button>
                           : <b>{r.name}</b>}
+                        {manageable(r.actId) && r.configured && <button type="button" className="fbm-edit" onClick={() => editRow(r)} title="Editar" data-testid="fb-edit"><Icon name="edit" size={12} />Editar</button>}
                         <small>
                           <span className={cx('pill mini', STATUS_TONE[r.status.key])} data-testid="fb-row-status">{r.status.label}</span>
                           <BudgetCell row={r} editable={manageable(r.actId)} onSave={(n) => saveBudget(r, n)} />
