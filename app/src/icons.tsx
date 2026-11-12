@@ -38,6 +38,8 @@ const P: Record<string, string> = {
   globe: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 0c-3 3-3 15 0 18m0-18c3 3 3 15 0 18M3 12h18',
   play: 'M7 5l12 7-12 7V5Z',
   pause: 'M8 5h3v14H8V5Zm5 0h3v14h-3V5Z',
+  whatsapp: 'M3.5 20.5l1.4-4.2A8.5 8.5 0 1 1 8 19.3l-4.5 1.2ZM9 8.5c0 3.3 3.2 6.5 6.5 6.5l1.2-1.4-2-.9-.9.8a5 5 0 0 1-2.3-2.3l.8-.9-.9-2L9 8.5Z',
+  external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
   chevron: 'M6 9l6 6 6-6',
   chevronUp: 'M6 15l6-6 6 6',
   folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z',

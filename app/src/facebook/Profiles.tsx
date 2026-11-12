@@ -110,6 +110,9 @@ export function Profiles({ overview, onChanged }: { overview: Overview; onChange
                   </>}
                 </div>
                 {p.lastError && p.status !== 'connected' && <div className="hint warn"><Icon name="alert" size={14} />{p.lastError}</div>}
+                {p.status === 'connected' && p.canManageAds === false && (
+                  <div className="hint" data-testid="fb-profile-readonly"><Icon name="info" size={14} /><span>Este perfil só autorizou <b>ler</b> os anúncios. Para criar campanhas e pausar ou mudar orçamentos pelo Converza, clique em <b>Reconectar</b> e aceite a permissão de gerenciar anúncios.</span></div>
+                )}
                 {p.adAccounts.length === 0 ? (
                   <div className="empty" style={{ padding: 18 }}>Este perfil não tem contas de anúncios (ou não deu acesso a elas no login).</div>
                 ) : (

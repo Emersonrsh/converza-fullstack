@@ -7,7 +7,8 @@ import { asyncHandler } from '../utils/http';
 import { ensureConversation, systemNote } from '../modules/conversationStore';
 import { findContactByPhone } from '../modules/contactStore';
 import { emitToAccount } from '../realtime/io';
-import { startFallbackFlow, triggerFlowsForInbound } from '../flows/runner';
+import { startFallbackFlow, startFlowManually, triggerFlowsForInbound } from '../flows/runner';
+import { flowForAdClick } from '../meta/adFlows';
 import { scheduleAgentReply } from '../ai/agent';
 import { attributeTracking } from '../modules/tracking';
 import { friendlyWaError, sendText } from './cloud-api';
@@ -272,6 +273,16 @@ async function handleInbound(accountId: string, connectionId: string, m: any, pr
   if (conv.aiAgentId) {
     if (!(await triggerFlowsForInbound({ ...inbound, onlyResume: true }))) await scheduleAgentReply(accountId, conv.id, msg.id);
     return;
+  }
+
+  // veio por um anúncio de uma campanha ligada a um fluxo (Facebook → Gerenciador): começa nesse fluxo
+  if (adSource?.sourceId && (!known || newAdClick)) {
+    const link = await flowForAdClick(accountId, adSource.sourceId).catch(() => null);
+    if (link && (await startFlowManually(accountId, link.flowId, contact.id, connectionId).catch(() => 'inactive')) === 'started') {
+      const [f] = await db.select({ name: schema.flows.name }).from(schema.flows).where(eq(schema.flows.id, link.flowId)).limit(1);
+      await systemNote(accountId, conv.id, `📣 Chegou por um anúncio da campanha ligada ao fluxo “${f?.name ?? 'fluxo'}”: o fluxo começou.`);
+      return;
+    }
   }
 
   const handled = await triggerFlowsForInbound(inbound);

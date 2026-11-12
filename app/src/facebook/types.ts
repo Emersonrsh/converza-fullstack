@@ -8,6 +8,8 @@ export interface AdAccount {
 export interface MetaProfile {
   id: string; fbUserId: string; name: string; picture: string | null; status: 'connected' | 'expired' | 'error';
   lastError: string | null; tokenExpiresAt: string | null; createdAt: string; updatedAt: string; adAccounts: AdAccount[];
+  /** o login autorizou criar e mudar anúncios (ads_management) */
+  canManageAds?: boolean;
 }
 export interface Overview { login: LoginConfig; profiles: MetaProfile[]; selectedCount: number; canEdit: boolean }
 
@@ -20,11 +22,15 @@ export interface ManagerRow {
   campaignId: string | null; adsetId: string | null;
   status: { key: 'active' | 'paused' | 'review' | 'issue' | 'off'; label: string };
   objective: string | null; optimization: string | null; budget: { amount: number; kind: 'daily' | 'lifetime' } | null; thumbnail: string | null;
+  /** status escolhido na Meta (ACTIVE/PAUSED); null = excluída */
+  configured: string | null;
+  /** campanha ligada a um fluxo (leads dos anúncios dela começam nele) */
+  flow?: { id: string; name: string } | null;
   metrics: Metrics; derived: Derived; converza: Converza;
 }
 export interface ManagerData {
   level: Level; period: string; from: string; to: string; days: string[];
-  accounts: { id: string; actId: string; name: string; currency: string; profileName: string; profileStatus: string; lastSyncAt: string | null }[];
+  accounts: { id: string; actId: string; name: string; currency: string; timezone?: string | null; profileName: string; profileStatus: string; lastSyncAt: string | null; canManage?: boolean }[];
   rows: ManagerRow[]; total: number;
   totals: Record<string, { metrics: Metrics; derived: Derived; converza: Converza }>;
   daily: Record<string, { date: string; spend: number; conversations: number; linkClicks: number }[]>;

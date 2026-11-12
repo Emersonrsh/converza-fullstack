@@ -13,6 +13,11 @@ import {
 import { accountStatusLabel, buildRows, dailySeries, totalsByCurrency, type Attribution, type EntityIn } from '../meta/insights';
 import { addDays, dropAdAccountSpend, markProfileProblem, syncAdAccountSpend, todayIn } from '../meta/adsSync';
 import { PERIODS, periodDates, validTz, type Period } from './dashboard';
+import {
+  adsManagerUrl, createCtwaCampaign, listAdPages, minorUnits, searchGeo, searchInterests, setObjectBudget, setObjectStatus,
+  StepError, uploadAdImage, type CampaignSpec,
+} from '../meta/adsWrite';
+import { linkCampaignFlow, rememberAdCampaign } from '../meta/adFlows';
 
 /**
  * Facebook: perfis da Meta (um login por perfil), contas de anúncios que entram no painel e o
@@ -42,7 +47,7 @@ async function listProfiles(accountId: string) {
   const pname = new Map(profiles.map((p) => [p.id, p.name]));
   return profiles.map((p) => ({
     id: p.id, fbUserId: p.fbUserId, name: p.name, picture: p.pictureUrl, status: p.status, lastError: p.lastError,
-    tokenExpiresAt: p.tokenExpiresAt, createdAt: p.createdAt, updatedAt: p.updatedAt,
+    tokenExpiresAt: p.tokenExpiresAt, createdAt: p.createdAt, updatedAt: p.updatedAt, canManageAds: canManage(p.scopes),
     adAccounts: accs.filter((a) => a.profileId === p.id).map((a) => {
       const other = selectedBy.get(a.actId);
       return {
@@ -83,6 +88,12 @@ async function upsertAdAccounts(accountId: string, profileId: string, remote: Re
   const ids = remote.map((a) => a.actId);
   await db.update(schema.metaAdAccounts).set({ available: false, updatedAt: new Date() })
     .where(and(eq(schema.metaAdAccounts.profileId, profileId), ids.length ? notInArray(schema.metaAdAccounts.actId, ids) : sql`true`));
+}
+
+/** O login do perfil autorizou criar e mudar anúncios? (sem a lista de permissões, deixa a Meta decidir) */
+export function canManage(scopes: unknown): boolean {
+  const list = Array.isArray(scopes) ? scopes.map(String) : [];
+  return !list.length || list.includes('ads_management');
 }
 
 const metaFail = (err: unknown): never => {
@@ -239,12 +250,15 @@ metaRouter.get('/manager', asyncHandler(async (req, res) => {
   const days: string[] = [];
   for (let d = d0; d <= d1 && days.length < 400; d = addDays(d, 1)) days.push(d);
 
-  const selected = await db.select({ a: schema.metaAdAccounts, profileName: schema.metaProfiles.name, profileStatus: schema.metaProfiles.status, token: schema.metaProfiles.accessToken })
+  const selected = await db.select({ a: schema.metaAdAccounts, profileName: schema.metaProfiles.name, profileStatus: schema.metaProfiles.status, token: schema.metaProfiles.accessToken, scopes: schema.metaProfiles.scopes })
     .from(schema.metaAdAccounts)
     .innerJoin(schema.metaProfiles, eq(schema.metaProfiles.id, schema.metaAdAccounts.profileId))
     .where(and(eq(schema.metaAdAccounts.accountId, accountId), eq(schema.metaAdAccounts.selected, true)))
     .orderBy(asc(schema.metaAdAccounts.name));
-  const accounts = selected.map((s) => ({ id: s.a.id, actId: s.a.actId, name: s.a.name, currency: s.a.currency, profileName: s.profileName, profileStatus: s.profileStatus, lastSyncAt: s.a.lastSyncAt }));
+  const accounts = selected.map((s) => ({
+    id: s.a.id, actId: s.a.actId, name: s.a.name, currency: s.a.currency, timezone: s.a.timezone, profileName: s.profileName, profileStatus: s.profileStatus,
+    lastSyncAt: s.a.lastSyncAt, canManage: s.profileStatus === 'connected' && canManage(s.scopes),
+  }));
   const use = selected.filter((s) => !onlyAct || s.a.actId === onlyAct);
   if (!use.length) {
     res.json({ level, period, from: d0, to: d1, days, accounts, rows: [], total: 0, totals: {}, daily: {}, errors: [], updatedAt: null, unmatched: { leads: 0, sales: 0 } });
@@ -307,10 +321,169 @@ metaRouter.get('/manager', asyncHandler(async (req, res) => {
   }
 
   const rows = buildRows(level, entities, insights, ads, attrByAd);
+  // campanha ligada a um fluxo (leads dos anúncios dela começam nele)
+  const links = level === 'campaign' ? await db.select({ campaignId: schema.metaCampaignFlows.campaignId, flowId: schema.flows.id, flowName: schema.flows.name })
+    .from(schema.metaCampaignFlows).innerJoin(schema.flows, eq(schema.flows.id, schema.metaCampaignFlows.flowId))
+    .where(eq(schema.metaCampaignFlows.accountId, accountId)) : [];
+  const flowBy = new Map(links.map((l) => [l.campaignId, { id: l.flowId, name: l.flowName }]));
+  const rowsOut = rows.slice(0, 500).map((r) => (r.level === 'campaign' ? { ...r, flow: flowBy.get(r.id) ?? null } : r));
   res.json({
     level, period, from: d0, to: d1, days, accounts,
-    rows: rows.slice(0, 500), total: rows.length,
+    rows: rowsOut, total: rows.length,
     totals: totalsByCurrency(rows), daily: dailySeries(daily, days),
     errors, updatedAt: new Date(oldest).toISOString(), unmatched,
   });
+}));
+
+/* ------------------------------------------------------------------ criar e mudar anúncios */
+
+/** Conta de anúncios do painel que o perfil pode mudar (permissão ads_management). */
+async function writable(req: Request, actId: unknown) {
+  managerOnly(req);
+  const act = String(actId ?? '');
+  if (!/^act_\d{1,30}$/.test(act)) throw new AppError(400, 'Conta de anúncios inválida');
+  const [row] = await db.select({ a: schema.metaAdAccounts, token: schema.metaProfiles.accessToken, scopes: schema.metaProfiles.scopes, status: schema.metaProfiles.status, profileName: schema.metaProfiles.name })
+    .from(schema.metaAdAccounts).innerJoin(schema.metaProfiles, eq(schema.metaProfiles.id, schema.metaAdAccounts.profileId))
+    .where(and(eq(schema.metaAdAccounts.accountId, req.accountId!), eq(schema.metaAdAccounts.actId, act), eq(schema.metaAdAccounts.selected, true)))
+    .limit(1);
+  if (!row) throw new AppError(404, 'Essa conta de anúncios não está no painel. Ligue a conta em Facebook → Perfis e contas.');
+  if (row.status !== 'connected') throw new AppError(409, `O login do perfil “${row.profileName}” venceu. Reconecte em Facebook → Perfis e contas.`);
+  if (!canManage(row.scopes)) {
+    throw new AppError(403, `O perfil “${row.profileName}” só autorizou ler os anúncios. Em Facebook → Perfis e contas, clique em Reconectar e aceite a permissão de gerenciar anúncios (ads_management).`);
+  }
+  return { act, token: row.token, currency: row.a.currency, name: row.a.name, profileId: row.a.profileId };
+}
+
+/** Depois de mudar algo, o Gerenciador lê de novo da Meta (sem o cache de 5 a 10 minutos). */
+async function dropManagerCache(accountId: string, profileId: string, actId: string) {
+  try {
+    const keys = await redis.keys(`meta:${accountId}:${profileId}:${actId}:*`);
+    if (keys.length) await redis.del(...keys);
+  } catch { /* sem cache */ }
+}
+
+const objectId = (id: string) => {
+  if (!/^\d{6,30}$/.test(id)) throw new AppError(400, 'ID inválido');
+  return id;
+};
+
+/** Pausar / ativar campanha, conjunto ou anúncio. */
+metaRouter.post('/objects/:id/status', asyncHandler(async (req, res) => {
+  const d = z.object({ actId: z.string(), status: z.enum(['ACTIVE', 'PAUSED']) }).parse(req.body);
+  const w = await writable(req, d.actId);
+  try { await setObjectStatus(objectId(req.params.id), d.status, w.token); } catch (err) { return metaFail(err); }
+  await dropManagerCache(req.accountId!, w.profileId, w.act);
+  emitToAccount(req.accountId!, 'meta:changed', { objectId: req.params.id });
+  res.json({ ok: true, status: d.status });
+}));
+
+/** Mudar o orçamento (na moeda da conta, ex.: 50 = R$ 50,00). */
+metaRouter.post('/objects/:id/budget', asyncHandler(async (req, res) => {
+  const d = z.object({ actId: z.string(), kind: z.enum(['daily', 'lifetime']), amount: z.number().positive().max(10_000_000) }).parse(req.body);
+  const w = await writable(req, d.actId);
+  try { await setObjectBudget(objectId(req.params.id), d.kind, minorUnits(d.amount, w.currency), w.token); } catch (err) { return metaFail(err); }
+  await dropManagerCache(req.accountId!, w.profileId, w.act);
+  res.json({ ok: true });
+}));
+
+/** Páginas do Facebook que podem anunciar nesta conta. */
+metaRouter.get('/ad-accounts/:actId/pages', asyncHandler(async (req, res) => {
+  const w = await writable(req, req.params.actId);
+  try { res.json({ pages: await listAdPages(w.act, w.token) }); } catch (err) { metaFail(err); }
+}));
+
+/** Busca de locais (país, estado, cidade) e de interesses para o público. */
+metaRouter.get('/targeting/:kind', asyncHandler(async (req, res) => {
+  const w = await writable(req, req.query.actId);
+  const q = String(req.query.q ?? '').trim().slice(0, 80);
+  if (q.length < 2) { res.json({ results: [] }); return; }
+  try {
+    if (req.params.kind === 'geo') res.json({ results: await searchGeo(q, w.token) });
+    else if (req.params.kind === 'interests') res.json({ results: await searchInterests(q, w.token) });
+    else throw new AppError(404, 'Busca desconhecida');
+  } catch (err) { metaFail(err); }
+}));
+
+const geoSchema = z.object({ key: z.string().min(1).max(40), name: z.string().max(200), type: z.enum(['country', 'region', 'city']), countryCode: z.string().max(4).nullable().optional() });
+const campaignSchema = z.object({
+  actId: z.string(),
+  name: z.string().trim().min(1, 'Dê um nome à campanha').max(200),
+  status: z.enum(['ACTIVE', 'PAUSED']).default('PAUSED'),
+  budget: z.object({ kind: z.enum(['daily', 'lifetime']), amount: z.number().positive('Informe o orçamento').max(10_000_000) }),
+  startTime: z.string().datetime({ offset: true }).nullable().optional(),
+  endTime: z.string().datetime({ offset: true }).nullable().optional(),
+  audience: z.object({
+    mode: z.enum(['advantage', 'manual']),
+    locations: z.array(geoSchema).max(50).default([]),
+    ageMin: z.number().int().min(18).max(65).default(18),
+    ageMax: z.number().int().min(18).max(65).default(65),
+    genders: z.array(z.number().int()).max(2).default([]),
+    interests: z.array(z.object({ id: z.string().max(40), name: z.string().max(200) })).max(50).default([]),
+  }),
+  pageId: z.string().regex(/^\d{5,30}$/, 'Escolha a Página do Facebook'),
+  whatsappNumber: z.string().max(30).nullable().optional(),
+  image: z.object({ name: z.string().max(120), data: z.string().min(100, 'Escolha a imagem do anúncio').max(16_000_000) }),
+  ad: z.object({
+    primaryText: z.string().trim().min(1, 'Escreva o texto principal').max(2000),
+    headline: z.string().trim().min(1, 'Escreva o título').max(255),
+    description: z.string().trim().max(255).nullable().optional(),
+    greeting: z.string().trim().min(1, 'Escreva a saudação').max(300),
+    prefill: z.string().trim().min(1, 'Escreva a mensagem que o cliente envia').max(300),
+  }),
+  flowId: z.string().uuid().nullable().optional(),
+});
+
+/** Cria uma campanha de "clique para o WhatsApp" inteira (sai pausada, a não ser que peçam ativa). */
+metaRouter.post('/campaigns', asyncHandler(async (req, res) => {
+  const d = campaignSchema.parse(req.body);
+  const accountId = req.accountId!;
+  const w = await writable(req, d.actId);
+  if (d.budget.kind === 'lifetime' && !d.endTime) throw new AppError(400, 'Orçamento total precisa de data de término.', { field: 'endTime' });
+  if (d.endTime && new Date(d.endTime).getTime() <= Math.max(Date.now(), d.startTime ? new Date(d.startTime).getTime() : 0) + 3600_000) {
+    throw new AppError(400, 'O término precisa ser pelo menos 1 hora depois do início.', { field: 'endTime' });
+  }
+  if (d.flowId) {
+    const [f] = await db.select({ id: schema.flows.id }).from(schema.flows).where(and(eq(schema.flows.id, d.flowId), eq(schema.flows.accountId, accountId))).limit(1);
+    if (!f) throw new AppError(400, 'Fluxo não encontrado', { field: 'flowId' });
+  }
+  const imgName = /\.(jpe?g|png)$/i.test(d.image.name) ? d.image.name : `${d.image.name.replace(/\.[^.]*$/, '') || 'anuncio'}.jpg`;
+  const b64 = d.image.data.replace(/^data:[^,]*,/, '');
+  let hash: string;
+  try { hash = (await uploadAdImage(w.act, imgName, b64, w.token)).hash; } catch (err) {
+    if (err instanceof MetaApiError) throw new AppError(err.status, `Imagem: ${err.message}`, { step: 'Imagem' });
+    throw err;
+  }
+  const spec: CampaignSpec = {
+    actId: w.act, currency: w.currency, name: d.name, status: d.status, budget: d.budget,
+    startTime: d.startTime ?? null, endTime: d.endTime ?? null,
+    audience: { ...d.audience, locations: d.audience.locations.map((l) => ({ ...l, countryCode: l.countryCode ?? null })) },
+    pageId: d.pageId, whatsappNumber: d.whatsappNumber ?? null,
+    ad: { imageHash: hash, primaryText: d.ad.primaryText, headline: d.ad.headline, description: d.ad.description ?? null, greeting: d.ad.greeting, prefill: d.ad.prefill },
+  };
+  let created;
+  try { created = await createCtwaCampaign(spec, w.token); } catch (err) {
+    if (err instanceof StepError) throw new AppError(err.cause.status, `${err.step}: ${err.cause.message}`, { step: err.step });
+    return metaFail(err);
+  }
+  await rememberAdCampaign(created.adId, created.campaignId);
+  if (d.flowId) await linkCampaignFlow(accountId, w.act, created.campaignId, d.flowId);
+  await dropManagerCache(accountId, w.profileId, w.act);
+  emitToAccount(accountId, 'meta:changed', { campaignId: created.campaignId });
+  res.status(201).json({ ...created, status: d.status, url: adsManagerUrl(w.act, created.campaignId) });
+}));
+
+/** Liga (ou desliga) uma campanha a um fluxo: leads dos anúncios dela começam nesse fluxo. */
+metaRouter.put('/campaign-flows', asyncHandler(async (req, res) => {
+  managerOnly(req);
+  const d = z.object({ actId: z.string().regex(/^act_\d{1,30}$/), campaignId: z.string().regex(/^\d{6,30}$/), flowId: z.string().uuid().nullable() }).parse(req.body);
+  const accountId = req.accountId!;
+  const [acc] = await db.select({ id: schema.metaAdAccounts.id }).from(schema.metaAdAccounts)
+    .where(and(eq(schema.metaAdAccounts.accountId, accountId), eq(schema.metaAdAccounts.actId, d.actId))).limit(1);
+  if (!acc) throw new AppError(404, 'Conta de anúncios não encontrada');
+  if (d.flowId) {
+    const [f] = await db.select({ id: schema.flows.id }).from(schema.flows).where(and(eq(schema.flows.id, d.flowId), eq(schema.flows.accountId, accountId))).limit(1);
+    if (!f) throw new AppError(400, 'Fluxo não encontrado');
+  }
+  await linkCampaignFlow(accountId, d.actId, d.campaignId, d.flowId);
+  res.json({ ok: true });
 }));

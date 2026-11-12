@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { Icon } from '../icons';
-import { Spinner, cx } from '../components/ui';
+import { Spinner, cx, toast } from '../components/ui';
+import { CampaignWizard } from './CampaignWizard';
 import { TimeChart } from '../dashboard/charts';
 import { money, num, pctTxt, type Level, type ManagerData, type ManagerRow, type Overview } from './types';
 
@@ -41,7 +42,7 @@ export function Manager({ overview }: { overview: Overview }) {
       </div>
     );
   }
-  return <ManagerView />;
+  return <ManagerView canEdit={overview.canEdit} />;
 }
 
 function Stat({ label, value, sub, testId, tone }: { label: string; value: string; sub?: string; testId?: string; tone?: string }) {
@@ -54,7 +55,52 @@ function Stat({ label, value, sub, testId, tone }: { label: string; value: strin
   );
 }
 
-function ManagerView() {
+/** Orçamento editável na linha (só onde a Meta guarda o orçamento: campanha com orçamento próprio ou conjunto). */
+function BudgetCell({ row, editable, onSave }: { row: ManagerRow; editable: boolean; onSave: (amount: number) => Promise<boolean> }) {
+  const [edit, setEdit] = useState(false);
+  const [v, setV] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (!row.budget) return null;
+  const label = `${money(row.budget.amount, row.currency)}${row.budget.kind === 'daily' ? '/dia' : ' no total'}`;
+  if (!edit) {
+    return editable
+      ? <button type="button" className="fbm-budget" onClick={() => { setV(String(row.budget!.amount).replace('.', ',')); setEdit(true); }} title="Mudar o orçamento" data-testid="fb-budget">{label}<Icon name="edit" size={11} /></button>
+      : <span>{label}</span>;
+  }
+  const n = Number(v.replace(/\./g, '').replace(',', '.'));
+  const save = async () => {
+    if (!(n > 0)) return;
+    setBusy(true);
+    const ok = await onSave(n);
+    setBusy(false);
+    if (ok) setEdit(false);
+  };
+  return (
+    <span className="fbm-budget-edit" data-testid="fb-budget-edit">
+      <input autoFocus className="input" inputMode="decimal" value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void save(); if (e.key === 'Escape') setEdit(false); }} data-testid="fb-budget-input" />
+      <small>{row.budget.kind === 'daily' ? '/dia' : 'total'}</small>
+      <button type="button" className="btn sm primary" disabled={busy || !(n > 0)} onClick={() => void save()} data-testid="fb-budget-save">{busy ? '…' : 'Salvar'}</button>
+      <button type="button" className="btn sm ghost" onClick={() => setEdit(false)}>Cancelar</button>
+    </span>
+  );
+}
+
+/** Fluxo dos leads da campanha (quem chega pelos anúncios dela começa nesse fluxo). */
+function FlowCell({ row, flows, editable, onSave }: { row: ManagerRow; flows: { id: string; name: string }[]; editable: boolean; onSave: (flowId: string | null) => void }) {
+  if (!editable) return row.flow ? <span className="fbm-flow" title="Leads desta campanha começam neste fluxo"><Icon name="flow" size={11} />{row.flow.name}</span> : null;
+  return (
+    <label className={cx('fbm-flow', !row.flow && 'none')} title="Leads que chegarem pelos anúncios desta campanha começam direto neste fluxo">
+      <Icon name="flow" size={11} />
+      <select value={row.flow?.id ?? ''} onChange={(e) => onSave(e.target.value || null)} data-testid="fb-flow">
+        <option value="">{row.flow ? 'Sem fluxo' : 'Ligar a um fluxo'}</option>
+        {flows.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+        {row.flow && !flows.some((f) => f.id === row.flow!.id) && <option value={row.flow.id}>{row.flow.name}</option>}
+      </select>
+    </label>
+  );
+}
+
+function ManagerView({ canEdit }: { canEdit: boolean }) {
   const [level, setLevel] = useState<Level>('campaign');
   const [period, setPeriod] = useState('7d');
   const [from, setFrom] = useState('');
@@ -70,6 +116,44 @@ function ManagerView() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const seq = useRef(0);
+  const [wizard, setWizard] = useState(false);
+  const [flows, setFlows] = useState<{ id: string; name: string }[]>([]);
+  const [pending, setPending] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!canEdit) return;
+    api.get<{ flows: { id: string; name: string; status: string; archivedAt: string | null }[] }>('/flows')
+      .then((r) => setFlows(r.flows.filter((f) => f.status === 'active' && !f.archivedAt).sort((a, b) => a.name.localeCompare(b.name)))).catch(() => {});
+  }, [canEdit]);
+
+  const manageable = (actId: string) => canEdit && !!data?.accounts.find((a) => a.actId === actId)?.canManage;
+  const anyManage = canEdit && !!data?.accounts.some((a) => a.canManage);
+  const what = (l: Level) => (l === 'campaign' ? 'Campanha' : l === 'adset' ? 'Conjunto' : 'Anúncio');
+
+  async function toggle(r: ManagerRow) {
+    const next = (pending[r.id] ?? r.configured) === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
+    setPending((p) => ({ ...p, [r.id]: next }));
+    try {
+      await api.post(`/meta/objects/${r.id}/status`, { actId: r.actId, status: next });
+      toast(next === 'ACTIVE' ? `${what(r.level)} ativada. A Meta pode levar alguns minutos para voltar a entregar.` : `${what(r.level)} pausada.`);
+      await load(true);
+    } catch (e) { toast(e instanceof Error ? e.message : 'A Meta não aceitou a mudança'); }
+    setPending((p) => { const { [r.id]: _x, ...rest } = p; return rest; });
+  }
+  async function saveBudget(r: ManagerRow, amount: number) {
+    try {
+      await api.post(`/meta/objects/${r.id}/budget`, { actId: r.actId, kind: r.budget!.kind, amount });
+      toast('Orçamento atualizado na Meta');
+      await load(true);
+      return true;
+    } catch (e) { toast(e instanceof Error ? e.message : 'A Meta não aceitou o orçamento'); return false; }
+  }
+  async function saveFlow(r: ManagerRow, flowId: string | null) {
+    try {
+      await api.put('/meta/campaign-flows', { actId: r.actId, campaignId: r.id, flowId });
+      toast(flowId ? 'Os leads desta campanha agora começam nesse fluxo' : 'Campanha sem fluxo ligado');
+      await load();
+    } catch (e) { toast(e instanceof Error ? e.message : 'Não deu para salvar'); }
+  }
 
   async function load(fresh = false) {
     if (period === 'custom' && (!from || !to)) return;
@@ -157,7 +241,20 @@ function ManagerView() {
         <button type="button" className="btn sm" disabled={busy} onClick={() => void load(true)} data-testid="fb-refresh">
           <Icon name="refresh" size={14} />{busy ? 'Atualizando…' : 'Atualizar'}
         </button>
+        {canEdit && (
+          <button type="button" className="btn sm primary" disabled={!anyManage} onClick={() => setWizard(true)} data-testid="fb-create"
+            title={anyManage ? 'Criar uma campanha de mensagens no WhatsApp' : 'Reconecte o perfil em Perfis e contas e aceite a permissão de gerenciar anúncios'}>
+            <Icon name="plus" size={14} />Criar campanha
+          </button>
+        )}
       </div>
+      {canEdit && data && !anyManage && data.accounts.length > 0 && (
+        <div className="hint" data-testid="fb-no-manage"><Icon name="info" size={14} /><span>Para criar campanhas e pausar ou mudar orçamentos por aqui, reconecte o perfil em <Link className="linkbtn" to="/meta/perfis">Perfis e contas</Link> e aceite a permissão de <b>gerenciar anúncios</b>.</span></div>
+      )}
+      {wizard && data && (
+        <CampaignWizard accounts={data.accounts.map((a) => ({ actId: a.actId, name: a.name, currency: a.currency, canManage: !!a.canManage }))}
+          defaultActId={act || undefined} onClose={() => setWizard(false)} onCreated={() => { goLevel('campaign'); void load(true); }} />
+      )}
 
       {err && <div className="hint bad"><Icon name="alert" size={14} />{err}</div>}
       {(data?.errors ?? []).map((e) => (
@@ -231,6 +328,7 @@ function ManagerView() {
             <table className="fbm-tbl">
               <thead>
                 <tr>
+                  <th className="fbm-th-sw" title="Ligada / pausada na Meta">Ligada</th>
                   {head('name', LEVELS.find(([l]) => l === level)![1].replace('Conjuntos de anúncios', 'Conjunto'))}
                   {head('spend', 'Investimento')}
                   {head('impressions', 'Impressões')}
@@ -248,6 +346,17 @@ function ManagerView() {
               <tbody>
                 {rows.map((r) => (
                   <tr key={`${r.actId}-${r.id}`} data-testid="fb-row">
+                    <td className="fbm-sw">
+                      {r.configured && (() => {
+                        const on = (pending[r.id] ?? r.configured) === 'ACTIVE';
+                        const can = manageable(r.actId) && (r.configured === 'ACTIVE' || r.configured === 'PAUSED');
+                        return (
+                          <button type="button" className={cx('switch', on && 'on')} aria-pressed={on} disabled={!can || r.id in pending}
+                            onClick={() => void toggle(r)} title={can ? (on ? `Pausar ${what(r.level).toLowerCase()}` : `Ativar ${what(r.level).toLowerCase()}`) : 'Sem permissão para mudar'}
+                            data-testid="fb-toggle"><i /></button>
+                        );
+                      })()}
+                    </td>
                     <td className="fbm-name">
                       {r.thumbnail && <img src={r.thumbnail} alt="" />}
                       <div>
@@ -256,7 +365,8 @@ function ManagerView() {
                           : <b>{r.name}</b>}
                         <small>
                           <span className={cx('pill mini', STATUS_TONE[r.status.key])} data-testid="fb-row-status">{r.status.label}</span>
-                          {r.budget && <span>{fm(r.budget.amount, r.currency)}{r.budget.kind === 'daily' ? '/dia' : ' no total'}</span>}
+                          <BudgetCell row={r} editable={manageable(r.actId)} onSave={(n) => saveBudget(r, n)} />
+                          {r.level === 'campaign' && <FlowCell row={r} flows={flows} editable={canEdit} onSave={(id) => void saveFlow(r, id)} />}
                           <span className="faint">{r.accountName}</span>
                         </small>
                       </div>
@@ -278,6 +388,7 @@ function ManagerView() {
               {rows.length > 1 && oneCur && (
                 <tfoot>
                   <tr data-testid="fb-foot">
+                    <td />
                     <td>{rows.length} {level === 'campaign' ? 'campanhas' : level === 'adset' ? 'conjuntos' : 'anúncios'}</td>
                     <td><b>{fm(foot.spend, rows[0].currency)}</b></td>
                     <td>{num(foot.impressions)}</td>

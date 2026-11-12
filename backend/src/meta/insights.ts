@@ -100,6 +100,8 @@ export interface ManagerRow {
   campaignId: string | null; adsetId: string | null;
   status: { key: DeliveryKey; label: string }; objective: string | null; optimization: string | null;
   budget: { amount: number; kind: 'daily' | 'lifetime' } | null; thumbnail: string | null;
+  /** status escolhido (ACTIVE/PAUSED): o que o botão liga/desliga muda; null = excluída na Meta */
+  configured: string | null;
   metrics: Metrics; derived: ReturnType<typeof derive>;
   converza: { leads: number; sales: number; revenue: number; roas: number };
 }
@@ -147,6 +149,7 @@ export function buildRows(level: Level, entities: EntityIn[], insights: (Insight
       status: statusOf(e ? (e.effective_status ?? e.status) : null),
       objective: e?.objective ?? null, optimization: e?.optimization_goal ?? null,
       budget: e ? budgetOf(e, base.currency) : null, thumbnail: e?.creative?.thumbnail_url ?? null,
+      configured: e?.status ?? null,
       metrics: m, derived: derive(m),
       converza: { leads: at.leads, sales: at.sales, revenue, roas: m.spend > 0 ? Math.round((revenue / m.spend) * 100) / 100 : 0 },
     });

@@ -56,6 +56,8 @@ const app = express();
 app.use(cors({ origin: config.appOrigin, credentials: true, exposedHeaders: ['Content-Disposition'] }));
 // gerar fluxo a partir de imagens: até 4 imagens (já reduzidas no navegador)
 app.use('/api/v1/flows/generate', express.json({ limit: '10mb' }));
+// criar campanha da Meta: vem com a imagem do anúncio (já reduzida no navegador)
+app.use('/api/v1/meta/campaigns', express.json({ limit: '16mb' }));
 app.use(express.json({
   limit: '2mb',
   // guarda o corpo original para conferir a assinatura dos webhooks da Meta

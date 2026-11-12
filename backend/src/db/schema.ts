@@ -796,6 +796,19 @@ export const metaAdAccounts = pgTable('meta_ad_accounts', {
   byAccount: index('meta_ad_accounts_account_idx').on(t.accountId, t.selected),
 }));
 
+/** Campanha da Meta ligada a um fluxo: lead que chega por um anúncio dela começa direto nesse fluxo. */
+export const metaCampaignFlows = pgTable('meta_campaign_flows', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  actId: text('act_id').notNull(),
+  campaignId: text('campaign_id').notNull(),
+  flowId: uuid('flow_id').notNull().references(() => flows.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  perCampaign: uniqueIndex('meta_campaign_flows_uq').on(t.accountId, t.campaignId),
+}));
+
 /** Pixel (ou conjunto de dados) que recebe os eventos de conversão: Meta, Meta pelo WhatsApp ou TikTok. */
 export const pixels = pgTable('pixels', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -1174,7 +1187,7 @@ export const schema = {
   accounts, users, memberships, connections, contacts, conversations, messages, quickReplies,
   tags, flowFolders, flows, flowRuns, flowNodeStats, voices, agents, agentRuns, campaigns, webhooks, products, sales, adSpend, subscriptions,
   kanbanBoards, kanbanColumns, kanbanCards, contactFields, contactExports, webhookEvents, webhookUsage, flowPending,
-  campaignRecipients, dispatchUsage, metaProfiles, metaAdAccounts, pixels, pixelEvents, invoices, billingEvents,
+  campaignRecipients, dispatchUsage, metaProfiles, metaAdAccounts, metaCampaignFlows, pixels, pixelEvents, invoices, billingEvents,
   departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, platformAudit, storedFiles, storedFileChunks, storedFileMedia,
   globalVariables, flowTranslations, aiUsage, trackingLinks, trackingClicks, apiKeys, mcpCalls, flowDistributions,
   waWebAuth, waWebMedia, accessLogs,
