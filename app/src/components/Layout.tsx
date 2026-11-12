@@ -75,6 +75,9 @@ export function Layout() {
   // convites de equipe esperando resposta (aviso no topo)
   const [invites, setInvites] = useState<{ token: string; accountName: string; inviterName: string | null; roleLabel: string }[]>([]);
   const [hideInv, setHideInv] = useState(false);
+  // barra lateral escondida (fica lembrado neste navegador)
+  const [sideHidden, setSideHidden] = useState(() => { try { return localStorage.getItem('cz-side-hidden') === '1'; } catch { return false; } });
+  const toggleSide = (v: boolean) => { setSideHidden(v); try { localStorage.setItem('cz-side-hidden', v ? '1' : '0'); } catch { /* sem storage */ } };
   useEffect(() => {
     api.get<{ invites: typeof invites }>('/accounts/invites').then((r) => setInvites(r.invites)).catch(() => setInvites([]));
   }, [accountId, loc.pathname === '/']); // eslint-disable-line react-hooks/exhaustive-deps
@@ -118,11 +121,19 @@ export function Layout() {
   const account = accounts.find((a) => a.id === accountId);
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
+    <div className={cx('shell', sideHidden && 'side-hidden')}>
+      {sideHidden && (
+        <button type="button" className="side-open" onClick={() => toggleSide(false)} title="Mostrar a barra lateral" aria-label="Mostrar a barra lateral" data-testid="side-show">
+          <Icon name="chevronRight" size={16} />
+        </button>
+      )}
+      <aside className="sidebar" aria-hidden={sideHidden}>
         <div className="brand">
           <Logo size={34} className="logo" />
           <div><b>Converza</b><small>{account?.name ?? 'Conversational Sales'}</small></div>
+          <button type="button" className="side-hide" onClick={() => toggleSide(true)} title="Esconder a barra lateral" aria-label="Esconder a barra lateral" data-testid="side-hide">
+            <Icon name="sidebar" size={17} />
+          </button>
         </div>
 
         {accounts.length > 1 && (

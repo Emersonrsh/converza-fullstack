@@ -2413,3 +2413,11 @@ html.dark .fbm-plat.tiktok{background:#333;outline:1px solid #555}
 .fbm-sub-l::before{content:'';position:absolute;left:8px;top:-2px;width:8px;height:10px;border-left:1.5px solid var(--border-strong);border-bottom:1.5px solid var(--border-strong)}
 .fbm-result{display:flex;flex-direction:column;line-height:1.2}
 .fbm-result small{font-size:10.5px;color:var(--faint);font-weight:500;white-space:normal;max-width:150px}
+/* barra lateral escondível */
+.shell{transition:grid-template-columns .18s ease}
+.shell.side-hidden{grid-template-columns:0 1fr}
+.shell.side-hidden>.sidebar{visibility:hidden;padding:0;overflow:hidden}
+.side-hide{margin-left:auto;flex:none;width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--sidebar-muted);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.side-hide:hover{background:var(--sidebar-active);color:#fff}
+.side-open{position:fixed;left:0;top:50%;transform:translateY(-50%);z-index:50;width:18px;height:56px;border:0;border-radius:0 10px 10px 0;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:var(--shadow);transition:width .12s}
+.side-open:hover{width:26px;color:#fff}
