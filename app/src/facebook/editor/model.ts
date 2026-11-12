@@ -170,19 +170,39 @@ export interface CampaignDraft {
 }
 export interface AdsetDraft {
   key: string; id: string | null; name: string; status: 'ACTIVE' | 'PAUSED';
-  destination: string; goal: string; pageId: string; whatsapp: string; pixelId: string; event: string; appId: string; storeUrl: string; appEvent: string;
+  destination: string; goal: string; pageId: string; whatsapp: string; pixelId: string; event: string; customConversionId: string; appId: string; storeUrl: string; appEvent: string;
   attribution: string; bidStrategy: string; bidAmount: number | null; roas: number | null;
   budgetKind: 'daily' | 'lifetime'; budget: number | null; minSpend: number | null; maxSpend: number | null;
   start: string; end: string; audience: AudienceDraft; placements: PlacementsDraft;
   frequency: { impressions: number; days: number } | null;
   beneficiary: string; payor: string;
 }
-export interface Media { kind: 'image' | 'video'; hash?: string; videoId?: string; url: string | null; name?: string }
+export type Crop = [[number, number], [number, number]];
+export interface Media {
+  kind: 'image' | 'video'; hash?: string; videoId?: string; url: string | null; name?: string;
+  width?: number | null; height?: number | null;
+  /** cortes da imagem por proporção (chaves da Meta: 100x100, 90x160, 400x500, 191x100) */
+  crops?: Record<string, Crop>;
+  /** capa escolhida para o vídeo (imagem enviada) */
+  thumbHash?: string | null;
+}
+export const CROPS: { key: string; label: string; w: number; h: number; use: string }[] = [
+  { key: '100x100', label: 'Quadrado (1:1)', w: 1, h: 1, use: 'Feeds' },
+  { key: '400x500', label: 'Vertical (4:5)', w: 4, h: 5, use: 'Feed do celular' },
+  { key: '90x160', label: 'Vertical (9:16)', w: 9, h: 16, use: 'Stories, Status e Reels' },
+  { key: '191x100', label: 'Horizontal (1,91:1)', w: 1.91, h: 1, use: 'Coluna da direita, pesquisa e sites' },
+];
 export interface Card { key: string; media: Media | null; headline: string; description: string; link: string }
 export interface AdDraft {
   key: string; id: string | null; name: string; status: 'ACTIVE' | 'PAUSED';
   pageId: string; igId: string;
+  /** criar anúncio ou usar uma publicação que já existe na Página/Instagram */
+  source: 'create' | 'existing'; postId: string; igMediaId: string; postPicture: string | null; postText: string;
   format: 'single' | 'carousel'; media: Media | null; cards: Card[];
+  /** até 10 mídias no anúncio de imagem/vídeo único (a Meta combina) e uma mídia própria para Stories/Reels */
+  extraMedia: Media[]; storyMedia: Media | null;
+  multiAdvertiser: boolean;
+  trackSite: boolean; trackPixelId: string; trackApp: boolean; trackAppId: string;
   texts: string[]; headlines: string[]; description: string;
   cta: string; link: string; displayLink: string; urlTags: string;
   greeting: string; prefill: string; leadFormId: string; phone: string;
@@ -212,7 +232,7 @@ export function newAdset(o: Objective, n = 1, base?: Partial<AdsetDraft>): Adset
   return {
     key: newKey('s'), id: null, name: `Novo conjunto de anúncios de ${short}${n > 1 ? ` ${n}` : ''}`, status: 'ACTIVE',
     destination: o === 'OUTCOME_ENGAGEMENT' || o === 'OUTCOME_SALES' ? (o === 'OUTCOME_ENGAGEMENT' ? 'WHATSAPP' : 'WEBSITE') : loc.id,
-    goal: '', pageId: '', whatsapp: '', pixelId: '', event: o === 'OUTCOME_LEADS' ? 'LEAD' : 'PURCHASE', appId: '', storeUrl: '', appEvent: 'PURCHASE',
+    goal: '', pageId: '', whatsapp: '', pixelId: '', customConversionId: '', event: o === 'OUTCOME_LEADS' ? 'LEAD' : 'PURCHASE', appId: '', storeUrl: '', appEvent: 'PURCHASE',
     attribution: '7c1v', bidStrategy: 'LOWEST_COST_WITHOUT_CAP', bidAmount: null, roas: null,
     budgetKind: 'daily', budget: 20, minSpend: null, maxSpend: null, start: '', end: '',
     audience: defaultAudience(), placements: defaultPlacements(), frequency: null, beneficiary: '', payor: '',
@@ -223,7 +243,9 @@ export function newAd(o: Objective, n = 1, base?: Partial<AdDraft>): AdDraft {
   const short = OBJECTIVES.find((x) => x.id === o)!.short;
   return {
     key: newKey('a'), id: null, name: `Novo anúncio de ${short}${n > 1 ? ` ${n}` : ''}`, status: 'ACTIVE', pageId: '', igId: '',
-    format: 'single', media: null, cards: [], texts: [''], headlines: [''], description: '', cta: 'LEARN_MORE', link: '', displayLink: '', urlTags: '',
+    source: 'create', postId: '', igMediaId: '', postPicture: null, postText: '',
+    format: 'single', media: null, cards: [], extraMedia: [], storyMedia: null, multiAdvertiser: true,
+    trackSite: true, trackPixelId: '', trackApp: false, trackAppId: '', texts: [''], headlines: [''], description: '', cta: 'LEARN_MORE', link: '', displayLink: '', urlTags: '',
     greeting: 'Olá! Que bom ter você por aqui. Como posso te ajudar?', prefill: 'Olá! Vi o anúncio e quero saber mais.', leadFormId: '', phone: '',
     creativeId: null, dirty: true, thumbnail: null, foreign: false, ...base,
   };
@@ -288,7 +310,10 @@ function promotedObject(o: Objective, s: AdsetDraft): Record<string, unknown> | 
   const goal = goalOf(o, s.destination, s.goal).id;
   const needs = needsOf(o, s.destination, goal);
   const po: Record<string, unknown> = {};
-  if (needs.includes('pixel') && s.pixelId) { po.pixel_id = s.pixelId; po.custom_event_type = s.event || 'PURCHASE'; }
+  if (needs.includes('pixel') && s.pixelId) {
+    po.pixel_id = s.pixelId;
+    if (s.customConversionId) { po.custom_conversion_id = s.customConversionId; po.custom_event_type = 'OTHER'; } else po.custom_event_type = s.event || 'PURCHASE';
+  }
   if (needs.includes('app')) {
     if (s.appId) po.application_id = s.appId;
     if (s.storeUrl) po.object_store_url = s.storeUrl;
@@ -360,6 +385,11 @@ function ctaFor(o: Objective, s: AdsetDraft, a: AdDraft): { link: string; cta: R
 }
 
 export const multiText = (a: AdDraft) => a.texts.filter((t) => t.trim()).length > 1 || a.headlines.filter((t) => t.trim()).length > 1;
+/** usa o formato flexível da Meta (asset_feed_spec): vários textos, várias mídias ou mídia própria para Stories/Reels */
+export const usesFeed = (a: AdDraft) => a.format === 'single' && !!a.media && (multiText(a) || a.extraMedia.length > 0 || !!a.storyMedia);
+const cropsOf = (m: Media | null | undefined) => (m?.crops && Object.keys(m.crops).length ? { image_crops: m.crops } : {});
+const STORY_RULE = { publisher_platforms: ['facebook', 'instagram', 'messenger'], facebook_positions: ['story', 'facebook_reels'], instagram_positions: ['story', 'reels'], messenger_positions: ['story'] };
+const FEED_RULE = { publisher_platforms: ['facebook', 'instagram', 'audience_network', 'messenger'], facebook_positions: ['feed', 'profile_feed', 'marketplace', 'video_feeds', 'right_hand_column', 'search', 'instream_video'], instagram_positions: ['stream', 'profile_feed', 'explore', 'explore_home', 'ig_search'], audience_network_positions: ['classic'], messenger_positions: ['messenger_home'] };
 /** Várias opções de texto (otimização de texto da Meta) só com destino de site/app. */
 export const multiTextAllowed = (s: AdsetDraft) => ['WEBSITE', 'APP', ''].includes(s.destination);
 
@@ -368,20 +398,45 @@ export function creativeFields(o: Objective, s: AdsetDraft, a: AdDraft): Record<
   const { link, cta, welcome } = ctaFor(o, s, a);
   const story: Record<string, unknown> = { page_id: pageId, ...(a.igId ? { instagram_user_id: a.igId } : {}) };
   const text = a.texts[0]?.trim() ?? ''; const title = a.headlines[0]?.trim() ?? '';
-  const f: Record<string, unknown> = { name: `${a.name.trim()} — Criativo` };
+  const f: Record<string, unknown> = { name: `${a.name.trim()} — Criativo`, contextual_multi_ads: { enroll_status: a.multiAdvertiser ? 'OPT_IN' : 'OPT_OUT' } };
   if (a.urlTags.trim()) f.url_tags = a.urlTags.trim().replace(/^\?/, '');
 
-  if (multiText(a) && multiTextAllowed(s) && a.format === 'single' && a.media) {
+  // publicação que já existe: Facebook (id da publicação) ou Instagram (id da mídia)
+  if (a.source === 'existing') {
+    if (a.igMediaId) {
+      Object.assign(f, { object_id: pageId, instagram_user_id: a.igId, source_instagram_media_id: a.igMediaId, ...(cta && link.startsWith('http') ? { call_to_action: cta } : {}) });
+    } else {
+      f.object_story_id = a.postId.includes('_') ? a.postId : `${pageId}_${a.postId}`;
+      if (cta && !s.destination.includes('WHATSAPP') && link.startsWith('http')) f.call_to_action = cta;
+    }
+    return f;
+  }
+
+  if (usesFeed(a) && multiTextAllowed(s) && a.media) {
+    const all = [a.media, ...a.extraMedia];
+    const imgs = all.filter((m) => m.kind === 'image'); const vids = all.filter((m) => m.kind === 'video');
+    const story_ = a.storyMedia;
+    const label = (m: Media, i: number) => (story_ ? { adlabels: [{ name: i === -1 ? 'cz_story' : 'cz_feed' }] } : {});
+    const img = (m: Media, i: number) => ({ hash: m.hash, ...cropsOf(m), ...label(m, i) });
+    const vid = (m: Media, i: number) => ({ video_id: m.videoId, ...(m.thumbHash ? { thumbnail_hash: m.thumbHash } : { thumbnail_url: m.url }), ...label(m, i) });
+    const images = imgs.map((m) => img(m, 0)); const videos = vids.map((m) => vid(m, 0));
+    if (story_) (story_.kind === 'image' ? images : videos).push(story_.kind === 'image' ? img(story_, -1) as never : vid(story_, -1) as never);
     f.object_story_spec = story;
     f.asset_feed_spec = {
       bodies: a.texts.filter((t) => t.trim()).map((t) => ({ text: t.trim() })),
       titles: a.headlines.filter((t) => t.trim()).map((t) => ({ text: t.trim() })),
       ...(a.description.trim() ? { descriptions: [{ text: a.description.trim() }] } : {}),
-      ...(a.media.kind === 'image' ? { images: [{ hash: a.media.hash }] } : { videos: [{ video_id: a.media.videoId, thumbnail_url: a.media.url }] }),
+      ...(images.length ? { images } : {}), ...(videos.length ? { videos } : {}),
       link_urls: [{ website_url: link, ...(a.displayLink.trim() ? { display_url: a.displayLink.trim() } : {}) }],
       call_to_action_types: [cta ? String(cta.type) : 'LEARN_MORE'],
-      ad_formats: [a.media.kind === 'image' ? 'SINGLE_IMAGE' : 'SINGLE_VIDEO'],
-      optimization_type: 'DEGREES_OF_FREEDOM',
+      ad_formats: [...new Set([...(images.length ? ['SINGLE_IMAGE'] : []), ...(videos.length ? ['SINGLE_VIDEO'] : [])])],
+      optimization_type: story_ ? 'PLACEMENT' : 'DEGREES_OF_FREEDOM',
+      ...(story_ ? {
+        asset_customization_rules: [
+          { customization_spec: FEED_RULE, [`${a.media.kind}_label`]: { name: 'cz_feed' }, priority: 1 },
+          { customization_spec: STORY_RULE, [`${story_.kind}_label`]: { name: 'cz_story' }, priority: 2 },
+        ],
+      } : {}),
     };
     return f;
   }
@@ -393,7 +448,7 @@ export function creativeFields(o: Objective, s: AdsetDraft, a: AdDraft): Record<
         const l = c.link.trim() || link;
         return {
           link: l, name: c.headline.trim() || title, ...(c.description.trim() ? { description: c.description.trim() } : {}),
-          ...(c.media?.kind === 'video' ? { video_id: c.media.videoId, picture: c.media.url } : { image_hash: c.media?.hash }),
+          ...(c.media?.kind === 'video' ? { video_id: c.media.videoId, picture: c.media.url } : { image_hash: c.media?.hash, ...cropsOf(c.media) }),
           ...(cta ? { call_to_action: { ...cta, ...(cta.value && (cta.value as Record<string, unknown>).link ? { value: { ...(cta.value as Record<string, unknown>), link: l } } : {}) } } : {}),
         };
       }),
@@ -402,14 +457,14 @@ export function creativeFields(o: Objective, s: AdsetDraft, a: AdDraft): Record<
     };
   } else if (a.media?.kind === 'video') {
     story.video_data = {
-      video_id: a.media.videoId, ...(a.media.url ? { image_url: a.media.url } : {}), message: text, title,
+      video_id: a.media.videoId, ...(a.media.thumbHash ? { image_hash: a.media.thumbHash } : a.media.url ? { image_url: a.media.url } : {}), message: text, title,
       ...(a.description.trim() ? { link_description: a.description.trim() } : {}),
       ...(cta ? { call_to_action: { ...cta, value: { ...((cta.value as Record<string, unknown>) ?? {}), ...(link.startsWith('http') ? { link } : {}) } } } : {}),
       ...(welcome ? { page_welcome_message: welcome } : {}),
     };
   } else {
     story.link_data = {
-      image_hash: a.media?.hash, link, message: text, name: title,
+      image_hash: a.media?.hash, ...cropsOf(a.media), link, message: text, name: title,
       ...(a.description.trim() ? { description: a.description.trim() } : {}),
       ...(a.displayLink.trim() ? { caption: a.displayLink.trim() } : {}),
       ...(cta ? { call_to_action: cta } : {}),
@@ -423,7 +478,13 @@ export function creativeFields(o: Objective, s: AdsetDraft, a: AdDraft): Record<
 export function adFields(s: AdsetDraft, a: AdDraft, o: Objective): Record<string, unknown> {
   const f: Record<string, unknown> = { name: a.name.trim(), status: a.status };
   const goal = goalOf(o, s.destination, s.goal).id;
-  if (s.pixelId && needsOf(o, s.destination, goal).includes('pixel')) f.tracking_specs = [{ 'action.type': ['offsite_conversion'], fb_pixel: [s.pixelId] }];
+  // rastreamento: eventos do site (pixel) e do app
+  const specs: Record<string, unknown>[] = [];
+  const pixel = a.trackPixelId || (needsOf(o, s.destination, goal).includes('pixel') ? s.pixelId : '');
+  if (a.trackSite && pixel) specs.push({ 'action.type': ['offsite_conversion'], fb_pixel: [pixel] });
+  const app = a.trackAppId || s.appId;
+  if (a.trackApp && app) specs.push({ 'action.type': ['app_custom_event'], application: [app] }, { 'action.type': ['mobile_app_install'], application: [app] });
+  if (specs.length) f.tracking_specs = specs;
   return f;
 }
 
@@ -545,6 +606,14 @@ function adFrom(x: RemoteTree['adsets'][number]['ads'][number]): AdDraft {
     urlTags: String(cr.url_tags ?? ''), leadFormId: String(val.lead_gen_form_id ?? ''), phone: link.startsWith('tel:') ? link.slice(4) : '',
     ...(greeting ? { greeting } : {}), ...(prefill ? { prefill } : {}),
   });
+  const multi = (cr.contextual_multi_ads as R | undefined)?.enroll_status;
+  if (multi) base.multiAdvertiser = multi !== 'OPT_OUT';
+  const tracks = arr(x.fields.tracking_specs);
+  const px = tracks.find((t) => arr(t.fb_pixel).length); const ap = tracks.find((t) => arr(t.application).length);
+  base.trackSite = !!px || !tracks.length; base.trackPixelId = px ? String(arr(px.fb_pixel)[0]) : '';
+  base.trackApp = !!ap; base.trackAppId = ap ? String(arr(ap.application)[0]) : '';
+  if (cr.object_story_id && !ld && !vd) return { ...base, source: 'existing', postId: String(cr.object_story_id), postPicture: x.thumbnail };
+  if (cr.source_instagram_media_id) return { ...base, source: 'existing', igMediaId: String(cr.source_instagram_media_id), igId: String(cr.instagram_user_id ?? base.igId), postPicture: x.thumbnail };
   if (cr.asset_feed_spec || (!ld && !vd)) return { ...base, foreign: true };
   if (children.length) {
     return {
@@ -561,7 +630,7 @@ function adFrom(x: RemoteTree['adsets'][number]['ads'][number]): AdDraft {
   }
   return {
     ...base, texts: [String(ld?.message ?? '')], headlines: [String(ld?.name ?? '')], description: String(ld?.description ?? ''), displayLink: String(ld?.caption ?? ''),
-    media: { kind: 'image', hash: String(ld?.image_hash ?? ''), url: x.thumbnail },
+    media: { kind: 'image', hash: String(ld?.image_hash ?? ''), url: x.thumbnail, ...(ld?.image_crops ? { crops: ld.image_crops as Record<string, Crop> } : {}) },
   };
 }
 
@@ -587,7 +656,7 @@ export function draftFrom(actId: string, t: RemoteTree): Draft {
         key: newKey('s'), id: s.id, name: String(f.name ?? ''), status: f.status === 'PAUSED' ? 'PAUSED' : 'ACTIVE',
         destination: String(f.destination_type ?? (o === 'OUTCOME_AWARENESS' ? '' : 'UNDEFINED')).replace('UNDEFINED', ''),
         goal: String(f.optimization_goal ?? ''), pageId: String(po.page_id ?? ''), whatsapp: String(po.whatsapp_phone_number ?? ''),
-        pixelId: String(po.pixel_id ?? ''), event: String(po.custom_event_type ?? 'PURCHASE'), appId: String(po.application_id ?? ''), storeUrl: String(po.object_store_url ?? ''),
+        pixelId: String(po.pixel_id ?? ''), customConversionId: String(po.custom_conversion_id ?? ''), event: String(po.custom_event_type ?? 'PURCHASE'), appId: String(po.application_id ?? ''), storeUrl: String(po.object_store_url ?? ''),
         appEvent: String(po.custom_event_type ?? 'PURCHASE'),
         attribution: ATTRIBUTION.find((a) => JSON.stringify(a.spec) === att)?.id ?? '7c1v',
         bidStrategy: String(f.bid_strategy ?? 'LOWEST_COST_WITHOUT_CAP'), bidAmount: (f.bid_amount as number) ?? null,
@@ -646,6 +715,13 @@ export function validate(d: Draft): Issue[] {
       if (!a.dirty && a.creativeId) continue;
       if (a.foreign && !a.dirty) continue;
       if (!(a.pageId || s.pageId)) ad('Escolha a Página do Facebook (identidade).');
+      if (a.source === 'existing') {
+        if (!a.postId && !a.igMediaId) ad('Escolha a publicação que vai virar anúncio.');
+        if (a.igMediaId && !a.igId) ad('Escolha a conta do Instagram da publicação.');
+        continue;
+      }
+      if ((a.extraMedia.length || a.storyMedia) && !multiTextAllowed(s)) ad('Várias mídias e mídia própria para Stories só funcionam com destino Site ou App.');
+      if (a.storyMedia?.kind === 'video' && !a.storyMedia.url) ad('O vídeo dos Stories ainda está sendo processado.');
       if (a.format === 'single' && !a.media) ad('Escolha a imagem ou o vídeo.');
       if (a.format === 'carousel') {
         if (a.cards.length < 2) ad('O carrossel precisa de pelo menos 2 cartões.');

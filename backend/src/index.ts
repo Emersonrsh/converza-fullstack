@@ -60,7 +60,9 @@ app.use('/api/v1/flows/generate', express.json({ limit: '10mb' }));
 app.use('/api/v1/meta/campaigns', express.json({ limit: '16mb' }));
 app.use('/api/v1/meta/editor/image', express.json({ limit: '16mb' }));
 app.use('/api/v1/meta/editor/publish', express.json({ limit: '4mb' }));
-app.use('/api/v1/meta/editor/video', express.raw({ type: () => true, limit: '200mb' }));
+app.use('/api/v1/meta/editor/preview', express.json({ limit: '2mb' }));
+app.use('/api/v1/meta/editor/video/:id/captions', express.json({ limit: '1mb' }));
+app.use('/api/v1/meta/editor/video', express.raw({ type: (r) => !String(r.headers['content-type'] ?? '').includes('json'), limit: '200mb' }));
 app.use(express.json({
   limit: '2mb',
   // guarda o corpo original para conferir a assinatura dos webhooks da Meta

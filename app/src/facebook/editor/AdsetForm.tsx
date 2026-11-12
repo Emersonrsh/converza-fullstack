@@ -5,6 +5,7 @@ import {
   type AdsetDraft, type AudienceDraft, type Draft, type Geo, type Pick, type PlacementsDraft,
 } from './model';
 import { Chips, MoneyInput, Radio, Row, SearchPick, Section, Toggle, lookupSearch, useLookup } from './parts';
+import { PixelSelect } from './media';
 
 type PageOpt = { id: string; name: string; picture: string | null };
 const GEO_TYPE: Record<string, string> = { country: 'País', region: 'Estado', city: 'Cidade', zip: 'CEP', geo_market: 'Região', neighborhood: 'Bairro' };
@@ -18,7 +19,7 @@ export function AdsetForm({ d, s, set, connections, issues }: {
   const goal = goalOf(o, s.destination, s.goal);
   const needs = needsOf(o, s.destination, goal.id);
   const pages = useLookup<PageOpt>(d.actId, 'pages');
-  const pixels = useLookup<{ id: string; name: string }>(d.actId, 'pixels', null, needs.includes('pixel'));
+  const conversions = useLookup<{ id: string; name: string; event: string; pixelId: string | null }>(d.actId, 'custom-conversions', null, needs.includes('pixel'));
   const apps = useLookup<{ id: string; name: string; stores: Record<string, string> }>(d.actId, 'apps', null, needs.includes('app'));
   const strategy = c.cbo ? c.bidStrategy : s.bidStrategy;
   const strat = BID_STRATEGIES.find((b) => b.id === strategy);
@@ -65,16 +66,20 @@ export function AdsetForm({ d, s, set, connections, issues }: {
         )}
         {needs.includes('pixel') && (
           <div className="ed-grid2">
-            <Row label="Conjunto de dados (pixel)">
-              <select className="input" value={s.pixelId} onChange={(e) => set({ pixelId: e.target.value })} data-testid="ed-pixel">
-                <option value="">{pixels.list === null ? 'Carregando…' : 'Escolha o conjunto de dados'}</option>
-                {(pixels.list ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              {pixels.error && <small className="err">{pixels.error}</small>}
+            <Row label="Conjunto de dados (pixel)" hint="Monitora as ações que as pessoas realizam no seu site.">
+              <PixelSelect actId={d.actId} value={s.pixelId} onChange={(id) => set({ pixelId: id, customConversionId: '' })} testId="ed-pixel" />
             </Row>
-            <Row label="Evento de conversão">
-              <select className="input" value={s.event} onChange={(e) => set({ event: e.target.value })} data-testid="ed-event">
-                {PIXEL_EVENTS.map(([id, l]) => <option key={id} value={id}>{l}</option>)}
+            <Row label="Evento de conversão" hint="A ação que você quer que as pessoas realizem.">
+              <select className="input" value={s.customConversionId ? `cc:${s.customConversionId}` : s.event} onChange={(e) => {
+                const v = e.target.value;
+                if (v.startsWith('cc:')) set({ customConversionId: v.slice(3) }); else set({ event: v, customConversionId: '' });
+              }} data-testid="ed-event">
+                <optgroup label="Eventos padrão">{PIXEL_EVENTS.map(([id, l]) => <option key={id} value={id}>{l}</option>)}</optgroup>
+                {(conversions.list ?? []).filter((c) => !c.pixelId || c.pixelId === s.pixelId).length > 0 && (
+                  <optgroup label="Conversões personalizadas">
+                    {(conversions.list ?? []).filter((c) => !c.pixelId || c.pixelId === s.pixelId).map((c) => <option key={c.id} value={`cc:${c.id}`}>{c.name}</option>)}
+                  </optgroup>
+                )}
               </select>
             </Row>
           </div>
@@ -128,6 +133,7 @@ export function AdsetForm({ d, s, set, connections, issues }: {
               </select>
               <MoneyInput value={s.budget} onChange={(v) => set({ budget: v })} currency={d.currency} testId="ed-s-budget-amount" />
             </div>
+            {s.budgetKind === 'daily' && Number(s.budget) > 0 && <small className="faint">Gastaremos cerca de {Number(s.budget).toLocaleString('pt-BR', { style: 'currency', currency: d.currency })} por dia; no máximo {(Number(s.budget) * 1.75).toLocaleString('pt-BR', { style: 'currency', currency: d.currency })} num dia e {(Number(s.budget) * 7).toLocaleString('pt-BR', { style: 'currency', currency: d.currency })} na semana.</small>}
             <Row label="Estratégia de lance">
               <select className="input" value={s.bidStrategy} onChange={(e) => set({ bidStrategy: e.target.value })} data-testid="ed-s-bid">
                 {BID_STRATEGIES.filter((b) => !b.valueOnly || goal.id === 'VALUE').map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}

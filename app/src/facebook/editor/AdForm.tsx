@@ -1,12 +1,21 @@
-import { cx } from '../../components/ui';
+import { useEffect, useMemo, useState } from 'react';
+import { api } from '../../api';
+import { Spinner, cx } from '../../components/ui';
 import { Icon } from '../../icons';
-import { CTAS, ctaLabel, locationOf, multiText, multiTextAllowed, newKey, type AdDraft, type AdsetDraft, type Card, type Draft } from './model';
-import { MediaPicker, Radio, Row, Section, Toggle, useLookup } from './parts';
+import { CTAS, creativeFields, ctaLabel, locationOf, multiText, multiTextAllowed, newKey, type AdDraft, type AdsetDraft, type Card, type Draft, type Media } from './model';
+import { MediaPicker, Radio, Row, Section, Toggle, errMsg, useLookup } from './parts';
+import { MediaCustomize, PixelSelect, PostPicker, UtmBuilder } from './media';
 
 type PageOpt = { id: string; name: string; picture: string | null };
-const CREATIVE_KEYS: (keyof AdDraft)[] = ['pageId', 'igId', 'format', 'media', 'cards', 'texts', 'headlines', 'description', 'cta', 'link', 'displayLink', 'urlTags', 'greeting', 'prefill', 'leadFormId', 'phone'];
+const CREATIVE_KEYS: (keyof AdDraft)[] = ['pageId', 'igId', 'format', 'media', 'cards', 'texts', 'headlines', 'description', 'cta', 'link', 'displayLink', 'urlTags', 'greeting', 'prefill', 'leadFormId', 'phone',
+  'source', 'postId', 'igMediaId', 'extraMedia', 'storyMedia', 'multiAdvertiser'];
 
-export function AdForm({ d, s, a, set, issues }: { d: Draft; s: AdsetDraft; a: AdDraft; set: (p: Partial<AdDraft>) => void; issues: string[] }) {
+export function AdForm({ d, s, a, set, setSet, connections, issues }: {
+  d: Draft; s: AdsetDraft; a: AdDraft; set: (p: Partial<AdDraft>) => void; setSet: (p: Partial<AdsetDraft>) => void; connections: { phone: string; name: string }[]; issues: string[];
+}) {
+  const [custom, setCustom] = useState<null | { kind: 'main' } | { kind: 'extra'; i: number } | { kind: 'card'; i: number }>(null);
+  const [utm, setUtm] = useState(false);
+  const apps = useLookup<{ id: string; name: string }>(d.actId, 'apps', null, a.trackApp);
   const o = d.campaign.objective;
   const loc = locationOf(o, s.destination);
   const pageId = a.pageId || s.pageId;
@@ -60,24 +69,61 @@ export function AdForm({ d, s, a, set, issues }: { d: Draft; s: AdsetDraft; a: A
             </select>
           </Row>
         </div>
+        {wa && (
+          <Row label="Número de telefone do WhatsApp" hint="Em branco: o número ligado à Página. Vale para todos os anúncios deste conjunto.">
+            <input className="input" list="ed-ad-wa" value={s.whatsapp} onChange={(e) => setSet({ whatsapp: e.target.value })} placeholder="55 11 99999-9999" data-testid="ed-ad-whatsapp" />
+            <datalist id="ed-ad-wa">{connections.map((x) => <option key={x.phone} value={x.phone}>{x.name}</option>)}</datalist>
+          </Row>
+        )}
       </Section>
 
       <Section title="Configuração do anúncio" testId="ed-a-format">
-        <Radio value={a.format} onChange={(v) => setC({ format: v, ...(v === 'carousel' && a.cards.length < 2 ? { cards: [newCard(a), newCard()] } : {}) })} testId="ed-format" options={[
-          { id: 'single', label: 'Imagem ou vídeo único', desc: 'Uma imagem ou um vídeo.' },
-          { id: 'carousel', label: 'Carrossel', desc: 'Duas ou mais imagens ou vídeos que rolam para o lado, cada um com título e link.' },
-        ]} />
+        <select className="input" value={a.source} onChange={(e) => setC({ source: e.target.value as AdDraft['source'] })} data-testid="ed-source">
+          <option value="create">Criar anúncio</option><option value="existing">Usar publicação existente</option>
+        </select>
+        {a.source === 'existing' ? (
+          <>
+            <PostPicker actId={d.actId} pageId={pageId} igId={a.igId} postId={a.postId} igMediaId={a.igMediaId}
+              onPick={(p) => setC({ postId: p.postId, igMediaId: p.igMediaId, postPicture: p.picture, postText: p.text })} />
+            <small className="faint">A publicação vira anúncio com os textos, a mídia, as curtidas e os comentários que já tem.</small>
+          </>
+        ) : (
+          <>
+            <Row label="Formato">
+              <Radio value={a.format} onChange={(v) => setC({ format: v, ...(v === 'carousel' && a.cards.length < 2 ? { cards: [newCard(a), newCard()] } : {}) })} testId="ed-format" options={[
+                { id: 'single', label: 'Imagem ou vídeo único', desc: 'Uma imagem ou um vídeo (até 10 mídias com destino Site/App: a Meta combina).' },
+                { id: 'carousel', label: 'Carrossel', desc: 'Duas ou mais imagens ou vídeos que rolam para o lado, cada um com título e link.' },
+              ]} />
+            </Row>
+            <label className="ed-check-row"><input type="checkbox" checked={a.multiAdvertiser} onChange={(e) => setC({ multiAdvertiser: e.target.checked })} data-testid="ed-multi-adv" />
+              <span><b>Anúncios com vários anunciantes</b><small className="faint">Seu anúncio pode aparecer junto com outros na mesma unidade, para ajudar as pessoas a descobrirem. O criativo pode ser redimensionado ou cortado.</small></span>
+            </label>
+          </>
+        )}
       </Section>
 
-      <Section title={a.format === 'carousel' ? 'Cartões do carrossel' : 'Mídia'} ok={a.format === 'single' ? !!a.media : a.cards.length >= 2 && a.cards.every((c) => c.media)} testId="ed-a-media">
+      {a.source === 'create' && <Section title={a.format === 'carousel' ? 'Cartões do carrossel' : 'Mídia'} ok={a.format === 'single' ? !!a.media : a.cards.length >= 2 && a.cards.every((c) => c.media)} testId="ed-a-media">
         {a.format === 'single' ? (
-          <MediaPicker actId={d.actId} value={a.media} onChange={(m) => setC({ media: m })} testId="ed-media" />
+          <>
+            <MediaPicker actId={d.actId} value={a.media} onChange={(m) => setC({ media: m })} testId="ed-media" onCustomize={() => setCustom({ kind: 'main' })} />
+            {a.storyMedia && <div className="ed-note" data-testid="ed-story-note"><Icon name="info" size={15} />Stories, Status e Reels usam outra mídia ({a.storyMedia.name ?? a.storyMedia.kind}).<button type="button" className="linkbtn" onClick={() => setC({ storyMedia: null })}>tirar</button></div>}
+            {many && a.media && (
+              <div className="ed-extra" data-testid="ed-extra">
+                {a.extraMedia.map((m, i) => (
+                  <MediaPicker key={i} actId={d.actId} value={m} testId={`ed-extra-${i}`} onCustomize={() => setCustom({ kind: 'extra', i })}
+                    onChange={(x) => setC({ extraMedia: x ? a.extraMedia.map((y, j) => (j === i ? x : y)) : a.extraMedia.filter((_, j) => j !== i) })} />
+                ))}
+                {a.extraMedia.length < 9 && <AddMedia actId={d.actId} onAdd={(m) => setC({ extraMedia: [...a.extraMedia, m] })} />}
+                <small className="faint">{1 + a.extraMedia.length} de 10 mídias. Com várias, a Meta mostra a combinação de mídia e texto com melhor resultado para cada pessoa.</small>
+              </div>
+            )}
+          </>
         ) : (
           <div className="ed-cards">
             {a.cards.map((c, i) => (
               <div key={c.key} className="ed-card" data-testid={`ed-card-${i}`}>
                 <div className="ed-card-h"><b>Cartão {i + 1}</b>{a.cards.length > 2 && <button type="button" className="btn icon sm ghost" onClick={() => setC({ cards: a.cards.filter((_, j) => j !== i) })} aria-label="Tirar"><Icon name="trash" size={13} /></button>}</div>
-                <MediaPicker actId={d.actId} value={c.media} onChange={(m) => setCard(i, { media: m })} testId={`ed-card-media-${i}`} />
+                <MediaPicker actId={d.actId} value={c.media} onChange={(m) => setCard(i, { media: m })} testId={`ed-card-media-${i}`} onCustomize={c.media?.kind === 'image' ? () => setCustom({ kind: 'card', i }) : undefined} />
                 <input className="input" placeholder="Título" value={c.headline} onChange={(e) => setCard(i, { headline: e.target.value })} data-testid={`ed-card-title-${i}`} />
                 <input className="input" placeholder="Descrição (opcional)" value={c.description} onChange={(e) => setCard(i, { description: e.target.value })} />
                 {site && <input className="input" placeholder="Link deste cartão (em branco: o link do anúncio)" value={c.link} onChange={(e) => setCard(i, { link: e.target.value })} />}
@@ -86,12 +132,12 @@ export function AdForm({ d, s, a, set, issues }: { d: Draft; s: AdsetDraft; a: A
             {a.cards.length < 10 && <button type="button" className="btn sm" onClick={() => setC({ cards: [...a.cards, newCard()] })} data-testid="ed-card-add"><Icon name="plus" size={13} />Adicionar cartão</button>}
           </div>
         )}
-      </Section>
+      </Section>}
 
-      <Section title="Textos e destino" ok={!!a.texts[0]?.trim()} testId="ed-a-texts">
-        {list('texts', 'Texto principal', 'Conte o que você oferece', true)}
-        {a.format === 'single' && list('headlines', 'Título', 'Escreva um título curto', false)}
-        {a.format === 'single' && <Row label="Descrição (opcional)"><input className="input" value={a.description} onChange={(e) => setC({ description: e.target.value })} data-testid="ed-description" /></Row>}
+      <Section title={a.source === 'existing' ? 'Destino' : 'Textos e destino'} ok={a.source === 'existing' || !!a.texts[0]?.trim()} testId="ed-a-texts">
+        {a.source === 'create' && list('texts', 'Texto principal', 'Conte o que você oferece', true)}
+        {a.source === 'create' && a.format === 'single' && list('headlines', 'Título', 'Escreva um título curto', false)}
+        {a.source === 'create' && a.format === 'single' && <Row label="Descrição (opcional)"><input className="input" value={a.description} onChange={(e) => setC({ description: e.target.value })} data-testid="ed-description" /></Row>}
         {multiText(a) && !many && <small className="err">Várias opções de texto só com destino Site ou App.</small>}
 
         {loc.messaging && <div className="ed-kv"><span>Botão</span><b>{wa ? 'Enviar mensagem pelo WhatsApp' : s.destination === 'INSTAGRAM_DIRECT' ? 'Enviar mensagem pelo Instagram' : 'Enviar mensagem'}</b></div>}
@@ -126,10 +172,36 @@ export function AdForm({ d, s, a, set, issues }: { d: Draft; s: AdsetDraft; a: A
         )}
       </Section>
 
-      <Section title="Rastreamento" defaultOpen={false} testId="ed-a-tracking">
-        {s.pixelId ? <small className="faint">Eventos do site: conjunto de dados {s.pixelId} (do conjunto de anúncios).</small> : <small className="faint">Sem conjunto de dados neste conjunto de anúncios.</small>}
-        <Row label="Parâmetros de URL (opcional)" hint="Ex.: utm_source=facebook&utm_campaign={{campaign.name}}"><input className="input" value={a.urlTags} onChange={(e) => setC({ urlTags: e.target.value })} data-testid="ed-url-tags" /></Row>
+      <Section title="Rastreamento" testId="ed-a-tracking">
+        <small className="faint">Escolha os eventos de conversão a serem rastreados. O conjunto de dados do conjunto de anúncios é rastreado por padrão.</small>
+        <label className="ed-check-row"><input type="checkbox" checked={a.trackSite} onChange={(e) => set({ trackSite: e.target.checked })} data-testid="ed-track-site" /><span><b>Eventos do site</b></span></label>
+        {a.trackSite && <PixelSelect actId={d.actId} value={a.trackPixelId || s.pixelId} onChange={(id) => set({ trackPixelId: id })} testId="ed-track-pixel" />}
+        <label className="ed-check-row"><input type="checkbox" checked={a.trackApp} onChange={(e) => set({ trackApp: e.target.checked })} data-testid="ed-track-app" /><span><b>Eventos do app</b></span></label>
+        {a.trackApp && (
+          <select className="input" value={a.trackAppId || s.appId} onChange={(e) => set({ trackAppId: e.target.value })} data-testid="ed-track-app-id">
+            <option value="">{apps.list === null ? 'Carregando…' : apps.list.length ? 'Escolha o app' : 'Nenhum app registrado na conta'}</option>
+            {(apps.list ?? []).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+          </select>
+        )}
+        <Row label="Parâmetros de URL (opcional)" hint="Ex.: utm_source=facebook&utm_campaign={{campaign.name}}">
+          <input className="input" value={a.urlTags} onChange={(e) => setC({ urlTags: e.target.value })} placeholder="key1=value1&key2=value2" data-testid="ed-url-tags" />
+          <button type="button" className="linkbtn" onClick={() => setUtm(true)} data-testid="ed-utm">Criar um parâmetro de URL</button>
+        </Row>
       </Section>
+      {utm && <UtmBuilder value={a.urlTags} onChange={(v) => setC({ urlTags: v })} onClose={() => setUtm(false)} />}
+      {custom && (() => {
+        const target: Media | null = custom.kind === 'main' ? a.media : custom.kind === 'extra' ? a.extraMedia[custom.i] : a.cards[custom.i]?.media ?? null;
+        if (!target) return null;
+        return (
+          <MediaCustomize actId={d.actId} media={target} story={custom.kind === 'main' ? a.storyMedia : null} allowStory={custom.kind === 'main' && many}
+            onClose={() => setCustom(null)}
+            onSave={(m, st) => {
+              if (custom.kind === 'main') setC({ media: m, storyMedia: st });
+              else if (custom.kind === 'extra') setC({ extraMedia: a.extraMedia.map((y, j) => (j === custom.i ? m : y)) });
+              else setCard(custom.i, { media: m });
+            }} />
+        );
+      })()}
 
       <Section title="Status">
         <Toggle on={a.status === 'ACTIVE'} onChange={(v) => set({ status: v ? 'ACTIVE' : 'PAUSED' })} label={a.status === 'ACTIVE' ? 'Anúncio ligado' : 'Anúncio pausado'} testId="ed-a-on" />
@@ -139,12 +211,50 @@ export function AdForm({ d, s, a, set, issues }: { d: Draft; s: AdsetDraft; a: A
   );
 }
 
+/** "+": envia ou escolhe mais uma mídia. */
+function AddMedia({ actId, onAdd }: { actId: string; onAdd: (m: Media) => void }) {
+  const [open, setOpen] = useState(false);
+  if (!open) return <button type="button" className="btn sm ghost" onClick={() => setOpen(true)} data-testid="ed-extra-add"><Icon name="plus" size={13} />Adicionar mídia</button>;
+  return <MediaPicker actId={actId} value={null} onChange={(m) => { if (m) { onAdd(m); setOpen(false); } }} testId="ed-extra-new" />;
+}
+
 function newCard(a?: AdDraft): Card {
   return { key: newKey('c'), media: a?.media ?? null, headline: a?.headlines[0] ?? '', description: '', link: '' };
 }
 
 /** Prévia: feed com o formato escolhido e, para WhatsApp, a conversa que abre. */
+const PV: [string, string][] = [['MOBILE_FEED_STANDARD', 'Feed do Facebook'], ['INSTAGRAM_STANDARD', 'Feed do Instagram'], ['INSTAGRAM_STORY', 'Stories do Instagram'],
+  ['INSTAGRAM_REELS', 'Reels do Instagram'], ['FACEBOOK_STORY_MOBILE', 'Stories do Facebook'], ['FACEBOOK_REELS_MOBILE', 'Reels do Facebook'], ['MARKETPLACE_MOBILE', 'Marketplace'], ['DESKTOP_FEED_STANDARD', 'Feed (computador)']];
+
+/** Prévia gerada pela Meta (o mesmo desenho do Gerenciador), por posicionamento. */
+function MetaPreview({ d, s, a }: { d: Draft; s: AdsetDraft; a: AdDraft }) {
+  const [fmt, setFmt] = useState('MOBILE_FEED_STANDARD');
+  const [res, setRes] = useState<{ src: string | null; error: string | null } | null>(null);
+  const creative = useMemo(() => { try { return creativeFields(d.campaign.objective, s, a); } catch { return null; } }, [d.campaign.objective, s, a]);
+  const key = JSON.stringify(creative) + fmt;
+  useEffect(() => {
+    if (!creative) return;
+    setRes(null);
+    const t = setTimeout(() => {
+      api.post<{ previews: { html: string | null; error: string | null }[] }>('/meta/editor/preview', { actId: d.actId, creative, formats: [fmt] }).then((r) => {
+        const p = r.previews[0];
+        // a Meta devolve um <iframe src="https://www.facebook.com/ads/api/preview_iframe.php?...">: usamos só o endereço
+        const src = p?.html?.match(/src="([^"]+)"/)?.[1]?.replace(/&amp;/g, '&') ?? null;
+        setRes({ src: src && /^https:\/\/([a-z0-9-]+\.)*facebook\.com\//.test(src) ? src : null, error: p?.error ?? (src ? null : 'A Meta não devolveu a prévia.') });
+      }).catch((e) => setRes({ src: null, error: errMsg(e) }));
+    }, 800);
+    return () => clearTimeout(t);
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="mp" data-testid="ed-meta-preview">
+      <select className="input" value={fmt} onChange={(e) => setFmt(e.target.value)} data-testid="ed-meta-preview-format">{PV.map(([id, l]) => <option key={id} value={id}>{l}</option>)}</select>
+      {!res ? <Spinner /> : res.src ? <iframe src={res.src} title="Prévia da Meta" className="mp-frame" scrolling="no" data-testid="ed-meta-preview-frame" /> : <small className="faint">{res.error}</small>}
+    </div>
+  );
+}
+
 export function AdPreview({ d, s, a }: { d: Draft; s: AdsetDraft; a: AdDraft }) {
+  const [real, setReal] = useState(false);
   const pages = useLookup<PageOpt>(d.actId, 'pages');
   const page = pages.list?.find((p) => p.id === (a.pageId || s.pageId)) ?? null;
   const loc = locationOf(d.campaign.objective, s.destination);
@@ -153,14 +263,18 @@ export function AdPreview({ d, s, a }: { d: Draft; s: AdsetDraft; a: AdDraft }) 
   const media = a.format === 'carousel' ? null : a.media;
   return (
     <div className="cw-preview" data-testid="ed-preview">
+      <div className="mp-head"><Toggle on={real} onChange={setReal} label="Prévia da Meta (por posicionamento)" testId="ed-real-preview" /></div>
+      {real ? <MetaPreview d={d} s={s} a={a} /> : <>
       <small className="cw-preview-t">Prévia do anúncio</small>
       <div className="cw-ad">
         <div className="cw-ad-h">
           {page?.picture ? <img src={page.picture} alt="" /> : <span className="cw-ad-av"><Icon name="meta" size={14} /></span>}
           <div><b>{page?.name || 'Sua Página'}</b><small>Patrocinado</small></div>
         </div>
-        <p className="cw-ad-text">{a.texts[0] || 'Texto principal do anúncio'}</p>
-        {a.format === 'carousel' ? (
+        <p className="cw-ad-text">{a.source === 'existing' ? (a.postText || 'Texto da publicação') : (a.texts[0] || 'Texto principal do anúncio')}</p>
+        {a.source === 'existing' ? (
+          <div className="cw-ad-img">{a.postPicture ? <img src={a.postPicture} alt="" /> : <span><Icon name="image" size={26} />Escolha a publicação</span>}</div>
+        ) : a.format === 'carousel' ? (
           <div className="ed-pv-car">
             {a.cards.map((c) => (
               <div key={c.key}>
@@ -189,6 +303,7 @@ export function AdPreview({ d, s, a }: { d: Draft; s: AdsetDraft; a: AdDraft }) 
           </div>
         </>
       )}
+      </>}
     </div>
   );
 }

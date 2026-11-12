@@ -37,7 +37,13 @@ export function Editor({ accounts, start, flows, onClose, onPublished }: {
   const [d, setD] = useState<Draft | null>(() => {
     if (start.mode !== 'new') return null;
     const saved = start.resume ? savedDraft(start.actId)?.draft : null;
-    return saved ?? newDraft(start.actId, acc?.currency ?? 'BRL', start.objective);
+    if (saved) {
+      // rascunhos de versões anteriores do editor ganham os campos novos
+      const o = saved.campaign.objective;
+      saved.adsets = saved.adsets.map((x) => ({ ...newAdset(o), ...x, ads: x.ads.map((y) => ({ ...newAd(o), ...y })) }));
+      return saved;
+    }
+    return newDraft(start.actId, acc?.currency ?? 'BRL', start.objective);
   });
   const [sel, setSel] = useState('campaign');
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -226,7 +232,7 @@ export function Editor({ accounts, start, flows, onClose, onPublished }: {
           <div className="ed-form" key={sel}>
             {level === 'campaign' && <CampaignForm d={d} set={setCampaign} flows={flows} issues={issuesOf('campaign')} />}
             {level === 'adset' && curSet && <AdsetForm d={d} s={curSet} set={(p) => setAdset(curSet.key, p)} connections={phones} issues={issuesOf(curSet.key)} />}
-            {level === 'ad' && curSet && curAd && <AdForm d={d} s={curSet} a={curAd} set={(p) => setAd(curAd.key, p)} issues={issuesOf(curAd.key)} />}
+            {level === 'ad' && curSet && curAd && <AdForm d={d} s={curSet} a={curAd} set={(p) => setAd(curAd.key, p)} setSet={(p) => setAdset(curSet.key, p)} connections={phones} issues={issuesOf(curAd.key)} />}
           </div>
           <div className="ed-side">
             {level === 'ad' && curSet && curAd ? <AdPreview d={d} s={curSet} a={curAd} /> : level === 'adset' && curSet ? <Estimate d={d} s={curSet} /> : <Summary d={d} issues={issues} onGo={setSel} show={showIssues} />}

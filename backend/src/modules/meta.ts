@@ -18,7 +18,7 @@ import {
   StepError, uploadAdImage, type CampaignSpec,
 } from '../meta/adsWrite';
 import { linkCampaignFlow, rememberAdCampaign } from '../meta/adFlows';
-import { copyObject, deliveryEstimate, lookup, publishTree, readTree, uploadAdVideo, videoState, type PubTree } from '../meta/editor';
+import { PREVIEW_FORMATS, copyObject, deliveryEstimate, downloadAdVideo, lookup, previews, publishTree, readTree, trimVideo, uploadAdVideo, uploadCaptions, videoState, type PubTree } from '../meta/editor';
 
 /**
  * Facebook: perfis da Meta (um login por perfil), contas de anúncios que entram no painel e o
@@ -631,10 +631,41 @@ metaRouter.post('/editor/video', asyncHandler(async (req, res) => {
   const body = req.body as Buffer;
   if (!Buffer.isBuffer(body) || body.length < 1000) throw new AppError(400, 'Escolha o arquivo de vídeo');
   const name = decodeURIComponent(String(req.header('x-file-name') ?? 'video.mp4')).slice(0, 120);
-  try { res.status(201).json({ id: await uploadAdVideo(w.act, name, body, String(req.header('content-type') ?? 'video/mp4'), w.token) }); } catch (err) { metaFail(err); }
+  const start = Number(req.header('x-trim-start')); const end = Number(req.header('x-trim-end'));
+  try {
+    const file = Number.isFinite(start) && Number.isFinite(end) && end > start ? await trimVideo(body, Math.max(0, start), end) : body;
+    res.status(201).json({ id: await uploadAdVideo(w.act, name, file, String(req.header('content-type') ?? 'video/mp4'), w.token) });
+  } catch (err) { metaFail(err); }
 }));
 
 metaRouter.get('/editor/video/:id', asyncHandler(async (req, res) => {
   const w = await writable(req, req.query.actId);
   try { res.json(await videoState(objectId(req.params.id), w.token)); } catch (err) { metaFail(err); }
+}));
+
+/** Cortar a duração de um vídeo que já está na conta: baixa, corta e sobe como vídeo novo. */
+metaRouter.post('/editor/video/:id/trim', asyncHandler(async (req, res) => {
+  const d = z.object({ actId: z.string(), start: z.number().min(0), end: z.number().positive(), name: z.string().max(120).optional() }).parse(req.body);
+  if (d.end - d.start < 1) throw new AppError(400, 'O trecho precisa ter pelo menos 1 segundo');
+  const w = await writable(req, d.actId);
+  try {
+    const src = await downloadAdVideo(objectId(req.params.id), w.token);
+    const cut = await trimVideo(src, d.start, d.end);
+    res.status(201).json({ id: await uploadAdVideo(w.act, d.name ?? 'video-cortado.mp4', cut, 'video/mp4', w.token) });
+  } catch (err) { metaFail(err); }
+}));
+
+metaRouter.post('/editor/video/:id/captions', asyncHandler(async (req, res) => {
+  const d = z.object({ actId: z.string(), srt: z.string().min(10).max(500_000), locale: z.string().regex(/^[a-z]{2}_[A-Z]{2}$/).default('pt_BR') }).parse(req.body);
+  if (!/-->/.test(d.srt)) throw new AppError(400, 'O arquivo não parece um .srt (faltam os tempos “00:00:01,000 --> 00:00:03,000”).');
+  const w = await writable(req, d.actId);
+  try { res.json(await uploadCaptions(objectId(req.params.id), d.srt, d.locale, w.token)); } catch (err) { metaFail(err); }
+}));
+
+/** Prévia real (gerada pela Meta) do criativo em cada posicionamento. */
+metaRouter.post('/editor/preview', asyncHandler(async (req, res) => {
+  const d = z.object({ actId: z.string(), creative: anyObj, formats: z.array(z.enum(PREVIEW_FORMATS)).min(1).max(6) }).parse(req.body);
+  const w = await writable(req, d.actId);
+  const { name: _n, ...creative } = d.creative;
+  res.json({ previews: await previews(w.act, w.token, creative, d.formats) });
 }));

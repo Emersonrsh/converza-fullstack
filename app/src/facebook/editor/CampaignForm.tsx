@@ -9,6 +9,7 @@ export function CampaignForm({ d, set, flows, issues }: {
   const c = d.campaign;
   const published = !!c.id;
   const anyValue = d.adsets.some((s) => s.goal === 'VALUE');
+  const money = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: d.currency });
   return (
     <>
       <Section title="Nome da campanha" ok={!!c.name.trim()} testId="ed-c-name">
@@ -42,8 +43,9 @@ export function CampaignForm({ d, set, flows, issues }: {
               </select>
               <MoneyInput value={c.budget} onChange={(v) => set({ budget: v })} currency={d.currency} testId="ed-c-budget-amount" />
             </div>
+            {c.budgetKind === 'lifetime' && Number(c.budget) > 0 && <small className="faint">Gastaremos até {money(Number(c.budget))} durante a programação dos conjuntos de anúncios.</small>}
             {c.budgetKind === 'daily' && Number(c.budget) > 0 && (
-              <small className="faint">Gastaremos cerca de {Number(c.budget).toLocaleString('pt-BR', { style: 'currency', currency: d.currency })} por dia. Em alguns dias pode ser mais (até 75%) e em outros, menos.</small>
+              <small className="faint" data-testid="ed-budget-note">Gastaremos cerca de {money(Number(c.budget))} por dia. Seu gasto diário máximo é de {money(Number(c.budget) * 1.75)} e seu gasto semanal máximo é de {money(Number(c.budget) * 7)}. Os gastos podem ser maiores em alguns dias e menores em outros.</small>
             )}
             <Row label="Estratégia de lance da campanha">
               <select className="input" value={c.bidStrategy} onChange={(e) => set({ bidStrategy: e.target.value })} data-testid="ed-c-bid">

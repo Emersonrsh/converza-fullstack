@@ -151,7 +151,7 @@ export function Chips<T>({ items, label, onRemove, tone, testId }: { items: T[];
 /* ------------------------------------------------------------------ mídia */
 
 /** Lê a imagem e reduz no navegador (lado maior até 1440 px, JPEG). */
-export function readImage(file: File): Promise<{ name: string; data: string; preview: string }> {
+export function readImage(file: File): Promise<{ name: string; data: string; preview: string; width: number; height: number }> {
   return new Promise((resolve, reject) => {
     if (!/^image\/(jpe?g|png|webp)$/i.test(file.type)) { reject(new Error('Use uma imagem JPG ou PNG.')); return; }
     if (file.size > 30 * 1024 * 1024) { reject(new Error('Imagem muito grande (máximo 30 MB).')); return; }
@@ -166,14 +166,17 @@ export function readImage(file: File): Promise<{ name: string; data: string; pre
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(img, 0, 0, w, h);
       const out = c.toDataURL('image/jpeg', 0.9);
       URL.revokeObjectURL(url);
-      resolve({ name: `${file.name.replace(/\.[^.]+$/, '') || 'anuncio'}.jpg`, data: out.split(',')[1], preview: out });
+      resolve({ name: `${file.name.replace(/\.[^.]+$/, '') || 'anuncio'}.jpg`, data: out.split(',')[1], preview: out, width: w, height: h });
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Não deu para abrir essa imagem.')); };
     img.src = url;
   });
 }
 
-async function waitVideo(actId: string, id: string, onThumb: (u: string | null, ready: boolean) => void) {
+/** vídeos enviados deste navegador (para cortar e capturar quadro sem baixar de novo) */
+export const localVideos = new Map<string, { url: string; file: File }>();
+
+export async function waitVideo(actId: string, id: string, onThumb: (u: string | null, ready: boolean) => void) {
   for (let i = 0; i < 60; i++) {
     const s = await api.get<{ ready: boolean; thumbnail: string | null; status: string }>(`/meta/editor/video/${id}?actId=${actId}`).catch(() => null);
     if (s?.ready && s.thumbnail) { onThumb(s.thumbnail, true); return; }
@@ -183,11 +186,11 @@ async function waitVideo(actId: string, id: string, onThumb: (u: string | null, 
 }
 
 /** Escolher mídia: enviar imagem ou vídeo, ou pegar da biblioteca da conta. */
-export function MediaPicker({ actId, value, onChange, testId, allowVideo = true }: { actId: string; value: Media | null; onChange: (m: Media | null) => void; testId: string; allowVideo?: boolean }) {
+export function MediaPicker({ actId, value, onChange, testId, allowVideo = true, onCustomize }: { actId: string; value: Media | null; onChange: (m: Media | null) => void; testId: string; allowVideo?: boolean; onCustomize?: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [lib, setLib] = useState<'images' | 'videos' | null>(null);
   const file = useRef<HTMLInputElement>(null);
-  const images = useLookup<{ hash: string; name: string | null; url: string | null }>(actId, 'images', null, lib === 'images');
+  const images = useLookup<{ hash: string; name: string | null; url: string | null; width: number | null; height: number | null }>(actId, 'images', null, lib === 'images');
   const videos = useLookup<{ id: string; title: string | null; picture: string | null }>(actId, 'videos', null, lib === 'videos');
 
   async function pick(f: File) {
@@ -198,6 +201,7 @@ export function MediaPicker({ actId, value, onChange, testId, allowVideo = true 
         setBusy('Enviando o vídeo para a Meta…');
         const r = await apiFetch('/meta/editor/video', { method: 'POST', headers: { 'x-act-id': actId, 'x-file-name': encodeURIComponent(f.name), 'content-type': f.type || 'video/mp4' }, body: f });
         const { id } = await r.json() as { id: string };
+        localVideos.set(id, { url: URL.createObjectURL(f), file: f });
         onChange({ kind: 'video', videoId: id, url: null, name: f.name });
         setBusy('A Meta está processando o vídeo…');
         await waitVideo(actId, id, (u) => onChange({ kind: 'video', videoId: id, url: u, name: f.name }));
@@ -205,7 +209,7 @@ export function MediaPicker({ actId, value, onChange, testId, allowVideo = true 
         setBusy('Enviando a imagem…');
         const img = await readImage(f);
         const r = await api.post<{ hash: string; url: string | null }>('/meta/editor/image', { actId, name: img.name, data: img.data });
-        onChange({ kind: 'image', hash: r.hash, url: r.url ?? img.preview, name: img.name });
+        onChange({ kind: 'image', hash: r.hash, url: r.url ?? img.preview, name: img.name, width: img.width, height: img.height });
       }
     } catch (e) { toast(errMsg(e)); } finally { setBusy(null); }
   }
@@ -216,7 +220,8 @@ export function MediaPicker({ actId, value, onChange, testId, allowVideo = true 
       {value ? (
         <div className="ed-media-has">
           {value.url ? <img src={value.url} alt="" /> : <span className="ed-media-ph"><Icon name={value.kind === 'video' ? 'video' : 'image'} size={22} /></span>}
-          <div><b>{value.name || (value.kind === 'video' ? 'Vídeo' : 'Imagem')}</b><small>{value.kind === 'video' ? (value.url ? 'Vídeo pronto' : 'Processando na Meta…') : 'Imagem'}</small></div>
+          <div><b>{value.name || (value.kind === 'video' ? 'Vídeo' : 'Imagem')}</b><small>{value.kind === 'video' ? (value.url ? 'Vídeo pronto' : 'Processando na Meta…') : 'Imagem'}{value.crops && Object.keys(value.crops).length ? ` · ${Object.keys(value.crops).length} corte(s)` : ''}{value.thumbHash ? ' · capa escolhida' : ''}</small></div>
+          {onCustomize && <button type="button" className="btn sm" onClick={onCustomize} data-testid={`${testId}-customize`}><Icon name="sliders" size={13} />Personalizar mídia</button>}
           <button type="button" className="btn sm" onClick={() => file.current?.click()}>Trocar</button>
           <button type="button" className="btn sm ghost icon" onClick={() => onChange(null)} aria-label="Tirar"><Icon name="trash" size={14} /></button>
         </div>
@@ -231,7 +236,7 @@ export function MediaPicker({ actId, value, onChange, testId, allowVideo = true 
       {lib && (
         <div className="ed-lib" data-testid={`${testId}-library`}>
           {lib === 'images' && (images.list === null ? <Spinner /> : !images.list.length ? <small className="faint">{images.error ?? 'Nenhuma imagem na conta ainda.'}</small> : images.list.map((i) => (
-            <button type="button" key={i.hash} onClick={() => { onChange({ kind: 'image', hash: i.hash, url: i.url, name: i.name ?? undefined }); setLib(null); }} title={i.name ?? ''}>{i.url ? <img src={i.url} alt="" /> : <Icon name="image" />}</button>
+            <button type="button" key={i.hash} onClick={() => { onChange({ kind: 'image', hash: i.hash, url: i.url, name: i.name ?? undefined, width: i.width, height: i.height }); setLib(null); }} title={i.name ?? ''}>{i.url ? <img src={i.url} alt="" /> : <Icon name="image" />}</button>
           )))}
           {lib === 'videos' && (videos.list === null ? <Spinner /> : !videos.list.length ? <small className="faint">{videos.error ?? 'Nenhum vídeo na conta ainda.'}</small> : videos.list.map((v) => (
             <button type="button" key={v.id} onClick={() => { onChange({ kind: 'video', videoId: v.id, url: v.picture, name: v.title ?? undefined }); setLib(null); }} title={v.title ?? ''}>{v.picture ? <img src={v.picture} alt="" /> : <Icon name="video" />}</button>
