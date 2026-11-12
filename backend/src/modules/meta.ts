@@ -7,10 +7,10 @@ import { redis } from '../redis';
 import { emitToAccount } from '../realtime/io';
 import { asyncHandler, AppError, isUuid } from '../utils/http';
 import {
-  debugUserToken, exchangeAdsCode, extendUserToken, graphAds, fetchAdAccounts, fetchEntities, fetchInsights, fetchMe, MetaApiError,
+  BREAKDOWNS, debugUserToken, exchangeAdsCode, extendUserToken, graphAds, fetchAdAccounts, fetchBreakdown, fetchEntities, fetchInsights, fetchMe, MetaApiError,
   type InsightRow, type Level, type RemoteAdAccount, type RemoteEntity,
 } from '../meta/graphAds';
-import { accountStatusLabel, buildRows, dailySeries, totalsByCurrency, type Attribution, type EntityIn } from '../meta/insights';
+import { accountStatusLabel, addMetrics, breakdownKey, buildRows, dailySeries, derive, metricsOf, totalsByCurrency, zero, type Attribution, type EntityIn, type Metrics } from '../meta/insights';
 import { addDays, dropAdAccountSpend, markProfileProblem, syncAdAccountSpend, todayIn } from '../meta/adsSync';
 import { PERIODS, periodDates, validTz, type Period } from './dashboard';
 import {
@@ -334,6 +334,46 @@ metaRouter.get('/manager', asyncHandler(async (req, res) => {
     totals: totalsByCurrency(rows), daily: dailySeries(daily, days),
     errors, updatedAt: new Date(oldest).toISOString(), unmatched,
   });
+}));
+
+/** Detalhamento das linhas da tabela (idade, gênero, posicionamento, dia…), como no Gerenciador da Meta. */
+metaRouter.get('/manager/breakdown', asyncHandler(async (req, res) => {
+  const accountId = req.accountId!;
+  const q = req.query;
+  const level: Level = (LEVELS as readonly string[]).includes(String(q.level)) ? (q.level as Level) : 'campaign';
+  const period: Period = (PERIODS as readonly string[]).includes(String(q.period)) ? (q.period as Period) : '7d';
+  const by = String(q.by ?? '');
+  if (!BREAKDOWNS[by]) throw new AppError(400, 'Detalhamento desconhecido');
+  const campaignId = typeof q.campaignId === 'string' && /^\d{1,30}$/.test(q.campaignId) ? q.campaignId : null;
+  const adsetId = typeof q.adsetId === 'string' && /^\d{1,30}$/.test(q.adsetId) ? q.adsetId : null;
+  const onlyAct = typeof q.actId === 'string' && /^act_\d{1,30}$/.test(q.actId) ? q.actId : null;
+  const [acc] = await db.select({ tz: schema.accounts.timezone }).from(schema.accounts).where(eq(schema.accounts.id, accountId)).limit(1);
+  const p = periodDates(period, todayIn(validTz(acc?.tz)), q.from, q.to);
+  const selected = await db.select({ a: schema.metaAdAccounts, token: schema.metaProfiles.accessToken, status: schema.metaProfiles.status })
+    .from(schema.metaAdAccounts).innerJoin(schema.metaProfiles, eq(schema.metaProfiles.id, schema.metaAdAccounts.profileId))
+    .where(and(eq(schema.metaAdAccounts.accountId, accountId), eq(schema.metaAdAccounts.selected, true)));
+  const out = new Map<string, { id: string; key: string; label: string; currency: string; metrics: Metrics }>();
+  const errors: string[] = [];
+  await Promise.all(selected.filter((x) => (!onlyAct || x.a.actId === onlyAct) && x.status !== 'expired').map(async (x) => {
+    try {
+      const list = await cached(`meta:${accountId}:${x.a.profileId}:${x.a.actId}:bd:${level}:${by}:${p.d0}:${p.d1}`, 300, q.fresh === '1',
+        () => fetchBreakdown(x.a.actId, x.token, { level, since: p.d0, until: p.d1, by }));
+      for (const r of list.v) {
+        if (campaignId && r.campaign_id !== campaignId) continue;
+        if (adsetId && level !== 'campaign' && r.adset_id !== adsetId) continue;
+        const id = String((level === 'campaign' ? r.campaign_id : level === 'adset' ? r.adset_id : r.ad_id) ?? '');
+        if (!id) continue;
+        const k = breakdownKey(by, r);
+        const key = `${id}|${k.key}`;
+        const cur = out.get(key) ?? { id, key: k.key, label: k.label, currency: x.a.currency, metrics: zero() };
+        cur.metrics = addMetrics(cur.metrics, metricsOf(r));
+        out.set(key, cur);
+      }
+    } catch (err) { errors.push(`${x.a.name}: ${(err as Error).message}`); }
+  }));
+  const rows = [...out.values()].map((r) => ({ ...r, derived: derive(r.metrics) }))
+    .sort((a, b) => (by === 'day' || by === 'week' || by === 'month' ? a.key.localeCompare(b.key) : b.metrics.spend - a.metrics.spend || a.label.localeCompare(b.label)));
+  res.json({ by, rows, errors });
 }));
 
 /* ------------------------------------------------------------------ criar e mudar anúncios */

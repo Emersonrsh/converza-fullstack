@@ -14,8 +14,15 @@ export interface MetaProfile {
 export interface Overview { login: LoginConfig; profiles: MetaProfile[]; selectedCount: number; canEdit: boolean }
 
 export type Level = 'campaign' | 'adset' | 'ad';
-export interface Metrics { spend: number; impressions: number; clicks: number; linkClicks: number; conversations: number; leads: number; purchases: number; purchaseValue: number }
-export interface Derived { ctr: number; cpc: number; cpm: number; costPerConversation: number; costPerLead: number }
+export interface Metrics {
+  spend: number; impressions: number; clicks: number; linkClicks: number; conversations: number; leads: number; purchases: number; purchaseValue: number;
+  reach: number; uniqueLinkClicks: number; landingPageViews: number; videoViews: number; thruplays: number; p25: number; p50: number; p75: number; p100: number;
+  postEngagement: number; pageLikes: number; addToCart: number; initiateCheckout: number; completeRegistration: number; installs: number; calls: number; messagingReplies: number;
+}
+export interface Derived {
+  ctr: number; cpc: number; cpm: number; costPerConversation: number; costPerLead: number; frequency: number; ctrAll: number; cpcAll: number;
+  costPerPurchase: number; roasMeta: number; costPerLpv: number; costPerThruplay: number; hookRate: number;
+}
 export interface Converza { leads: number; sales: number; revenue: number; roas: number }
 export interface ManagerRow {
   id: string; level: Level; name: string; actId: string; accountName: string; currency: string;
@@ -27,7 +34,11 @@ export interface ManagerRow {
   /** campanha ligada a um fluxo (leads dos anúncios dela começam nele) */
   flow?: { id: string; name: string } | null;
   metrics: Metrics; derived: Derived; converza: Converza;
+  result: { key: keyof Metrics; label: string; value: number; cost: number } | null;
+  bidStrategy: string | null; startTime: string | null; endTime: string | null;
+  rankings: { quality: string | null; engagement: string | null; conversion: string | null } | null;
 }
+export interface BreakdownRow { id: string; key: string; label: string; currency: string; metrics: Metrics; derived: Derived }
 export interface ManagerData {
   level: Level; period: string; from: string; to: string; days: string[];
   accounts: { id: string; actId: string; name: string; currency: string; timezone?: string | null; profileName: string; profileStatus: string; lastSyncAt: string | null; canManage?: boolean }[];

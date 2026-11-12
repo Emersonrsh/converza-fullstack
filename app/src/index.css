@@ -2386,3 +2386,30 @@ html.dark .fbm-plat.tiktok{background:#333;outline:1px solid #555}
 .ed-obj-info b{color:var(--text);font-size:15px}
 @media (max-width:1100px){.ed-side{display:none}.ed-tree{width:220px}}
 @media (max-width:760px){.ed-tree{display:none}.ed-grid2,.ed-create-grid{grid-template-columns:1fr}.ed-body{padding:10px}}
+/* Gerenciador: colunas, detalhamento, exportar */
+.fbm-menu{position:relative}
+.fbm-menu>.btn.on{border-color:var(--primary);color:var(--primary-600)}
+.fbm-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:30;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-lg);padding:6px;min-width:240px;display:flex;flex-direction:column;gap:1px}
+.fbm-pop button{display:flex;align-items:center;gap:8px;border:0;background:transparent;font:inherit;font-size:13px;color:var(--text);padding:8px 10px;border-radius:8px;cursor:pointer;text-align:left;width:100%}
+.fbm-pop button i{width:13px}
+.fbm-pop button:hover{background:var(--surface-2)}
+.fbm-pop button.on{color:var(--primary-600);font-weight:700}
+.fbm-pop small{display:block;padding:8px 10px 2px;font-size:11px;font-weight:800;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
+.fbm-pop hr{border:0;border-top:1px solid var(--border);margin:4px 0}
+.fbm-pop.wide{width:min(760px,92vw);padding:12px}
+.fbm-cols{display:grid;grid-template-columns:1.6fr 1fr;gap:14px;max-height:420px}
+.fbm-cols-all{overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;align-content:start;padding-right:6px}
+.fbm-cols-all b,.fbm-cols-sel b{display:block;font-size:12px;margin:4px 0}
+.fbm-cols-all label{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:3px 0;cursor:pointer}
+.fbm-cols-all input{accent-color:var(--primary)}
+.fbm-cols-sel{overflow:auto;border-left:1px solid var(--border);padding-left:12px}
+.fbm-cols-sel>div{display:flex;align-items:center;gap:2px;font-size:12.5px;padding:4px 6px;border-radius:7px;background:var(--surface-2);margin-bottom:4px}
+.fbm-cols-sel>div span{flex:1}
+.fbm-cols-sel>div button{width:auto;padding:3px;border-radius:5px}
+.fbm-pop-foot{display:flex;justify-content:flex-end;gap:6px;margin-top:10px}
+.fbm-pop-foot button{width:auto}
+.fbm-bdrow td{background:color-mix(in srgb,var(--surface-2) 60%,transparent);font-size:12.5px;color:var(--muted)}
+.fbm-sub-l{padding-left:22px;position:relative;font-weight:600}
+.fbm-sub-l::before{content:'';position:absolute;left:8px;top:-2px;width:8px;height:10px;border-left:1.5px solid var(--border-strong);border-bottom:1.5px solid var(--border-strong)}
+.fbm-result{display:flex;flex-direction:column;line-height:1.2}
+.fbm-result small{font-size:10.5px;color:var(--faint);font-weight:500;white-space:normal;max-width:150px}

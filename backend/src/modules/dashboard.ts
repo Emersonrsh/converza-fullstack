@@ -8,7 +8,7 @@ export const dashboardRouter = Router();
 
 /* ------------------------------------------------------------------ período */
 
-export const PERIODS = ['today', 'yesterday', '7d', '30d', 'month', 'last_month', 'custom'] as const;
+export const PERIODS = ['today', 'yesterday', '7d', '14d', '30d', '90d', 'month', 'last_month', 'custom'] as const;
 export type Period = (typeof PERIODS)[number];
 
 export interface Range {
@@ -39,6 +39,8 @@ export function periodDates(period: Period, today: string, from?: unknown, to?: 
     case 'yesterday': d0 = d1 = addDays(today, -1); break;
     case '7d': d0 = addDays(today, -6); d1 = today; break;
     case '30d': d0 = addDays(today, -29); d1 = today; break;
+    case '14d': d0 = addDays(today, -13); d1 = today; break;
+    case '90d': d0 = addDays(today, -89); d1 = today; break;
     case 'month': d0 = `${today.slice(0, 8)}01`; d1 = today; break;
     case 'last_month': { const first = `${today.slice(0, 8)}01`; d1 = addDays(first, -1); d0 = `${d1.slice(0, 8)}01`; break; }
     case 'custom': {

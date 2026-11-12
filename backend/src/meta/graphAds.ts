@@ -149,9 +149,15 @@ export type Level = 'campaign' | 'adset' | 'ad';
 
 export interface InsightRow {
   campaign_id?: string; campaign_name?: string; adset_id?: string; adset_name?: string; ad_id?: string; ad_name?: string;
-  spend?: string; impressions?: string; reach?: string; clicks?: string; inline_link_clicks?: string;
+  spend?: string; impressions?: string; reach?: string; clicks?: string; inline_link_clicks?: string; unique_inline_link_clicks?: string;
   actions?: { action_type: string; value: string }[]; action_values?: { action_type: string; value: string }[];
+  video_thruplay_watched_actions?: { action_type: string; value: string }[]; video_p25_watched_actions?: { action_type: string; value: string }[];
+  video_p50_watched_actions?: { action_type: string; value: string }[]; video_p75_watched_actions?: { action_type: string; value: string }[];
+  video_p100_watched_actions?: { action_type: string; value: string }[];
+  quality_ranking?: string; engagement_rate_ranking?: string; conversion_rate_ranking?: string;
   date_start?: string; date_stop?: string;
+  /** detalhamento (idade, gênero, país, posicionamento…) */
+  [breakdown: string]: unknown;
 }
 
 const LEVEL_FIELDS: Record<Level | 'account', string> = {
@@ -161,26 +167,46 @@ const LEVEL_FIELDS: Record<Level | 'account', string> = {
   ad: 'campaign_id,adset_id,ad_id,ad_name,',
 };
 const METRIC_FIELDS = 'spend,impressions,reach,clicks,inline_link_clicks,actions,action_values';
+const FULL_FIELDS = `${METRIC_FIELDS},unique_inline_link_clicks,video_thruplay_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions`;
 
 export async function fetchInsights(actId: string, token: string, o: { level: Level | 'account'; since: string; until: string; daily?: boolean }) {
+  // a tabela pede tudo (vídeo, alcance único, classificações); o gasto por dia só o básico
+  const full = o.level !== 'account';
   return graphAdsAll<InsightRow>(`${actId}/insights`, token, {
     level: o.level,
-    fields: `${LEVEL_FIELDS[o.level]}${METRIC_FIELDS}`,
+    fields: `${LEVEL_FIELDS[o.level]}${full ? FULL_FIELDS : METRIC_FIELDS}${o.level === 'ad' ? ',quality_ranking,engagement_rate_ranking,conversion_rate_ranking' : ''}`,
     time_range: JSON.stringify({ since: o.since, until: o.until }),
     ...(o.daily ? { time_increment: 1 } : {}),
   }, 5000);
+}
+
+/** Detalhamento como no Gerenciador: por idade, gênero, país, região, plataforma, posicionamento, dispositivo ou tempo. */
+export const BREAKDOWNS: Record<string, { breakdowns?: string; time?: string | number }> = {
+  age: { breakdowns: 'age' }, gender: { breakdowns: 'gender' }, age_gender: { breakdowns: 'age,gender' }, country: { breakdowns: 'country' },
+  region: { breakdowns: 'region' }, platform: { breakdowns: 'publisher_platform' }, placement: { breakdowns: 'publisher_platform,platform_position' },
+  device: { breakdowns: 'impression_device' }, day: { time: 1 }, week: { time: 7 }, month: { time: 'monthly' },
+};
+export async function fetchBreakdown(actId: string, token: string, o: { level: Level; since: string; until: string; by: string }) {
+  const b = BREAKDOWNS[o.by];
+  if (!b) throw new MetaApiError('Detalhamento desconhecido', 400);
+  return graphAdsAll<InsightRow>(`${actId}/insights`, token, {
+    level: o.level, fields: `${LEVEL_FIELDS[o.level]}${FULL_FIELDS}`,
+    time_range: JSON.stringify({ since: o.since, until: o.until }),
+    ...(b.breakdowns ? { breakdowns: b.breakdowns } : {}), ...(b.time ? { time_increment: b.time } : {}),
+  }, 10000);
 }
 
 export interface RemoteEntity {
   id: string; name: string; status?: string; effective_status?: string; objective?: string;
   campaign_id?: string; adset_id?: string; daily_budget?: string; lifetime_budget?: string;
   optimization_goal?: string; creative?: { thumbnail_url?: string };
+  bid_strategy?: string; start_time?: string; end_time?: string; stop_time?: string; adset?: { optimization_goal?: string };
 }
 
 const ENTITY_FIELDS: Record<Level, string> = {
-  campaign: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
-  adset: 'id,name,campaign_id,status,effective_status,daily_budget,lifetime_budget,optimization_goal',
-  ad: 'id,name,campaign_id,adset_id,status,effective_status,creative{thumbnail_url}',
+  campaign: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget,bid_strategy,start_time,stop_time',
+  adset: 'id,name,campaign_id,status,effective_status,daily_budget,lifetime_budget,optimization_goal,bid_strategy,start_time,end_time',
+  ad: 'id,name,campaign_id,adset_id,status,effective_status,creative{thumbnail_url},adset{optimization_goal}',
 };
 const EDGE: Record<Level, string> = { campaign: 'campaigns', adset: 'adsets', ad: 'ads' };
 

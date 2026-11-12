@@ -5,28 +5,21 @@ import { Icon } from '../icons';
 import { Spinner, cx, toast } from '../components/ui';
 import { CreateDialog, Editor, type EditorStart } from './editor/Editor';
 import { TimeChart } from '../dashboard/charts';
-import { money, num, pctTxt, type Level, type ManagerData, type ManagerRow, type Overview } from './types';
+import { money, num, pctTxt, type BreakdownRow, type Level, type ManagerData, type ManagerRow, type Overview } from './types';
+import { BREAKDOWN_OPTS, BreakdownMenu, ColumnsMenu, colById, deriveOf, exportCsv, loadColumns, saveColumns, sumMetrics, type TRow } from './columns';
 
 const PERIODS: [string, string][] = [
-  ['today', 'Hoje'], ['yesterday', 'Ontem'], ['7d', 'Últimos 7 dias'], ['30d', 'Últimos 30 dias'],
+  ['today', 'Hoje'], ['yesterday', 'Ontem'], ['7d', 'Últimos 7 dias'], ['14d', 'Últimos 14 dias'], ['30d', 'Últimos 30 dias'], ['90d', 'Últimos 90 dias'],
   ['month', 'Este mês'], ['last_month', 'Mês passado'], ['custom', 'Personalizado'],
 ];
 const LEVELS: [Level, string][] = [['campaign', 'Campanhas'], ['adset', 'Conjuntos de anúncios'], ['ad', 'Anúncios']];
 const STATUS_TONE: Record<string, string> = { active: 'green', paused: '', review: 'blue', issue: 'red', off: '' };
 
-type SortKey = 'name' | 'spend' | 'impressions' | 'linkClicks' | 'ctr' | 'cpc' | 'conversations' | 'cpConv' | 'leads' | 'sales' | 'revenue' | 'roas';
+type SortKey = string;
 const sortVal = (r: ManagerRow, k: SortKey): number | string => {
-  switch (k) {
-    case 'name': return r.name.toLowerCase();
-    case 'ctr': return r.derived.ctr;
-    case 'cpc': return r.derived.cpc;
-    case 'cpConv': return r.derived.costPerConversation;
-    case 'leads': return r.converza.leads;
-    case 'sales': return r.converza.sales;
-    case 'revenue': return r.converza.revenue;
-    case 'roas': return r.converza.roas;
-    default: return r.metrics[k];
-  }
+  if (k === 'name') return r.name.toLowerCase();
+  const v = colById(k)?.v(r as TRow);
+  return typeof v === 'number' ? v : typeof v === 'string' ? v : -Infinity;
 };
 const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 const dm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
@@ -100,6 +93,14 @@ function FlowCell({ row, flows, editable, onSave }: { row: ManagerRow; flows: { 
   );
 }
 
+function HeadCell({ col, sort, onSort }: { col: { id: string; label: string; title?: string }; sort: { key: string; dir: 1 | -1 }; onSort: (k: string) => void }) {
+  return (
+    <th className={cx('fbm-th', sort.key === col.id && 'on')} title={col.title} onClick={() => onSort(col.id)} data-testid={`fb-th-${col.id}`}>
+      {col.label}{sort.key === col.id && <Icon name={sort.dir === 1 ? 'chevronUp' : 'chevron'} size={12} />}
+    </th>
+  );
+}
+
 function ManagerView({ canEdit }: { canEdit: boolean }) {
   const [level, setLevel] = useState<Level>('campaign');
   const [period, setPeriod] = useState('7d');
@@ -109,7 +110,11 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
   const [camp, setCamp] = useState<{ id: string; name: string } | null>(null);
   const [adset, setAdset] = useState<{ id: string; name: string } | null>(null);
   const [q, setQ] = useState('');
-  const [st, setSt] = useState<'all' | 'active' | 'paused'>('all');
+  const [st, setSt] = useState<'all' | 'active' | 'paused' | 'delivered'>('all');
+  const [cols, setCols] = useState(loadColumns);
+  const [bd, setBd] = useState('');
+  const [bdData, setBdData] = useState<{ key: string; rows: BreakdownRow[]; errors: string[] } | null>(null);
+  const [bdBusy, setBdBusy] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'spend', dir: -1 });
   const [cur, setCur] = useState<string | null>(null);
   const [data, setData] = useState<ManagerData | null>(null);
@@ -187,21 +192,64 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
     const term = q.trim().toLowerCase();
     const list = (data?.rows ?? [])
       .filter((r) => !term || r.name.toLowerCase().includes(term) || r.id.includes(term))
-      .filter((r) => st === 'all' || (st === 'active' ? r.status.key === 'active' : r.status.key !== 'active'));
+      .filter((r) => st === 'all' || (st === 'delivered' ? r.metrics.impressions > 0 : st === 'active' ? r.status.key === 'active' : r.status.key !== 'active'));
     return [...list].sort((a, b) => {
       const x = sortVal(a, sort.key); const y = sortVal(b, sort.key);
       return (x < y ? -1 : x > y ? 1 : 0) * sort.dir;
     });
   }, [data, q, st, sort]);
   const oneCur = rows.length > 0 && rows.every((r) => r.currency === rows[0].currency);
-  const foot = useMemo(() => {
-    const m = { spend: 0, impressions: 0, linkClicks: 0, conversations: 0, leads: 0, sales: 0, revenue: 0 };
-    for (const r of rows) {
-      m.spend += r.metrics.spend; m.impressions += r.metrics.impressions; m.linkClicks += r.metrics.linkClicks; m.conversations += r.metrics.conversations;
-      m.leads += r.converza.leads; m.sales += r.converza.sales; m.revenue += r.converza.revenue;
-    }
-    return m;
+  const foot = useMemo((): TRow | null => {
+    if (!rows.length) return null;
+    const metrics = sumMetrics(rows.map((r) => r.metrics));
+    const cz = { leads: 0, sales: 0, revenue: 0, roas: 0 };
+    for (const r of rows) { cz.leads += r.converza.leads; cz.sales += r.converza.sales; cz.revenue += r.converza.revenue; }
+    cz.revenue = Math.round(cz.revenue * 100) / 100;
+    cz.roas = metrics.spend ? Math.round((cz.revenue / metrics.spend) * 100) / 100 : 0;
+    const k = rows[0].result?.key;
+    const same = !!k && rows.every((r) => r.result?.key === k);
+    const value = same ? rows.reduce((n, r) => n + (r.result?.value ?? 0), 0) : 0;
+    return { metrics, derived: deriveOf(metrics), currency: rows[0].currency, converza: cz,
+      result: same ? { key: k!, label: rows[0].result!.label, value, cost: value ? Math.round((metrics.spend / value) * 100) / 100 : 0 } : null };
   }, [rows]);
+  const columns = cols.cols.map((id) => colById(id)!).filter(Boolean);
+  // detalhamento: pede à Meta quando muda o nível, o período ou o filtro
+  const bdKey = `${bd}|${level}|${period}|${from}|${to}|${act}|${camp?.id ?? ''}|${adset?.id ?? ''}`;
+  useEffect(() => {
+    if (!bd) { setBdData(null); return; }
+    if (period === 'custom' && (!from || !to)) return;
+    let alive = true;
+    setBdBusy(true);
+    const qs = new URLSearchParams({ level, period, by: bd });
+    if (period === 'custom') { qs.set('from', from); qs.set('to', to); }
+    if (act) qs.set('actId', act);
+    if (camp) qs.set('campaignId', camp.id);
+    if (adset) qs.set('adsetId', adset.id);
+    api.get<{ rows: BreakdownRow[]; errors: string[] }>(`/meta/manager/breakdown?${qs}`)
+      .then((r) => { if (alive) setBdData({ key: bdKey, rows: r.rows, errors: r.errors }); })
+      .catch((e) => { if (alive) { setBdData({ key: bdKey, rows: [], errors: [e instanceof Error ? e.message : 'Erro'] }); } })
+      .finally(() => { if (alive) setBdBusy(false); });
+    return () => { alive = false; };
+  }, [bdKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // linhas do detalhamento herdam o tipo de resultado da linha de cima (conversas, compras…)
+  const subRows = (id: string) => {
+    if (!bdData || bdData.key !== bdKey) return [];
+    const parent = data?.rows.find((r) => r.id === id);
+    return bdData.rows.filter((x) => x.id === id).map((x) => {
+      const k = parent?.result?.key;
+      const value = k ? Number(x.metrics[k]) || 0 : 0;
+      return { ...x, result: k ? { key: k, label: parent!.result!.label, value, cost: value ? Math.round((x.metrics.spend / value) * 100) / 100 : 0 } : null };
+    });
+  };
+  const doExport = () => {
+    const list: { name: string; sub?: string; row: TRow }[] = [];
+    for (const r of rows) {
+      list.push({ name: r.name, row: r as TRow });
+      for (const x of subRows(r.id)) list.push({ name: r.name, sub: x.label, row: x as TRow });
+    }
+    const lv = LEVELS.find(([l]) => l === level)![1].toLowerCase().replace(/ /g, '-');
+    exportCsv(`gerenciador-${lv}-${data?.from ?? ''}-a-${data?.to ?? ''}`, columns, list);
+  };
 
   const chart = (data?.daily[c] ?? []).map((d) => ({ label: dm(d.date), spend: d.spend, conversations: d.conversations, linkClicks: d.linkClicks }));
   const head = (k: SortKey, label: string, title?: string) => (
@@ -357,8 +405,11 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
             <span className="spacer" />
             <div className="fbm-search"><Icon name="search" size={14} /><input placeholder="Buscar por nome ou ID" value={q} onChange={(e) => setQ(e.target.value)} data-testid="fb-search" /></div>
             <select className="select sm" value={st} onChange={(e) => setSt(e.target.value as typeof st)} data-testid="fb-status-filter">
-              <option value="all">Todas</option><option value="active">Ativas</option><option value="paused">Pausadas e outras</option>
+              <option value="all">Todos</option><option value="delivered">Tiveram veiculação</option><option value="active">Ativos</option><option value="paused">Pausados e outros</option>
             </select>
+            <ColumnsMenu value={cols} onChange={(v) => { setCols(v); saveColumns(v); }} />
+            <BreakdownMenu value={bd} onChange={setBd} />
+            <button type="button" className="btn sm" onClick={doExport} disabled={!rows.length} title="Exportar a tabela (CSV para Excel ou Planilhas)" data-testid="fb-export"><Icon name="download" size={14} />Exportar</button>
           </div>
           {canEdit && (
             <div className="fbm-actions" data-testid="fb-actions">
@@ -380,21 +431,11 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
                     Ligada
                   </th>
                   {head('name', LEVELS.find(([l]) => l === level)![1].replace('Conjuntos de anúncios', 'Conjunto'))}
-                  {head('spend', 'Investimento')}
-                  {head('impressions', 'Impressões')}
-                  {head('linkClicks', 'Cliques no link')}
-                  {head('ctr', 'CTR')}
-                  {head('cpc', 'CPC')}
-                  {head('conversations', 'Conversas')}
-                  {head('cpConv', 'Custo/conversa')}
-                  {head('leads', 'Leads', 'Leads no Converza que vieram deste anúncio')}
-                  {head('sales', 'Vendas', 'Vendas aprovadas no Converza desses leads')}
-                  {head('revenue', 'Faturamento')}
-                  {head('roas', 'ROAS')}
+                  {columns.map((c) => <HeadCell key={c.id} col={c} sort={sort} onSort={(k) => setSort((x) => ({ key: k, dir: x.key === k ? (x.dir === 1 ? -1 : 1) : -1 }))} />)}
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {rows.flatMap((r) => [
                   <tr key={`${r.actId}-${r.id}`} data-testid="fb-row">
                     <td className="fbm-sw">
                       {canEdit && <input type="checkbox" className="fbm-check" checked={checked.includes(r.id)} onChange={(e) => setChecked((x) => (e.target.checked ? [...x, r.id] : x.filter((y) => y !== r.id)))} aria-label="Marcar" data-testid="fb-check" />}
@@ -408,7 +449,8 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
                         );
                       })()}
                     </td>
-                    <td className="fbm-name">
+                    <td className="fbm-name-td">
+                      <div className="fbm-name">
                       {r.thumbnail && <img src={r.thumbnail} alt="" />}
                       <div>
                         {r.level !== 'ad'
@@ -422,43 +464,33 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
                           <span className="faint">{r.accountName}</span>
                         </small>
                       </div>
+                      </div>
                     </td>
-                    <td><b>{fm(r.metrics.spend, r.currency)}</b></td>
-                    <td>{num(r.metrics.impressions)}</td>
-                    <td>{num(r.metrics.linkClicks)}</td>
-                    <td>{pctTxt(r.derived.ctr)}</td>
-                    <td>{r.metrics.linkClicks ? fm(r.derived.cpc, r.currency) : '—'}</td>
-                    <td>{num(r.metrics.conversations)}</td>
-                    <td>{r.metrics.conversations ? fm(r.derived.costPerConversation, r.currency) : '—'}</td>
-                    <td className="cz">{num(r.converza.leads)}</td>
-                    <td className="cz">{num(r.converza.sales)}</td>
-                    <td className="cz">{fm(r.converza.revenue, r.currency)}</td>
-                    <td className={cx('cz', r.converza.roas >= 1 && 'good')}>{r.metrics.spend ? `${r.converza.roas.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}x` : '—'}</td>
-                  </tr>
-                ))}
+                    {columns.map((c) => <td key={c.id} className={cx(c.cz && 'cz', c.id === 'czRoas' && r.converza.roas >= 1 && 'good')} data-col={c.id}>{c.id === 'spend' ? <b>{c.f(r as TRow)}</b> : c.id === 'results' && r.result ? <span className="fbm-result">{c.f(r as TRow)}<small>{r.result.label}</small></span> : c.f(r as TRow)}</td>)}
+                  </tr>,
+                  ...subRows(r.id).map((x) => (
+                    <tr key={`${r.actId}-${r.id}-${x.key}`} className="fbm-bdrow" data-testid="fb-sub-row">
+                      <td />
+                      <td className="fbm-name-td"><span className="fbm-sub-l">{x.label}</span></td>
+                      {columns.map((c) => <td key={c.id} className={cx(c.cz && 'cz')}>{c.f(x as TRow)}</td>)}
+                    </tr>
+                  )),
+                ])}
               </tbody>
-              {rows.length > 1 && oneCur && (
+              {rows.length > 1 && oneCur && foot && (
                 <tfoot>
                   <tr data-testid="fb-foot">
                     <td />
                     <td>{rows.length} {level === 'campaign' ? 'campanhas' : level === 'adset' ? 'conjuntos' : 'anúncios'}</td>
-                    <td><b>{fm(foot.spend, rows[0].currency)}</b></td>
-                    <td>{num(foot.impressions)}</td>
-                    <td>{num(foot.linkClicks)}</td>
-                    <td>{pctTxt(foot.impressions ? Math.round((foot.linkClicks / foot.impressions) * 10000) / 100 : 0)}</td>
-                    <td>{foot.linkClicks ? fm(foot.spend / foot.linkClicks, rows[0].currency) : '—'}</td>
-                    <td>{num(foot.conversations)}</td>
-                    <td>{foot.conversations ? fm(foot.spend / foot.conversations, rows[0].currency) : '—'}</td>
-                    <td className="cz">{num(foot.leads)}</td>
-                    <td className="cz">{num(foot.sales)}</td>
-                    <td className="cz">{fm(foot.revenue, rows[0].currency)}</td>
-                    <td className="cz">{foot.spend ? `${(Math.round((foot.revenue / foot.spend) * 100) / 100).toLocaleString('pt-BR')}x` : '—'}</td>
+                    {columns.map((c) => <td key={c.id} className={cx(c.cz && 'cz')}>{['budget', 'bidStrategy', 'endTime', 'quality', 'engagementRank', 'conversionRank'].includes(c.id) ? '' : c.id === 'spend' ? <b>{c.f(foot)}</b> : c.f(foot)}</td>)}
                   </tr>
                 </tfoot>
               )}
             </table>
             {!rows.length && <div className="empty" data-testid="fb-table-empty">{busy ? 'Carregando…' : q || st !== 'all' ? 'Nada com esse filtro.' : 'Nenhum item nesta conta.'}</div>}
           </div>
+          {bd && (bdBusy ? <small className="faint fbm-more">Buscando o detalhamento na Meta…</small> : bdData?.errors.length ? <small className="err fbm-more">{bdData.errors.join(' · ')}</small>
+            : <small className="faint fbm-more" data-testid="fb-bd-note">Detalhamento por {BREAKDOWN_OPTS.find((b) => b.id === bd)?.label.toLowerCase()}: cada linha mostra a divisão logo abaixo. Leads e vendas do Converza não têm detalhamento.</small>)}
           {data.total > data.rows.length && <small className="faint fbm-more">Mostrando os {data.rows.length} com mais investimento de {num(data.total)}.</small>}
         </div>
       </>}

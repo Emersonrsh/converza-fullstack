@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'crypto';
-import { addMetrics, budgetOf, buildRows, dailySeries, derive, metricsOf, statusOf, totalsByCurrency, zero, accountStatusLabel } from '../src/meta/insights';
+import { addMetrics, breakdownKey, budgetOf, buildRows, dailySeries, derive, metricsOf, resultOf, statusOf, totalsByCurrency, zero, accountStatusLabel } from '../src/meta/insights';
 import { buildEvent, checkRules, pageFromAd, defaultRules, eventKey, metaUserData, normEmail, normNames, normPhone, ruleMatches, type Rule } from '../src/pixels/engine';
 
 const h = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -17,12 +17,12 @@ describe('Gerenciador: métricas da Meta', () => {
       ],
       action_values: [{ action_type: 'omni_purchase', value: '394' }, { action_type: 'offsite_conversion.fb_pixel_purchase', value: '394' }],
     });
-    assert.deepEqual(m, { spend: 35.5, impressions: 1800, clicks: 70, linkClicks: 53, conversations: 10, leads: 3, purchases: 2, purchaseValue: 394 });
+    assert.deepEqual(m, { ...zero(), spend: 35.5, impressions: 1800, clicks: 70, linkClicks: 53, conversations: 10, leads: 3, purchases: 2, purchaseValue: 394, reach: m.reach });
   });
   test('CTR, CPC, CPM e custo por conversa', () => {
     const d = derive({ ...zero(), spend: 35.5, impressions: 1800, linkClicks: 53, conversations: 10 });
-    assert.deepEqual(d, { ctr: 2.94, cpc: 0.67, cpm: 19.72, costPerConversation: 3.55, costPerLead: 0 });
-    assert.deepEqual(derive(zero()), { ctr: 0, cpc: 0, cpm: 0, costPerConversation: 0, costPerLead: 0 });
+    assert.deepEqual({ ctr: d.ctr, cpc: d.cpc, cpm: d.cpm, costPerConversation: d.costPerConversation, costPerLead: d.costPerLead }, { ctr: 2.94, cpc: 0.67, cpm: 19.72, costPerConversation: 3.55, costPerLead: 0 });
+    assert.ok(Object.values(derive(zero())).every((v) => v === 0));
   });
   test('orçamento em centavos (e moedas sem centavos)', () => {
     assert.deepEqual(budgetOf({ daily_budget: '5000' }, 'BRL'), { amount: 50, kind: 'daily' });
@@ -201,4 +201,20 @@ describe('Página do anúncio de clique para o WhatsApp', () => {
     assert.equal(pageFromAd({ adcreatives: { data: [{ effective_object_story_id: '42_1' }] } }), '42');
     assert.equal(pageFromAd({}), null);
   });
+});
+
+test('Gerenciador: resultados por meta de desempenho, vídeo e detalhamento', () => {
+  const m = metricsOf({ spend: '100', impressions: '10000', reach: '4000', clicks: '300', inline_link_clicks: '200',
+    actions: [{ action_type: 'landing_page_view', value: '120' }, { action_type: 'video_view', value: '2500' }, { action_type: 'onsite_conversion.messaging_conversation_started_7d', value: '25' }],
+    video_thruplay_watched_actions: [{ action_type: 'video_view', value: '800' }], video_p100_watched_actions: [{ action_type: 'video_view', value: '300' }] });
+  assert.equal(m.landingPageViews, 120); assert.equal(m.thruplays, 800); assert.equal(m.p100, 300); assert.equal(m.reach, 4000);
+  const d = derive(m);
+  assert.equal(d.frequency, 2.5); assert.equal(d.hookRate, 25); assert.equal(d.costPerLpv, 0.83); assert.equal(d.ctrAll, 3);
+  assert.deepEqual(resultOf(m, 'LANDING_PAGE_VIEWS', null), { key: 'landingPageViews', label: 'Visualizações da página de destino', value: 120 });
+  assert.equal(resultOf(m, null, 'OUTCOME_ENGAGEMENT')?.key, 'conversations');
+  assert.equal(resultOf({ ...m, purchases: 3 }, 'OFFSITE_CONVERSIONS', 'OUTCOME_LEADS')?.key, 'purchases');
+  assert.equal(resultOf(m, 'OFFSITE_CONVERSIONS', 'OUTCOME_LEADS')?.key, 'leads');
+  assert.deepEqual(breakdownKey('age_gender', { age: '25-34', gender: 'female' }), { key: '25-34|female', label: '25-34 · Mulheres' });
+  assert.deepEqual(breakdownKey('placement', { publisher_platform: 'instagram', platform_position: 'instagram_reels' }).label, 'Instagram · Reels');
+  assert.deepEqual(breakdownKey('week', { date_start: '2026-11-01', date_stop: '2026-11-07' }).label, '01/11 a 07/11');
 });

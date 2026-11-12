@@ -7,13 +7,25 @@ import type { InsightRow, Level, RemoteEntity } from './graphAds';
 export interface Metrics {
   spend: number; impressions: number; clicks: number; linkClicks: number;
   conversations: number; leads: number; purchases: number; purchaseValue: number;
+  reach: number; uniqueLinkClicks: number; landingPageViews: number; videoViews: number; thruplays: number;
+  p25: number; p50: number; p75: number; p100: number; postEngagement: number; pageLikes: number;
+  addToCart: number; initiateCheckout: number; completeRegistration: number; installs: number; calls: number; messagingReplies: number;
 }
-export const zero = (): Metrics => ({ spend: 0, impressions: 0, clicks: 0, linkClicks: 0, conversations: 0, leads: 0, purchases: 0, purchaseValue: 0 });
+const KEYS: (keyof Metrics)[] = ['spend', 'impressions', 'clicks', 'linkClicks', 'conversations', 'leads', 'purchases', 'purchaseValue', 'reach', 'uniqueLinkClicks',
+  'landingPageViews', 'videoViews', 'thruplays', 'p25', 'p50', 'p75', 'p100', 'postEngagement', 'pageLikes', 'addToCart', 'initiateCheckout', 'completeRegistration',
+  'installs', 'calls', 'messagingReplies'];
+export const zero = (): Metrics => Object.fromEntries(KEYS.map((k) => [k, 0])) as unknown as Metrics;
 
 /** Tipos de ação da Meta, do mais completo ao mais específico (usa o primeiro que vier, sem somar duplicados). */
 export const CONVERSATION_TYPES = ['onsite_conversion.messaging_conversation_started_7d'];
 export const LEAD_TYPES = ['lead', 'onsite_conversion.lead_grouped', 'offsite_conversion.fb_pixel_lead'];
 export const PURCHASE_TYPES = ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase', 'onsite_conversion.purchase'];
+const T = {
+  lpv: ['landing_page_view', 'omni_landing_page_view'], video: ['video_view'], post: ['post_engagement'], like: ['like', 'onsite_conversion.page_like'],
+  cart: ['omni_add_to_cart', 'add_to_cart', 'offsite_conversion.fb_pixel_add_to_cart'], checkout: ['omni_initiated_checkout', 'initiate_checkout', 'offsite_conversion.fb_pixel_initiate_checkout'],
+  reg: ['omni_complete_registration', 'complete_registration', 'offsite_conversion.fb_pixel_complete_registration'], install: ['omni_app_install', 'mobile_app_install', 'app_install'],
+  call: ['click_to_call_native_call_placed', 'click_to_call_call_confirm'], reply: ['onsite_conversion.messaging_first_reply'],
+};
 
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 function pick(list: { action_type: string; value: string }[] | undefined, types: string[]) {
@@ -23,32 +35,65 @@ function pick(list: { action_type: string; value: string }[] | undefined, types:
   }
   return 0;
 }
+const first = (list: { action_type: string; value: string }[] | undefined) => num(list?.[0]?.value);
 
 export function metricsOf(r: InsightRow): Metrics {
   return {
     spend: num(r.spend), impressions: num(r.impressions), clicks: num(r.clicks), linkClicks: num(r.inline_link_clicks),
     conversations: pick(r.actions, CONVERSATION_TYPES), leads: pick(r.actions, LEAD_TYPES),
     purchases: pick(r.actions, PURCHASE_TYPES), purchaseValue: pick(r.action_values, PURCHASE_TYPES),
+    reach: num(r.reach), uniqueLinkClicks: num(r.unique_inline_link_clicks), landingPageViews: pick(r.actions, T.lpv), videoViews: pick(r.actions, T.video),
+    thruplays: first(r.video_thruplay_watched_actions), p25: first(r.video_p25_watched_actions), p50: first(r.video_p50_watched_actions),
+    p75: first(r.video_p75_watched_actions), p100: first(r.video_p100_watched_actions), postEngagement: pick(r.actions, T.post), pageLikes: pick(r.actions, T.like),
+    addToCart: pick(r.actions, T.cart), initiateCheckout: pick(r.actions, T.checkout), completeRegistration: pick(r.actions, T.reg),
+    installs: pick(r.actions, T.install), calls: pick(r.actions, T.call), messagingReplies: pick(r.actions, T.reply),
   };
 }
 
 export function addMetrics(a: Metrics, b: Metrics): Metrics {
-  return {
-    spend: a.spend + b.spend, impressions: a.impressions + b.impressions, clicks: a.clicks + b.clicks, linkClicks: a.linkClicks + b.linkClicks,
-    conversations: a.conversations + b.conversations, leads: a.leads + b.leads, purchases: a.purchases + b.purchases, purchaseValue: a.purchaseValue + b.purchaseValue,
-  };
+  return Object.fromEntries(KEYS.map((k) => [k, a[k] + b[k]])) as unknown as Metrics;
 }
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
+const per = (a: number, b: number) => (b ? r2(a / b) : 0);
 /** CTR (cliques no link / impressões), CPC (por clique no link), CPM e custo por conversa/lead. */
 export function derive(m: Metrics) {
   return {
     ctr: m.impressions ? r2((m.linkClicks / m.impressions) * 100) : 0,
-    cpc: m.linkClicks ? r2(m.spend / m.linkClicks) : 0,
+    cpc: per(m.spend, m.linkClicks),
     cpm: m.impressions ? r2((m.spend / m.impressions) * 1000) : 0,
-    costPerConversation: m.conversations ? r2(m.spend / m.conversations) : 0,
-    costPerLead: m.leads ? r2(m.spend / m.leads) : 0,
+    costPerConversation: per(m.spend, m.conversations),
+    costPerLead: per(m.spend, m.leads),
+    frequency: per(m.impressions, m.reach),
+    ctrAll: m.impressions ? r2((m.clicks / m.impressions) * 100) : 0,
+    cpcAll: per(m.spend, m.clicks),
+    costPerPurchase: per(m.spend, m.purchases),
+    roasMeta: per(m.purchaseValue, m.spend),
+    costPerLpv: per(m.spend, m.landingPageViews),
+    costPerThruplay: per(m.spend, m.thruplays),
+    hookRate: m.impressions ? r2((m.videoViews / m.impressions) * 100) : 0,
   };
+}
+
+/** "Resultados" como na Meta: depende da meta de desempenho (ou do objetivo da campanha). */
+const RESULT_BY_GOAL: Record<string, [keyof Metrics, string]> = {
+  CONVERSATIONS: ['conversations', 'Conversas por mensagem iniciadas'], LINK_CLICKS: ['linkClicks', 'Cliques no link'],
+  LANDING_PAGE_VIEWS: ['landingPageViews', 'Visualizações da página de destino'], REACH: ['reach', 'Alcance'], IMPRESSIONS: ['impressions', 'Impressões'],
+  THRUPLAY: ['thruplays', 'ThruPlays'], TWO_SECOND_CONTINUOUS_VIDEO_VIEWS: ['videoViews', 'Visualizações do vídeo'], POST_ENGAGEMENT: ['postEngagement', 'Engajamentos com a publicação'],
+  PAGE_LIKES: ['pageLikes', 'Curtidas na Página'], LEAD_GENERATION: ['leads', 'Leads'], QUALITY_LEAD: ['leads', 'Leads'], QUALITY_CALL: ['calls', 'Ligações'],
+  APP_INSTALLS: ['installs', 'Instalações do app'], VISIT_INSTAGRAM_PROFILE: ['linkClicks', 'Visitas ao perfil'], AD_RECALL_LIFT: ['reach', 'Alcance'],
+};
+const RESULT_BY_OBJECTIVE: Record<string, [keyof Metrics, string]> = {
+  OUTCOME_AWARENESS: ['reach', 'Alcance'], OUTCOME_TRAFFIC: ['linkClicks', 'Cliques no link'], OUTCOME_LEADS: ['leads', 'Leads'],
+  OUTCOME_APP_PROMOTION: ['installs', 'Instalações do app'], OUTCOME_SALES: ['purchases', 'Compras'],
+};
+export function resultOf(m: Metrics, goal: string | null | undefined, objective: string | null | undefined): { key: keyof Metrics; label: string; value: number } | null {
+  let r = goal ? RESULT_BY_GOAL[goal] : undefined;
+  if (!r && (goal === 'OFFSITE_CONVERSIONS' || goal === 'VALUE')) r = m.purchases || objective === 'OUTCOME_SALES' ? ['purchases', 'Compras'] : ['leads', 'Leads'];
+  if (!r && objective === 'OUTCOME_ENGAGEMENT') r = m.conversations || !m.postEngagement ? ['conversations', 'Conversas por mensagem iniciadas'] : ['postEngagement', 'Engajamentos com a publicação'];
+  if (!r && objective) r = RESULT_BY_OBJECTIVE[objective];
+  if (!r) return null;
+  return { key: r[0], label: r[1], value: m[r[0]] };
 }
 
 /** Moedas sem centavos na Meta (o orçamento vem na unidade); as outras vêm em centavos. */
@@ -104,6 +149,10 @@ export interface ManagerRow {
   configured: string | null;
   metrics: Metrics; derived: ReturnType<typeof derive>;
   converza: { leads: number; sales: number; revenue: number; roas: number };
+  result: { key: keyof Metrics; label: string; value: number; cost: number } | null;
+  bidStrategy: string | null; startTime: string | null; endTime: string | null;
+  /** classificações do anúncio (qualidade, engajamento, conversão) */
+  rankings: { quality: string | null; engagement: string | null; conversion: string | null } | null;
 }
 
 /**
@@ -117,11 +166,15 @@ export function buildRows(level: Level, entities: EntityIn[], insights: (Insight
 
   const metrics = new Map<string, Metrics>();
   const orphan = new Map<string, (typeof insights)[number]>();
+  const ranks = new Map<string, ManagerRow['rankings']>();
   for (const r of insights) {
     const id = idOf(r);
     if (!id) continue;
     metrics.set(id, addMetrics(metrics.get(id) ?? zero(), metricsOf(r)));
     orphan.set(id, r);
+    if (r.quality_ranking || r.engagement_rate_ranking || r.conversion_rate_ranking) {
+      ranks.set(id, { quality: r.quality_ranking ?? null, engagement: r.engagement_rate_ranking ?? null, conversion: r.conversion_rate_ranking ?? null });
+    }
   }
 
   // atribuição do Converza somada por campanha / conjunto / anúncio
@@ -152,6 +205,9 @@ export function buildRows(level: Level, entities: EntityIn[], insights: (Insight
       configured: e?.status ?? null,
       metrics: m, derived: derive(m),
       converza: { leads: at.leads, sales: at.sales, revenue, roas: m.spend > 0 ? Math.round((revenue / m.spend) * 100) / 100 : 0 },
+      result: (() => { const x = resultOf(m, e?.optimization_goal ?? e?.adset?.optimization_goal ?? null, e?.objective ?? null); return x ? { ...x, cost: x.value ? r2(m.spend / x.value) : 0 } : null; })(),
+      bidStrategy: e?.bid_strategy ?? null, startTime: e?.start_time ?? null, endTime: e?.end_time ?? e?.stop_time ?? null,
+      rankings: ranks.get(id) ?? null,
     });
   };
   for (const e of entities) {
@@ -203,4 +259,34 @@ export function dailySeries(rows: (InsightRow & { currency: string })[], days: s
     });
   }
   return out;
+}
+
+/* ------------------------------------------------------------------ detalhamento */
+
+const GENDER: Record<string, string> = { male: 'Homens', female: 'Mulheres', unknown: 'Desconhecido' };
+const PLATFORM: Record<string, string> = { facebook: 'Facebook', instagram: 'Instagram', messenger: 'Messenger', audience_network: 'Audience Network', whatsapp: 'WhatsApp', threads: 'Threads', oculus: 'Meta Quest' };
+const POSITION: Record<string, string> = {
+  feed: 'Feed', profile_feed: 'Feed do perfil', marketplace: 'Marketplace', video_feeds: 'Feed de vídeos', right_hand_column: 'Coluna da direita', story: 'Stories',
+  facebook_stories: 'Stories', instagram_stories: 'Stories', facebook_reels: 'Reels', instagram_reels: 'Reels', reels: 'Reels', instream_video: 'Vídeos in-stream',
+  search: 'Resultados da pesquisa', ig_search: 'Resultados da pesquisa', notification: 'Notificações', stream: 'Feed', explore: 'Explorar', explore_home: 'Página inicial do Explorar',
+  sponsored_messages: 'Mensagens patrocinadas', messenger_inbox: 'Caixa de entrada', an_classic: 'Nativo, banner e intersticial', rewarded_video: 'Vídeos premiados', status: 'Status',
+};
+const DEVICE: Record<string, string> = { iphone: 'iPhone', ipad: 'iPad', android_smartphone: 'Celular Android', android_tablet: 'Tablet Android', desktop: 'Computador', ipod: 'iPod', other: 'Outros' };
+const dm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+
+/** Chave e nome de cada linha do detalhamento. */
+export function breakdownKey(by: string, r: InsightRow): { key: string; label: string } {
+  const g = (k: string) => String(r[k] ?? '');
+  switch (by) {
+    case 'age': return { key: g('age'), label: g('age') === 'Unknown' ? 'Idade desconhecida' : g('age') };
+    case 'gender': return { key: g('gender'), label: GENDER[g('gender')] ?? g('gender') };
+    case 'age_gender': return { key: `${g('age')}|${g('gender')}`, label: `${g('age')} · ${GENDER[g('gender')] ?? g('gender')}` };
+    case 'country': return { key: g('country'), label: g('country') === 'BR' ? 'Brasil' : g('country') };
+    case 'region': return { key: g('region'), label: g('region') };
+    case 'platform': return { key: g('publisher_platform'), label: PLATFORM[g('publisher_platform')] ?? g('publisher_platform') };
+    case 'placement': return { key: `${g('publisher_platform')}|${g('platform_position')}`, label: `${PLATFORM[g('publisher_platform')] ?? g('publisher_platform')} · ${POSITION[g('platform_position')] ?? g('platform_position').replace(/_/g, ' ')}` };
+    case 'device': return { key: g('impression_device'), label: DEVICE[g('impression_device')] ?? g('impression_device') };
+    case 'day': return { key: g('date_start'), label: dm(g('date_start')) };
+    default: return { key: g('date_start'), label: g('date_start') === g('date_stop') ? dm(g('date_start')) : `${dm(g('date_start'))} a ${dm(g('date_stop'))}` };
+  }
 }
