@@ -2513,3 +2513,9 @@ html.dark .fbm-plat.tiktok{background:#333;outline:1px solid #555}
 .dc-x:hover{background:rgba(255,255,255,.06)}
 @keyframes dc-in{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.dc-fab{animation:none}}
+/* recolhido na borda direita nas telas de trabalho; desliza para fora ao passar o mouse */
+.dc-fab-wrap.docked{right:0;bottom:120px;transform:translateX(38px);transition:transform .22s ease}
+.dc-fab-wrap.docked .dc-fab{width:52px;height:52px;animation:dc-neon 2.4s ease-in-out infinite}
+.dc-fab-wrap.docked .dc-fab svg{width:22px;height:22px;margin-right:22px}
+.dc-fab-wrap.docked:hover,.dc-fab-wrap.docked:focus-within{transform:translateX(-14px)}
+.dc-fab-wrap.docked:hover .dc-fab svg,.dc-fab-wrap.docked:focus-within .dc-fab svg{margin-right:0}

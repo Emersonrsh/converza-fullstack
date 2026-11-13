@@ -7,6 +7,7 @@ import { api, num } from '../api';
 import { getSocket } from '../socket';
 import { Avatar, Toaster, cx } from './ui';
 import { AppNotices } from './AppNotices';
+import { DiscordInvite } from '../dashboard/DiscordInvite';
 
 const NAV: [string, [string, string, string][]][] = [
   ['Principal', [
@@ -194,6 +195,7 @@ export function Layout() {
           : <div className={cx('content', fullscreen && 'flush')}><Outlet /></div>}
       </div>
       <Toaster />
+      <DiscordInvite />
       <AppNotices accountId={accountId} />
     </div>
   );

@@ -14,7 +14,6 @@ import { CurrencyPicker, IconBtn } from '../dashboard/widgets';
 import { fmtNum, todayLocal } from '../dashboard/format';
 import type { AttendanceDash, DashFilters, PartnerInfo, Period, SalesDash } from '../dashboard/types';
 import type { Product, Subscription } from '../types';
-import { DiscordInvite } from '../dashboard/DiscordInvite';
 
 const DEFAULTS: DashFilters = { period: 'today', from: '', to: '', connectionId: '', productId: '', currency: 'BRL' };
 const PERIOD_OPTS: [Period, string][] = [
@@ -136,7 +135,6 @@ export function Dashboard() {
 
   return (
     <div className="fade dash" data-testid="dashboard">
-      <DiscordInvite />
       <section className="card dhead">
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2>{hello}, {firstName}! <span aria-hidden="true">{emoji}</span></h2>

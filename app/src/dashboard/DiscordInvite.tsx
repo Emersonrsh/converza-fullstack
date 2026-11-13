@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { siDiscord } from 'simple-icons';
 
 export const DISCORD_INVITE = 'https://discord.gg/s8R4yMhEA';
@@ -7,9 +8,15 @@ const Mark = ({ size }: { size: number }) => (
   <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true"><path d={siDiscord.path} fill="currentColor" /></svg>
 );
 
-/** Botão flutuante (canto inferior direito) que abre o convite para a comunidade da Converza no Discord. */
+/** Telas em que o canto inferior direito é área de trabalho (painel do contato, minimapa do fluxo): o botão fica recolhido na borda. */
+const DOCKED = [/^\/inbox/, /^\/flows\/[^/]+/];
+
+/** Botão flutuante (canto inferior direito, em todas as telas) que abre o convite para a comunidade da Converza no Discord. */
 export function DiscordInvite() {
   const [open, setOpen] = useState(false);
+  const { pathname } = useLocation();
+  const docked = DOCKED.some((r) => r.test(pathname));
+  useEffect(() => setOpen(false), [pathname]);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -19,7 +26,7 @@ export function DiscordInvite() {
     return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
   }, [open]);
   return (
-    <div className="dc-fab-wrap" ref={box}>
+    <div className={`dc-fab-wrap${docked && !open ? ' docked' : ''}`} ref={box} data-testid="discord-wrap">
       {open && (
         <div className="dc-pop" role="dialog" aria-label="Comunidade da Converza no Discord" data-testid="discord-pop">
           <button type="button" className="dc-x" onClick={() => setOpen(false)} aria-label="Fechar">×</button>
