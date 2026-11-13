@@ -32,14 +32,24 @@ export const MONEY: Record<EditLevel, string[]> = {
   ad: [], creative: [],
 };
 
-/** Só os campos permitidos do nível, com dinheiro em centavos. `null` em dinheiro = tirar (0 na Meta). */
-export function cleanFields(level: EditLevel, fields: Record<string, unknown> | undefined, currency: string): Record<string, unknown> {
+/** Valor que a Meta documenta para tirar o limite de gastos da campanha (ela recusa 0). */
+export const NO_SPEND_CAP = 922337203685478;
+
+/**
+ * Só os campos permitidos do nível, com dinheiro em centavos.
+ * Dinheiro vazio (`null`/''): ao criar, não vai (a Meta recusa 0 e o padrão já é "sem limite");
+ * ao editar, tira o valor: `spend_cap` com o valor de remoção da Meta, os demais com 0.
+ */
+export function cleanFields(level: EditLevel, fields: Record<string, unknown> | undefined, currency: string, mode: 'create' | 'update' = 'update'): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const k of ALLOWED[level]) {
     if (!fields || !(k in fields) || fields[k] === undefined) continue;
     const v = fields[k];
-    if (MONEY[level].includes(k)) out[k] = v === null || v === '' ? 0 : minorUnits(Number(v), currency);
-    else out[k] = v;
+    if (MONEY[level].includes(k)) {
+      const empty = v === null || v === '' || Number(v) <= 0;
+      if (!empty) out[k] = minorUnits(Number(v), currency);
+      else if (mode === 'update') out[k] = k === 'spend_cap' ? NO_SPEND_CAP : 0;
+    } else out[k] = v;
   }
   return out;
 }
@@ -51,7 +61,8 @@ export function readFields(level: EditLevel, obj: Record<string, unknown>, curre
   for (const k of ALLOWED[level]) {
     if (!(k in obj)) continue;
     const v = obj[k];
-    out[k] = MONEY[level].includes(k) ? (Number(v) > 0 ? Number(v) / div : null) : v;
+    // sem limite na Meta volta como 0 ou como o valor de remoção: os dois viram vazio na tela
+    out[k] = MONEY[level].includes(k) ? (Number(v) > 0 && Number(v) < NO_SPEND_CAP ? Number(v) / div : null) : v;
   }
   return out;
 }
@@ -119,7 +130,7 @@ export async function publishTree(actId: string, t: PubTree, token: string, curr
     }
   };
 
-  const cf = cleanFields('campaign', t.campaign.fields, currency);
+  const cf = cleanFields('campaign', t.campaign.fields, currency, t.campaign.id ? 'update' : 'create');
   if (t.campaign.id) {
     res.campaignId = t.campaign.id;
     if (Object.keys(cf).length) {
@@ -136,7 +147,7 @@ export async function publishTree(actId: string, t: PubTree, token: string, curr
   res.ids.campaign = res.campaignId;
 
   for (const [i, s] of t.adsets.entries()) {
-    const sf = cleanFields('adset', s.fields, currency);
+    const sf = cleanFields('adset', s.fields, currency, s.id ? 'update' : 'create');
     const sName = String(s.fields?.name ?? `Conjunto ${i + 1}`);
     let setId = s.id ?? '';
     if (setId) {
