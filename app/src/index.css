@@ -2519,3 +2519,10 @@ html.dark .fbm-plat.tiktok{background:#333;outline:1px solid #555}
 .dc-fab-wrap.docked .dc-fab svg{width:22px;height:22px;margin-right:22px}
 .dc-fab-wrap.docked:hover,.dc-fab-wrap.docked:focus-within{transform:translateX(-14px)}
 .dc-fab-wrap.docked:hover .dc-fab svg,.dc-fab-wrap.docked:focus-within .dc-fab svg{margin-right:0}
+/* fechar o botão: aparece ao passar o mouse (sempre visível em telas de toque) */
+.dc-close{position:absolute;right:-4px;bottom:44px;width:22px;height:22px;border-radius:50%;border:1px solid var(--border-strong);background:var(--surface);color:var(--muted);font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  opacity:0;transform:scale(.8);transition:opacity .15s,transform .15s;box-shadow:var(--shadow)}
+.dc-fab-wrap:hover .dc-close,.dc-close:focus-visible{opacity:1;transform:none}
+.dc-close:hover{color:var(--text);background:var(--surface-2)}
+@media (hover:none){.dc-close{opacity:1;transform:none}}
+.dc-fab-wrap:has(.dc-pop) .dc-close{display:none}

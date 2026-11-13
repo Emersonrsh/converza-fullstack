@@ -7,7 +7,7 @@ import { api, num } from '../api';
 import { getSocket } from '../socket';
 import { Avatar, Toaster, cx } from './ui';
 import { AppNotices } from './AppNotices';
-import { DiscordInvite } from '../dashboard/DiscordInvite';
+import { DiscordInvite, DiscordMark, setDiscordHidden, useDiscordHidden } from '../dashboard/DiscordInvite';
 
 const NAV: [string, [string, string, string][]][] = [
   ['Principal', [
@@ -82,6 +82,7 @@ export function Layout() {
   useEffect(() => {
     api.get<{ invites: typeof invites }>('/accounts/invites').then((r) => setInvites(r.invites)).catch(() => setInvites([]));
   }, [accountId, loc.pathname === '/']); // eslint-disable-line react-hooks/exhaustive-deps
+  const discordHidden = useDiscordHidden();
   const [theme, setTheme] = useState<'light' | 'dark'>(
     (localStorage.getItem('theme') as 'light' | 'dark') ??
     (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
@@ -166,7 +167,8 @@ export function Layout() {
             <Icon name="bolt" size={18} />
             <div><div className="n" data-testid="side-tokens">{house ? '∞' : tokens === null ? '—' : num(tokens)}</div><small>{house ? 'tokens de IA · conta da casa' : 'tokens de IA'}</small></div>
           </div>
-          <button className="navitem" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} style={{ marginTop: 6 }}>
+          {discordHidden && <button className="navitem" onClick={() => setDiscordHidden(false)} style={{ marginTop: 6 }} data-testid="discord-show"><DiscordMark size={18} /><span>Comunidade no Discord</span></button>}
+          <button className="navitem" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} style={{ marginTop: discordHidden ? 0 : 6 }}>
             <Icon name={theme === 'dark' ? 'sun' : 'moon'} /><span>{theme === 'dark' ? 'Tema claro' : 'Tema escuro'}</span>
           </button>
           <button className="navitem" onClick={logout}><Icon name="logout" /><span>Sair</span></button>
