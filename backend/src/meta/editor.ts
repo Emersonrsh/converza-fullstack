@@ -20,7 +20,7 @@ export const ALLOWED: Record<EditLevel, string[]> = {
   adset: ['name', 'status', 'optimization_goal', 'billing_event', 'bid_strategy', 'bid_amount', 'bid_constraints', 'daily_budget',
     'lifetime_budget', 'daily_min_spend_target', 'daily_spend_cap', 'lifetime_min_spend_target', 'lifetime_spend_cap', 'start_time',
     'end_time', 'destination_type', 'promoted_object', 'targeting', 'attribution_spec', 'pacing_type', 'frequency_control_specs',
-    'is_dynamic_creative', 'dsa_beneficiary', 'dsa_payor', 'multi_optimization_goal_weight'],
+    'is_dynamic_creative', 'dsa_beneficiary', 'dsa_payor', 'multi_optimization_goal_weight', 'ad_set_goal'],
   ad: ['name', 'status', 'tracking_specs', 'conversion_domain'],
   creative: ['name', 'object_story_spec', 'asset_feed_spec', 'url_tags', 'degrees_of_freedom_spec', 'contextual_multi_ads', 'object_story_id', 'source_instagram_media_id',
     'instagram_user_id', 'object_id', 'call_to_action'],

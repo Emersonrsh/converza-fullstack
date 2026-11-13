@@ -176,7 +176,13 @@ export interface AdsetDraft {
   start: string; end: string; audience: AudienceDraft; placements: PlacementsDraft;
   frequency: { impressions: number; days: number } | null;
   beneficiary: string; payor: string;
+  /** Estratégia de ciclo de vida do cliente (só em Vendas): '' = não definida. */
+  lifecycle: Lifecycle;
 }
+export type Lifecycle = '' | 'all' | 'new' | 'new_engaged';
+/** Tipos do `ad_set_goal` da Meta: 0 BROAD, 2 EXCLUDE_EXISTING_CUSTOMERS, 1 EXCLUDE_EXISTING_AND_ENGAGED_CUSTOMERS. */
+export const LIFECYCLE_TYPE: Record<Exclude<Lifecycle, ''>, number> = { all: 0, new: 2, new_engaged: 1 };
+export const lifecycleOf = (t: unknown): Lifecycle => (Object.entries(LIFECYCLE_TYPE).find(([, v]) => v === Number(t))?.[0] as Lifecycle) ?? '';
 export type Crop = [[number, number], [number, number]];
 export interface Media {
   kind: 'image' | 'video'; hash?: string; videoId?: string; url: string | null; name?: string;
@@ -235,7 +241,7 @@ export function newAdset(o: Objective, n = 1, base?: Partial<AdsetDraft>): Adset
     goal: '', pageId: '', whatsapp: '', pixelId: '', customConversionId: '', event: o === 'OUTCOME_LEADS' ? 'LEAD' : 'PURCHASE', appId: '', storeUrl: '', appEvent: 'PURCHASE',
     attribution: '7c1v', bidStrategy: 'LOWEST_COST_WITHOUT_CAP', bidAmount: null, roas: null,
     budgetKind: 'daily', budget: 20, minSpend: null, maxSpend: null, start: '', end: '',
-    audience: defaultAudience(), placements: defaultPlacements(), frequency: null, beneficiary: '', payor: '',
+    audience: defaultAudience(), placements: defaultPlacements(), frequency: null, beneficiary: '', payor: '', lifecycle: '',
     ...base, ads: [newAd(o, 1)],
   };
 }
@@ -364,6 +370,7 @@ export function adsetFields(o: Objective, c: CampaignDraft, s: AdsetDraft): Reco
   if (s.frequency && (goal.id === 'REACH')) f.frequency_control_specs = [{ event: 'IMPRESSIONS', interval_days: s.frequency.days, max_frequency: s.frequency.impressions }];
   if (s.beneficiary.trim()) f.dsa_beneficiary = s.beneficiary.trim();
   if (s.payor.trim()) f.dsa_payor = s.payor.trim();
+  if (o === 'OUTCOME_SALES' && s.lifecycle && !c.specialCategories.length) f.ad_set_goal = { type: LIFECYCLE_TYPE[s.lifecycle] };
   return f;
 }
 
@@ -666,7 +673,7 @@ export function draftFrom(actId: string, t: RemoteTree): Draft {
         maxSpend: (f.daily_spend_cap as number) ?? (f.lifetime_spend_cap as number) ?? null,
         start: localOf(f.start_time), end: localOf(f.end_time), audience, placements,
         frequency: fc ? { impressions: Number(fc.max_frequency) || 2, days: Number(fc.interval_days) || 7 } : null,
-        beneficiary: '', payor: '',
+        beneficiary: '', payor: '', lifecycle: lifecycleOf((f.ad_set_goal as R | undefined)?.type),
         ads: s.ads.map(adFrom),
       };
     }),

@@ -36,6 +36,30 @@ export function AdsetForm({ d, s, set, connections, issues }: {
         <input className="input" value={s.name} onChange={(e) => set({ name: e.target.value })} data-testid="ed-adset-name" />
       </Section>
 
+      {o === 'OUTCOME_SALES' && (
+        <Section title="Estratégia de ciclo de vida do cliente" testId="ed-s-lifecycle" ok={!!s.lifecycle || !!c.specialCategories.length}>
+          <small className="faint">Priorize as conversões de pessoas que geram mais valor para sua empresa.</small>
+          {c.specialCategories.length ? (
+            <small className="faint">Indisponível em campanhas com categoria especial de anúncio.</small>
+          ) : (
+            <>
+              <Radio value={s.lifecycle === 'new_engaged' ? 'new' : s.lifecycle} onChange={(v) => set({ lifecycle: v })} testId="ed-lifecycle" options={[
+                { id: 'all', label: 'Obter conversões de todos os públicos', desc: 'Escolha essa opção se quiser conversões com um custo por resultado menor. Você pode incluir ou excluir públicos personalizados nas configurações do público desse conjunto de anúncios.' },
+                { id: 'new', label: 'Conquiste novos clientes', desc: 'Escolha essa opção se as conversões de pessoas que nunca fizeram uma compra geram mais valor para sua empresa. Seu custo por resultado pode aumentar.' },
+              ]} />
+              {(s.lifecycle === 'new' || s.lifecycle === 'new_engaged') && (
+                <Row label="Quem não deve ver os anúncios" hint="Clientes existentes: quem já comprou de você, pelo pixel, pela API de Conversões e pelas suas listas de clientes.">
+                  <Radio value={s.lifecycle} onChange={(v) => set({ lifecycle: v })} testId="ed-lifecycle-who" options={[
+                    { id: 'new', label: 'Excluir clientes existentes' },
+                    { id: 'new_engaged', label: 'Excluir clientes existentes e pessoas engajadas', desc: 'Também deixa de fora quem já interagiu com sua empresa sem comprar.' },
+                  ]} />
+                </Row>
+              )}
+            </>
+          )}
+        </Section>
+      )}
+
       <Section title="Conversão" testId="ed-s-conversion" ok={!issues.some((m) => /Página|pixel|app/i.test(m))}>
         {LOCATIONS[o].length > 1 && (
           <Row label="Local da conversão" hint={published ? 'Na Meta o local da conversão não muda depois de publicado.' : undefined}>
