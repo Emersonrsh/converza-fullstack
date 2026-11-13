@@ -2492,3 +2492,24 @@ html.dark .fbm-plat.tiktok{background:#333;outline:1px solid #555}
 .mp-head{display:flex;justify-content:flex-end;margin-bottom:4px}
 .mp{display:flex;flex-direction:column;gap:8px}
 .mp-frame{width:100%;height:620px;border:0;border-radius:10px;background:#fff}
+
+/* Convite do Discord: botão flutuante com anel neon no canto inferior direito */
+.dc-fab-wrap{position:fixed;right:28px;bottom:28px;z-index:60;display:flex;flex-direction:column;align-items:flex-end;gap:14px}
+.dc-fab{width:62px;height:62px;border-radius:50%;border:2px solid #7c87ff;background:radial-gradient(circle at 50% 35%,#6b76ff,#4752c4);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  box-shadow:0 0 0 4px rgba(88,101,242,.18),0 0 18px rgba(88,101,242,.75),0 0 42px rgba(88,101,242,.45),inset 0 0 12px rgba(255,255,255,.18);animation:dc-float 3.2s ease-in-out infinite,dc-neon 2.4s ease-in-out infinite;transition:transform .18s}
+.dc-fab:hover,.dc-fab.on{transform:scale(1.08);animation-play-state:paused}
+.dc-fab svg{filter:drop-shadow(0 0 6px rgba(255,255,255,.55))}
+@keyframes dc-float{0%,100%{translate:0 0}50%{translate:0 -6px}}
+@keyframes dc-neon{0%,100%{box-shadow:0 0 0 4px rgba(88,101,242,.18),0 0 18px rgba(88,101,242,.75),0 0 42px rgba(88,101,242,.45),inset 0 0 12px rgba(255,255,255,.18)}
+  50%{box-shadow:0 0 0 6px rgba(88,101,242,.12),0 0 26px rgba(124,135,255,.95),0 0 64px rgba(88,101,242,.6),inset 0 0 14px rgba(255,255,255,.25)}}
+.dc-pop{position:relative;width:300px;padding:20px;border-radius:18px;background:var(--surface);border:1px solid rgba(88,101,242,.45);color:var(--text);
+  box-shadow:0 20px 50px rgba(0,0,0,.45),0 0 24px rgba(88,101,242,.25);animation:dc-in .18s ease-out}
+.dc-pop b{display:block;font-size:16px;margin:12px 0 6px}
+.dc-pop p{margin:0 0 16px;font-size:13px;line-height:1.45;color:var(--muted)}
+.dc-pop-ic{width:46px;height:46px;border-radius:14px;background:#5865f2;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 0 18px rgba(88,101,242,.6)}
+.dc-go{display:flex;align-items:center;justify-content:center;gap:9px;height:42px;border-radius:12px;background:#5865f2;color:#fff;font-weight:700;font-size:14px;text-decoration:none;transition:background .15s}
+.dc-go:hover{background:#4752c4}
+.dc-x{position:absolute;top:10px;right:12px;width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:20px;cursor:pointer}
+.dc-x:hover{background:rgba(255,255,255,.06)}
+@keyframes dc-in{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.dc-fab{animation:none}}
