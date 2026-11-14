@@ -47,6 +47,9 @@ export function Dashboard() {
   const nav = useNavigate();
   const { user, accountId, accounts } = useAuth();
   const canEdit = accounts.find((a) => a.id === accountId)?.role !== 'agent';
+  // celular: rótulos curtos nos filtros (os campos ficam lado a lado)
+  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width:760px)').matches);
+  useEffect(() => { const m = window.matchMedia('(max-width:760px)'); const on = () => setNarrow(m.matches); m.addEventListener('change', on); return () => m.removeEventListener('change', on); }, []);
   const [tab, setTab] = useState<'hoje' | 'vendas' | 'atendimento'>(() => {
     try { const v = localStorage.getItem('cw.dash.tab'); return v === 'hoje' || v === 'atendimento' ? v : 'vendas'; } catch { return 'vendas'; }
   });
@@ -203,12 +206,12 @@ export function Dashboard() {
           </span>
         )}
         {tab !== 'hoje' && <select className="select dsel" value={filters.connectionId} onChange={(e) => set({ connectionId: e.target.value })} data-testid="conn-filter">
-          <option value="">Todas as conexões</option>
+          <option value="">{narrow ? 'Conexões' : 'Todas as conexões'}</option>
           {connections.map((c) => <option key={c.id} value={c.id}>{c.name}{c.displayPhone ? ` · ${c.displayPhone}` : ''}</option>)}
         </select>}
         {tab === 'vendas' && (
           <select className="select dsel" value={filters.productId} onChange={(e) => set({ productId: e.target.value })} data-testid="product-filter">
-            <option value="">Todos os produtos</option>
+            <option value="">{narrow ? 'Produtos' : 'Todos os produtos'}</option>
             {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         )}
