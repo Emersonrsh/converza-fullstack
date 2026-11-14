@@ -147,9 +147,9 @@ export function Dashboard() {
       <section className="card dhead">
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2>{hello}, {firstName}! <span aria-hidden="true">{emoji}</span></h2>
-          <p>Operação <b className="op">{header?.accountName ?? '…'}</b> • <b>{fmtNum(header?.totalLeads ?? 0)}</b> leads acumulados</p>
+          <p>Operação <b className="op">{header?.accountName ?? accounts.find((x) => x.id === accountId)?.name ?? '…'}</b>{header && <> • <b>{fmtNum(header.totalLeads)}</b> leads acumulados</>}</p>
         </div>
-        <button type="button" className="btn sm" onClick={() => setModal('trail')} data-testid="trail-btn"><Icon name="trophy" size={15} />Trilha de conquistas</button>
+        <button type="button" className="btn sm" onClick={() => setModal('trail')} data-testid="trail-btn"><Icon name="trophy" size={15} /><span className="trail-txt">Trilha de conquistas</span></button>
       </section>
 
       {partner?.enabled && !bannerOff && (

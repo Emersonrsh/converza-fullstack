@@ -56,8 +56,20 @@ p{margin:0}
 .btn.ghost{border-color:var(--line);color:var(--text)}
 .btn.ghost:hover{border-color:var(--teal)}
 .btn.lg{padding:15px 24px;font-size:16px;border-radius:13px}
-@media (max-width:860px){.nav ul{display:none}}
-@media (max-width:420px){.nav .act .ghost{display:none}}
+/* celular: menu com os links das seções, e Entrar + Criar conta sempre visíveis */
+.nav .menu{display:none;width:40px;height:40px;border-radius:11px;border:1px solid var(--line);background:transparent;color:var(--text);align-items:center;justify-content:center;cursor:pointer;flex:none}
+@media (max-width:860px){
+  .nav .wrap{gap:10px;height:62px}
+  .nav .menu{display:inline-flex;order:3}
+  .nav .act{order:2}
+  .nav ul{display:none;position:absolute;left:0;right:0;top:62px;flex-direction:column;gap:0;padding:6px 20px 14px;background:color-mix(in srgb,var(--ink) 96%,transparent);border-bottom:1px solid var(--line);font-size:16px}
+  .nav.open ul{display:flex}
+  .nav ul a{display:block;padding:12px 0;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
+  .nav ul li:last-child a{border-bottom:0}
+  .nav .act .btn{padding:9px 13px;font-size:14px;border-radius:10px}
+}
+@media (max-width:440px){.brand span{display:none}.nav .act{gap:8px}}
+@media (max-width:340px){.nav .act .btn{padding:8px 10px;font-size:13px}}
 
 /* ---------- hero ---------- */
 .hero{padding:72px 0 56px;position:relative;overflow:hidden}
@@ -114,6 +126,7 @@ p{margin:0}
 
 /* ---------- seções ---------- */
 section{padding:84px 0}
+@media (max-width:760px){section{padding:56px 0}.sec-hd{margin-bottom:28px}.hero{padding:40px 0 36px}.tile{min-height:0}}
 .sec-hd{display:grid;gap:14px;max-width:720px;margin-bottom:44px}
 .sec-hd .lbl{font:500 12.5px var(--mono);color:var(--teal);letter-spacing:.06em;text-transform:uppercase}
 .sec-hd h2{font-size:clamp(30px,4vw,48px);font-weight:800}
@@ -160,6 +173,7 @@ section{padding:84px 0}
 /* calculadora */
 .calc{display:grid;grid-template-columns:1fr 1fr;gap:18px}
 @media (max-width:880px){.calc{grid-template-columns:1fr}}
+@media (max-width:520px){.row b{font-size:22px;white-space:nowrap}.row.hl b{font-size:30px}.row span{font-size:14.5px}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:28px}
 .field{display:grid;gap:8px;margin-bottom:20px}
 .field label{display:flex;justify-content:space-between;font-weight:600;font-size:14.5px}
@@ -175,6 +189,7 @@ input[type=range]{width:100%;accent-color:var(--teal)}
 /* preço */
 .price{display:grid;grid-template-columns:1.1fr 1fr;gap:18px}
 @media (max-width:880px){.price{grid-template-columns:1fr}}
+@media (max-width:520px){.amount{flex-wrap:wrap;gap:4px 10px}.amount b{font-size:52px}.card{padding:22px}.final .box{padding:26px}.total{font-size:34px}}
 .plan h3{font-size:16px;font-family:var(--mono);font-weight:500;color:var(--teal);letter-spacing:.04em;text-transform:uppercase}
 .amount{display:flex;align-items:baseline;gap:8px;margin:12px 0 4px}
 .amount b{font:800 64px var(--display);letter-spacing:-.03em}
@@ -221,8 +236,9 @@ footer a:hover{color:var(--text)}
 
 <header class="nav">
   <div class="wrap">
-    <a class="brand" href="#topo" aria-label="Converza, início"><img src="/logo.png" alt="" width="34" height="34">Converza</a>
-    <ul>
+    <a class="brand" href="#topo" aria-label="Converza, início"><img src="/logo.png" alt="" width="34" height="34"><span>Converza</span></a>
+    <button class="menu" type="button" aria-label="Abrir o menu" aria-expanded="false" aria-controls="nav-links"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <ul id="nav-links">
       <li><a href="#recursos">Recursos</a></li>
       <li><a href="#como-comecar">Como começar</a></li>
       <li><a href="#precos">Preços</a></li>
@@ -394,7 +410,7 @@ footer a:hover{color:var(--text)}
       <div class="price">
         <div class="card plan">
           <h3>Por instância</h3>
-          <div class="amount"><b class="num">R$ 127</b><span>por número / mês</span></div>
+          <div class="amount"><b class="num">R$&nbsp;127</b><span>por número / mês</span></div>
           <ul class="inc">
             <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>1 número de WhatsApp (API oficial ou QR Code)</li>
             <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>2 agentes de IA</li>
@@ -472,6 +488,11 @@ footer a:hover{color:var(--text)}
 
 <script>
 (() => {
+  /* menu do celular */
+  const nav = document.querySelector('.nav'); const mb = nav.querySelector('.menu');
+  mb.addEventListener('click', () => { const o = nav.classList.toggle('open'); mb.setAttribute('aria-expanded', String(o)); });
+  nav.querySelectorAll('ul a').forEach((a) => a.addEventListener('click', () => { nav.classList.remove('open'); mb.setAttribute('aria-expanded', 'false'); }));
+
   const brl = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: v >= 1000 ? 0 : 2 });
   const PRICE = 127;
 
