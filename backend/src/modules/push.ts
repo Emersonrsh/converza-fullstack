@@ -31,11 +31,15 @@ export function pushConfigured() {
 export interface PushMessage { title: string; body: string; url?: string; tag?: string }
 type Sub = typeof schema.pushSubscriptions.$inferSelect;
 
-async function deliver(subs: Sub[], msg: PushMessage) {
-  if (!subs.length || !pushConfigured()) return 0;
+export async function deliver(subs: Sub[], msg: PushMessage) {
+  return (await deliverDetailed(subs, msg)).sent;
+}
+export async function deliverDetailed(subs: Sub[], msg: PushMessage): Promise<{ sent: number; failed: { id: string; error: string }[]; removed: number }> {
+  if (!subs.length || !pushConfigured()) return { sent: 0, failed: [], removed: 0 };
   const payload = JSON.stringify({ title: msg.title, body: msg.body, url: msg.url ?? '/', tag: msg.tag });
   let sent = 0;
   const gone: string[] = [];
+  const failed: { id: string; error: string }[] = [];
   await Promise.all(subs.map(async (s) => {
     try {
       await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, { TTL: 24 * 3600, urgency: 'high' });
@@ -43,27 +47,96 @@ async function deliver(subs: Sub[], msg: PushMessage) {
     } catch (err) {
       const code = (err as { statusCode?: number }).statusCode;
       if (code === 404 || code === 410) gone.push(s.id); // aparelho desinstalou ou revogou: sai da lista
-      else console.error('[push] envio:', code ?? '', (err as Error).message);
+      else { console.error('[push] envio:', code ?? '', (err as Error).message); failed.push({ id: s.id, error: `${code ?? ''} ${(err as Error).message}`.trim().slice(0, 200) }); }
     }
   }));
   if (gone.length) await db.delete(schema.pushSubscriptions).where(inArray(schema.pushSubscriptions.id, gone));
   if (sent) await db.update(schema.pushSubscriptions).set({ lastSentAt: new Date() })
     .where(inArray(schema.pushSubscriptions.id, subs.filter((s) => !gone.includes(s.id)).map((s) => s.id)));
-  return sent;
+  return { sent, failed, removed: gone.length };
 }
 
-/** Envia para os aparelhos dos membros da empresa que querem esse tipo de aviso. */
-export async function pushToAccount(accountId: string, kind: 'sales', msg: PushMessage) {
-  if (!pushConfigured()) return 0;
-  const subs = await db.select({ s: schema.pushSubscriptions }).from(schema.pushSubscriptions)
+/* ------------------------------------------------------------- mensagem de venda */
+
+export const SALE_TEMPLATE_DEFAULT = { title: '💰 Venda aprovada · {valor}', body: '{produto} · {cliente}' };
+export const SALE_VARS: [string, string][] = [
+  ['valor', 'Valor da venda'], ['produto', 'Produto'], ['cliente', 'Nome do cliente'], ['telefone', 'Telefone do cliente'],
+  ['origem', 'Anúncio ou orgânico'], ['conexao', 'Número de WhatsApp'], ['empresa', 'Nome da empresa'],
+  ['vendas_hoje', 'Vendas aprovadas hoje'], ['faturamento_hoje', 'Faturamento de hoje'],
+];
+
+/** Troca {variavel} pelos valores e limpa separadores que sobraram de variáveis vazias. */
+export function renderTemplate(tpl: string, vars: Record<string, string>, max: number) {
+  let out = tpl.replace(/\{([a-z_]+)\}/gi, (m, k: string) => (k.toLowerCase() in vars ? vars[k.toLowerCase()] : m));
+  out = out.split('\n').map((line) => line
+    .replace(/(\s*[·|•\-–]\s*){2,}/g, ' · ')
+    .replace(/^\s*[·|•\-–]\s*/, '').replace(/\s*[·|•\-–]\s*$/, '')
+    .replace(/\s{2,}/g, ' ').trim()).filter((l) => l).join('\n');
+  return out.slice(0, max);
+}
+export function saleMessage(tpl: { title: string; body: string } | null | undefined, vars: Record<string, string>) {
+  const t = tpl?.title?.trim() || tpl?.body?.trim() ? tpl! : SALE_TEMPLATE_DEFAULT;
+  return { title: renderTemplate(t.title || SALE_TEMPLATE_DEFAULT.title, vars, 120) || 'Venda aprovada', body: renderTemplate(t.body ?? '', vars, 300) };
+}
+
+/** Aparelhos da empresa que querem o aviso, com o modelo de mensagem de cada pessoa. */
+async function subsWithTemplates(accountId: string, kind: 'sales') {
+  return db.select({ s: schema.pushSubscriptions, tpl: schema.memberships.pushSaleTemplate }).from(schema.pushSubscriptions)
     .innerJoin(schema.memberships, and(eq(schema.memberships.userId, schema.pushSubscriptions.userId), eq(schema.memberships.accountId, schema.pushSubscriptions.accountId)))
     .where(and(eq(schema.pushSubscriptions.accountId, accountId), sql`coalesce((${schema.pushSubscriptions.prefs}->>${kind})::boolean, true)`));
-  return deliver(subs.map((x) => x.s), msg);
+}
+
+/** Envia a venda: cada pessoa recebe no formato que escolheu. */
+export async function pushSaleToAccount(accountId: string, vars: Record<string, string>, tag: string, onlySubs?: string[]) {
+  const list = (await subsWithTemplates(accountId, 'sales')).filter((x) => !onlySubs || onlySubs.includes(x.s.id));
+  const groups = new Map<string, { tpl: { title: string; body: string } | null; subs: Sub[] }>();
+  for (const x of list) {
+    const k = x.s.userId;
+    const g = groups.get(k) ?? { tpl: x.tpl ?? null, subs: [] };
+    g.subs.push(x.s); groups.set(k, g);
+  }
+  const out = { sent: 0, failed: [] as { id: string; error: string }[], removed: 0, devices: list.length };
+  for (const g of groups.values()) {
+    const m = saleMessage(g.tpl, vars);
+    const r = await deliverDetailed(g.subs, { ...m, url: '/', tag });
+    out.sent += r.sent; out.failed.push(...r.failed); out.removed += r.removed;
+  }
+  return out;
 }
 
 const money = (v: number, cur: string) => {
   try { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: cur }).format(v); } catch { return `${cur} ${v.toFixed(2)}`; }
 };
+const fmtPhone = (p: string | null) => {
+  const d = String(p ?? '').replace(/\D/g, '');
+  if (!d) return '';
+  const br = d.startsWith('55') && d.length >= 12 ? d.slice(2) : d;
+  return br.length >= 10 ? `(${br.slice(0, 2)}) ${br.slice(2, br.length - 4)}-${br.slice(-4)}` : `+${d}`;
+};
+
+/** Variáveis de uma venda (as mesmas da prévia na tela). */
+async function saleVars(s: typeof schema.sales.$inferSelect) {
+  const [acc] = await db.select({ name: schema.accounts.name, tz: schema.accounts.timezone }).from(schema.accounts).where(eq(schema.accounts.id, s.accountId)).limit(1);
+  const [p] = s.productId ? await db.select({ name: schema.products.name }).from(schema.products).where(eq(schema.products.id, s.productId)).limit(1) : [];
+  const [c] = s.connectionId ? await db.select({ name: schema.connections.name }).from(schema.connections).where(eq(schema.connections.id, s.connectionId)).limit(1) : [];
+  const tz = acc?.tz || 'America/Sao_Paulo';
+  const [t] = (await db.execute(sql`select count(*)::int as n, coalesce(sum(amount), 0)::float as v from sales
+    where account_id = ${s.accountId} and status = 'approved' and currency = ${s.currency}
+      and created_at >= (date_trunc('day', now() at time zone ${tz}) at time zone ${tz})`)).rows as { n: number; v: number }[];
+  return {
+    valor: money(Number(s.amount), s.currency), produto: p?.name ?? s.productName ?? '',
+    // sem nome, o contato fica com o telefone como nome: não repete o número
+    cliente: /^\+?[\d\s().-]{7,}$/.test(s.customerName ?? '') ? '' : (s.customerName ?? ''),
+    telefone: fmtPhone(s.customerPhone), origem: s.sourceId ? 'Anúncio' : 'Orgânico', conexao: c?.name ?? '', empresa: acc?.name ?? '',
+    vendas_hoje: String(Number(t?.n ?? 0)), faturamento_hoje: money(Number(t?.v ?? 0), s.currency),
+  };
+}
+
+/** Exemplo para prévias e simulações. */
+export const SAMPLE_VARS = (empresa = 'Sua empresa') => ({
+  valor: 'R$ 47,00', produto: 'Ebook Novena', cliente: 'Maria Lúcia', telefone: '(11) 98888-7777', origem: 'Anúncio',
+  conexao: 'Número principal', empresa, vendas_hoje: '12', faturamento_hoje: 'R$ 564,00',
+});
 
 /** "Venda aprovada" — uma vez por venda, mesmo que o checkout reenvie o pedido. */
 export async function notifySaleApproved(saleId: string) {
@@ -72,19 +145,7 @@ export async function notifySaleApproved(saleId: string) {
     const [s] = await db.update(schema.sales).set({ pushNotifiedAt: new Date() })
       .where(and(eq(schema.sales.id, saleId), eq(schema.sales.status, 'approved'), isNull(schema.sales.pushNotifiedAt))).returning();
     if (!s) return;
-    const [acc] = await db.select({ name: schema.accounts.name }).from(schema.accounts).where(eq(schema.accounts.id, s.accountId)).limit(1);
-    const [p] = s.productId ? await db.select({ name: schema.products.name }).from(schema.products).where(eq(schema.products.id, s.productId)).limit(1) : [];
-    const product = p?.name ?? s.productName;
-    // quem tem mais de uma empresa vê de qual veio
-    const [{ n }] = (await db.execute(sql`select count(*)::int as n from memberships m join push_subscriptions ps on ps.user_id = m.user_id
-      where ps.account_id = ${s.accountId} and m.account_id <> ${s.accountId}`)).rows as { n: number }[];
-    const extra = Number(n) > 0 && acc ? { account: acc.name } : null;
-    const body = [product, s.customerName].filter(Boolean).join(' · ') || 'Nova venda no Converza';
-    await pushToAccount(s.accountId, 'sales', {
-      title: `💰 Venda aprovada · ${money(Number(s.amount), s.currency)}`,
-      body: extra?.account ? `${body}\n${extra.account}` : body,
-      url: '/', tag: `sale-${s.id}`,
-    });
+    await pushSaleToAccount(s.accountId, await saleVars(s), `sale-${s.id}`);
   } catch (err) {
     console.error('[push] venda aprovada:', (err as Error).message);
   }
@@ -103,6 +164,33 @@ pushRouter.get('/', asyncHandler(async (req, res) => {
     .from(schema.pushSubscriptions)
     .where(and(eq(schema.pushSubscriptions.userId, req.user!.id), eq(schema.pushSubscriptions.accountId, req.accountId!)));
   res.json({ configured: pushConfigured(), publicKey: pushConfigured() ? config.push.publicKey : null, devices: mine });
+}));
+
+/** Mensagem de venda desta pessoa nesta empresa (null = padrão). */
+pushRouter.get('/template', asyncHandler(async (req, res) => {
+  const [m] = await db.select({ tpl: schema.memberships.pushSaleTemplate, account: schema.accounts.name }).from(schema.memberships)
+    .innerJoin(schema.accounts, eq(schema.accounts.id, schema.memberships.accountId))
+    .where(and(eq(schema.memberships.userId, req.user!.id), eq(schema.memberships.accountId, req.accountId!))).limit(1);
+  res.json({ template: m?.tpl ?? null, default: SALE_TEMPLATE_DEFAULT, vars: SALE_VARS, sample: SAMPLE_VARS(m?.account ?? undefined) });
+}));
+
+pushRouter.put('/template', asyncHandler(async (req, res) => {
+  const d = z.object({ title: z.string().trim().max(120), body: z.string().max(300) }).nullable().parse(req.body?.template ?? null);
+  const tpl = d && (d.title || d.body.trim()) ? { title: d.title || SALE_TEMPLATE_DEFAULT.title, body: d.body.trim() } : null;
+  await db.update(schema.memberships).set({ pushSaleTemplate: tpl })
+    .where(and(eq(schema.memberships.userId, req.user!.id), eq(schema.memberships.accountId, req.accountId!)));
+  res.json({ template: tpl });
+}));
+
+/** Prévia real: manda a mensagem de venda (com dados de exemplo) para os meus aparelhos. */
+pushRouter.post('/template/test', asyncHandler(async (req, res) => {
+  const mine = await db.select({ id: schema.pushSubscriptions.id }).from(schema.pushSubscriptions)
+    .where(and(eq(schema.pushSubscriptions.userId, req.user!.id), eq(schema.pushSubscriptions.accountId, req.accountId!)));
+  if (!mine.length) throw new AppError(400, 'Ative as notificações em pelo menos um aparelho para testar.');
+  const [acc] = await db.select({ name: schema.accounts.name }).from(schema.accounts).where(eq(schema.accounts.id, req.accountId!)).limit(1);
+  const r = await pushSaleToAccount(req.accountId!, SAMPLE_VARS(acc?.name), 'sale-preview', mine.map((x) => x.id));
+  if (!r.sent) throw new AppError(502, 'Nenhum aparelho recebeu. Ative as notificações de novo neste aparelho.');
+  res.json(r);
 }));
 
 pushRouter.post('/subscribe', asyncHandler(async (req, res) => {

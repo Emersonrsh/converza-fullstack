@@ -13,6 +13,8 @@ import { patchSub } from '../billing/store';
 import { creditTokens, removeTokens } from './tokens';
 import { PRICING } from './plans';
 import { emitToAccount } from '../realtime/io';
+import { config } from '../config';
+import { SAMPLE_VARS, deliverDetailed, pushConfigured, pushSaleToAccount } from './push';
 
 export const platformRouter = Router();
 
@@ -250,4 +252,63 @@ platformRouter.post('/accounts/:id/ai-credits', asyncHandler(async (req, res) =>
 platformRouter.get('/audit', asyncHandler(async (_req, res) => {
   const log = await db.select().from(schema.platformAudit).orderBy(sql`${schema.platformAudit.createdAt} desc`).limit(100);
   res.json({ audit: log });
+}));
+
+/* ------------------------------------------------------------------ notificações no celular (teste) */
+
+/** Estado das notificações e os aparelhos inscritos (busca por pessoa, e-mail ou empresa). */
+platformRouter.get('/push', asyncHandler(async (req, res) => {
+  const q = String(req.query.q ?? '').trim().slice(0, 80);
+  const like = `%${q.replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
+  const devices = rows<Record<string, unknown>>(await db.execute(sql`select ps.id, ps.device, ps.prefs, ps.created_at as "createdAt", ps.last_sent_at as "lastSentAt",
+      ps.endpoint, u.id as "userId", u.name as "userName", u.email as "userEmail", a.id as "accountId", a.name as "accountName",
+      (m.push_sale_template is not null) as "customTemplate"
+    from push_subscriptions ps join users u on u.id = ps.user_id join accounts a on a.id = ps.account_id
+    left join memberships m on m.user_id = ps.user_id and m.account_id = ps.account_id
+    where ${q ? sql`(u.name ilike ${like} or u.email ilike ${like} or a.name ilike ${like})` : sql`true`}
+    order by ps.created_at desc limit 100`));
+  const [t] = rows<{ total: number; users: number; accounts: number; sent24: number }>(await db.execute(sql`select count(*)::int as total, count(distinct user_id)::int as users,
+    count(distinct account_id)::int as accounts, count(*) filter (where last_sent_at > now() - interval '24 hours')::int as sent24 from push_subscriptions`));
+  const host = (e: unknown) => { try { return new URL(String(e)).host; } catch { return ''; } };
+  res.json({
+    configured: pushConfigured(), publicKey: config.push.publicKey ? `${config.push.publicKey.slice(0, 12)}…` : null, subject: config.push.subject || null,
+    totals: t, devices: devices.map(({ endpoint, ...d }) => ({ ...d, service: /apple/.test(host(endpoint)) ? 'Apple (iPhone/Safari)' : /google|fcm/.test(host(endpoint)) ? 'Google (Chrome/Android)' : /mozilla/.test(host(endpoint)) ? 'Mozilla (Firefox)' : /windows|wns/.test(host(endpoint)) ? 'Microsoft (Edge)' : host(endpoint) })),
+  });
+}));
+
+const pushTarget = z.object({ target: z.enum(['device', 'user', 'account']), id: z.string().regex(UUID) });
+
+async function targetSubs(t: z.infer<typeof pushTarget>) {
+  const col = t.target === 'device' ? schema.pushSubscriptions.id : t.target === 'user' ? schema.pushSubscriptions.userId : schema.pushSubscriptions.accountId;
+  return db.select().from(schema.pushSubscriptions).where(eq(col, t.id));
+}
+async function targetName(t: z.infer<typeof pushTarget>, subs: { accountId: string }[]) {
+  const accId = t.target === 'account' ? t.id : subs[0]?.accountId;
+  const [a] = accId ? await db.select({ id: schema.accounts.id, name: schema.accounts.name }).from(schema.accounts).where(eq(schema.accounts.id, accId)).limit(1) : [];
+  return a ?? { id: null, name: '—' };
+}
+
+/** Notificação livre (título e texto) para um aparelho, todos os aparelhos de uma pessoa ou de uma empresa. */
+platformRouter.post('/push/test', asyncHandler(async (req, res) => {
+  if (!pushConfigured()) throw new AppError(503, 'Defina VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY no servidor.');
+  const d = pushTarget.extend({ title: z.string().trim().min(1).max(120), body: z.string().max(300).default(''), url: z.string().max(300).regex(/^\//).default('/') }).parse(req.body);
+  const subs = await targetSubs(d);
+  if (!subs.length) throw new AppError(404, 'Nenhum aparelho inscrito nesse destino.');
+  const r = await deliverDetailed(subs, { title: d.title, body: d.body, url: d.url, tag: `platform-test-${Date.now()}` });
+  const a = await targetName(d, subs);
+  await audit(req, a.id, a.name, 'push_test', { target: d.target, devices: subs.length, sent: r.sent, failed: r.failed.length, removed: r.removed, title: d.title });
+  res.json({ devices: subs.length, ...r });
+}));
+
+/** Simula uma venda aprovada numa empresa: cada pessoa recebe no formato dela, sem criar venda. */
+platformRouter.post('/push/simulate-sale', asyncHandler(async (req, res) => {
+  if (!pushConfigured()) throw new AppError(503, 'Defina VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY no servidor.');
+  const d = z.object({ accountId: z.string().regex(UUID), amount: z.number().min(0).max(1e7).default(47), product: z.string().trim().max(120).default('Ebook Novena'), customer: z.string().trim().max(120).default('Maria Lúcia') }).parse(req.body);
+  const [a] = await db.select({ id: schema.accounts.id, name: schema.accounts.name }).from(schema.accounts).where(eq(schema.accounts.id, d.accountId)).limit(1);
+  if (!a) throw new AppError(404, 'Empresa não encontrada');
+  const vars = { ...SAMPLE_VARS(a.name), valor: new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(d.amount), produto: d.product, cliente: d.customer };
+  const r = await pushSaleToAccount(a.id, vars, `platform-sale-${Date.now()}`);
+  if (!r.devices) throw new AppError(404, 'Ninguém nesta empresa ativou as notificações de vendas.');
+  await audit(req, a.id, a.name, 'push_sale_test', { devices: r.devices, sent: r.sent, failed: r.failed.length, removed: r.removed });
+  res.json(r);
 }));

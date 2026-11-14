@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Icon } from '../icons';
@@ -119,6 +119,8 @@ export function NotificationsPage() {
         {perm === 'denied' && !here && <div className="st-banner amber"><Icon name="alert" size={16} /><span>As notificações do Converza estão bloqueadas neste aparelho. Libere nos ajustes do {isIOS ? 'iPhone (Ajustes → Notificações → Converza)' : 'navegador (cadeado ao lado do endereço → Notificações)'} e volte aqui.</span></div>}
       </section>
 
+      <SaleTemplateCard hasDevice={data.devices.length > 0} />
+
       <section className="st-card">
         <div className="st-card-h"><div><b>Seus aparelhos</b><small>Cada aparelho em que você ativou, nesta empresa. Os outros membros da equipe ativam nos aparelhos deles.</small></div></div>
         {data.devices.length === 0 ? <EmptyBox icon="bell" title="Nenhum aparelho ainda" text="Ative neste aparelho e em quantos mais quiser (celular, tablet, computador)." /> : (
@@ -139,5 +141,99 @@ export function NotificationsPage() {
         )}
       </section>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------- mensagem da venda */
+
+interface Tpl { title: string; body: string }
+interface TplResp { template: Tpl | null; default: Tpl; vars: [string, string][]; sample: Record<string, string> }
+
+/** Mesma regra do servidor: troca {variavel} e limpa separadores de variáveis vazias. */
+export function renderTpl(tpl: string, vars: Record<string, string>, max: number) {
+  let out = tpl.replace(/\{([a-z_]+)\}/gi, (m, k: string) => (k.toLowerCase() in vars ? vars[k.toLowerCase()] : m));
+  out = out.split('\n').map((line) => line
+    .replace(/(\s*[·|•\-–]\s*){2,}/g, ' · ')
+    .replace(/^\s*[·|•\-–]\s*/, '').replace(/\s*[·|•\-–]\s*$/, '')
+    .replace(/\s{2,}/g, ' ').trim()).filter((l) => l).join('\n');
+  return out.slice(0, max);
+}
+
+const PRESETS: [string, Tpl][] = [
+  ['Padrão', { title: '💰 Venda aprovada · {valor}', body: '{produto} · {cliente}' }],
+  ['Com o dia', { title: '🔥 +{valor} no caixa!', body: '{produto} · {cliente}\nHoje: {vendas_hoje} vendas · {faturamento_hoje}' }],
+  ['Discreta', { title: 'Nova venda', body: '{valor} · {produto}' }],
+  ['De onde veio', { title: '💸 Venda aprovada ({origem})', body: '{valor} · {produto} · {cliente}' }],
+];
+
+function SaleTemplateCard({ hasDevice }: { hasDevice: boolean }) {
+  const { accountId } = useAuth();
+  const { data, error, reload } = useLoad(() => api.get<TplResp>('/push/template'), [accountId]);
+  const [t, setT] = useState<Tpl | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const last = useRef<'title' | 'body'>('body');
+  const refs = { title: useRef<HTMLInputElement>(null), body: useRef<HTMLTextAreaElement>(null) };
+  useEffect(() => { if (data) setT(data.template ?? data.default); }, [data]);
+  if (error && !data) return <section className="st-card"><LoadError error={error} onRetry={reload} /></section>;
+  if (!data || !t) return <section className="st-card"><Spinner /></section>;
+
+  const saved = data.template ?? data.default;
+  const dirty = t.title !== saved.title || t.body !== saved.body;
+  const pvTitle = renderTpl(t.title || data.default.title, data.sample, 120) || 'Venda aprovada';
+  const pvBody = renderTpl(t.body, data.sample, 300);
+
+  function insert(v: string) {
+    const f = last.current; const el = refs[f].current;
+    const cur = t![f]; const tok = `{${v}}`;
+    const a = el?.selectionStart ?? cur.length; const b = el?.selectionEnd ?? cur.length;
+    const next = cur.slice(0, a) + tok + cur.slice(b);
+    setT({ ...t!, [f]: next });
+    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(a + tok.length, a + tok.length); });
+  }
+  async function save(v: Tpl | null) {
+    setBusy('save');
+    try { await api.put('/push/template', { template: v }); await reload(); toast(v ? 'Mensagem salva' : 'Mensagem padrão restaurada'); } catch (e) { toast(errMsg(e, 'Não foi possível salvar')); } finally { setBusy(null); }
+  }
+  async function test() {
+    setBusy('test');
+    try {
+      if (dirty) await api.put('/push/template', { template: t });
+      await api.post('/push/template/test', {}); await reload();
+      toast('Enviada para os seus aparelhos, com dados de exemplo');
+    } catch (e) { toast(errMsg(e, 'Não foi possível enviar')); } finally { setBusy(null); }
+  }
+
+  return (
+    <section className="st-card" data-testid="push-template">
+      <div className="st-card-h"><div><b>Mensagem da venda aprovada</b><small>Como o aviso aparece nos seus aparelhos. Só você vê esta versão; cada pessoa da equipe escolhe a dela.</small></div></div>
+      <div className="pt-grid">
+        <div className="pt-form">
+          <div className="pt-presets">{PRESETS.map(([n, p]) => <button type="button" key={n} className="btn sm ghost" onClick={() => setT(p)} data-testid={`pt-preset-${n}`}>{n}</button>)}</div>
+          <label className="pt-f"><span>Título</span>
+            <input ref={refs.title} className="input" value={t.title} maxLength={120} onFocus={() => { last.current = 'title'; }} onChange={(e) => setT({ ...t, title: e.target.value })} data-testid="pt-title" /></label>
+          <label className="pt-f"><span>Texto</span>
+            <textarea ref={refs.body} className="input" rows={3} value={t.body} maxLength={300} onFocus={() => { last.current = 'body'; }} onChange={(e) => setT({ ...t, body: e.target.value })} data-testid="pt-body" /></label>
+          <div className="pt-vars"><small className="faint">Toque para inserir no {last.current === 'title' ? 'título' : 'texto'}:</small>
+            {data.vars.map(([k, l]) => <button type="button" key={k} className="pt-var" title={l} onClick={() => insert(k)} data-testid={`pt-var-${k}`}>{`{${k}}`}</button>)}
+          </div>
+          <small className="faint">Variável sem valor numa venda (por exemplo, sem nome do cliente) some da mensagem, junto com o “·” ao lado.</small>
+        </div>
+        <div className="pt-preview" data-testid="pt-preview">
+          <small className="faint">Prévia (dados de exemplo)</small>
+          <div className="pt-phone">
+            <div className="pt-notif">
+              <img src="/icon-192.png" alt="" />
+              <div><div className="pt-n-h"><b>CONVERZA</b><span>agora</span></div><b className="pt-n-t" data-testid="pt-pv-title">{pvTitle}</b>{pvBody && <span className="pt-n-b" data-testid="pt-pv-body">{pvBody}</span>}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="pt-actions">
+        <button type="button" className="btn ghost" onClick={() => void save(null)} disabled={!!busy || !data.template} data-testid="pt-reset">Restaurar padrão</button>
+        <span className="spacer" />
+        <button type="button" className="btn" onClick={() => void test()} disabled={!!busy || !hasDevice} title={hasDevice ? undefined : 'Ative em um aparelho primeiro'} data-testid="pt-test"><Icon name="send" size={14} />{busy === 'test' ? 'Enviando…' : 'Testar no meu aparelho'}</button>
+        <button type="button" className="btn primary" onClick={() => void save(t)} disabled={!!busy || !dirty} data-testid="pt-save">{busy === 'save' ? 'Salvando…' : 'Salvar mensagem'}</button>
+      </div>
+    </section>
   );
 }

@@ -63,6 +63,8 @@ export const memberships = pgTable('memberships', {
   role: roleEnum('role').notNull().default('agent'),
   /** setor do membro: as conversas mandadas para o setor ficam na fila dele */
   departmentId: uuid('department_id').references((): AnyPgColumn => departments.id, { onDelete: 'set null' }),
+  /** mensagem de "Venda aprovada" no celular escolhida pela pessoa ({valor}, {produto}...); null = padrão */
+  pushSaleTemplate: jsonb('push_sale_template').$type<{ title: string; body: string }>(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   userAccount: uniqueIndex('memberships_user_account_uq').on(t.userId, t.accountId),

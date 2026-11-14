@@ -3,6 +3,7 @@ import { api, money, num } from '../api';
 import { useAuth } from '../auth';
 import { Icon } from '../icons';
 import { Modal, Spinner, TopbarActions, cx, toast, useBackdrop } from '../components/ui';
+import { PlatformPush } from './PlatformPush';
 
 /**
  * Painel da plataforma: só para os donos do Converza (PLATFORM_ADMIN_EMAILS).
@@ -18,7 +19,7 @@ const FILTERS: ['all' | Status, string][] = [
   ['all', 'Todas'], ['paying', 'Pagando'], ['canceling', 'Cancelando'], ['past_due', 'Atrasadas'], ['courtesy', 'Cortesia'],
   ['house', 'Da casa'], ['inactive', 'Sem assinatura'], ['canceled', 'Canceladas'], ['suspended', 'Suspensas'],
 ];
-const ACTION: Record<string, string> = { suspend: 'Suspendeu', reactivate: 'Reativou', courtesy: 'Deu cortesia', ai_credits: 'Adicionou créditos de IA', ai_credits_remove: 'Tirou créditos de IA' };
+const ACTION: Record<string, string> = { suspend: 'Suspendeu', reactivate: 'Reativou', courtesy: 'Deu cortesia', ai_credits: 'Adicionou créditos de IA', ai_credits_remove: 'Tirou créditos de IA', push_test: 'Enviou notificação de teste', push_sale_test: 'Simulou venda (notificação)' };
 const ROLE: Record<string, string> = { owner: 'Dono', admin: 'Administrador', agent: 'Atendente' };
 const INV: Record<string, [string, string]> = { paid: ['Paga', 'green'], pending: ['Pendente', 'amber'], overdue: ['Atrasada', 'red'], refunded: ['Reembolsada', ''], canceled: ['Cancelada', ''] };
 
@@ -362,7 +363,7 @@ function AccountDrawer({ id, onClose, onChanged }: { id: string; onClose: () => 
 
 export function Platform() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<'companies' | 'audit'>('companies');
+  const [tab, setTab] = useState<'companies' | 'audit' | 'push'>('companies');
   const [o, setO] = useState<Overview | null>(null);
   const [list, setList] = useState<{ accounts: Row[]; total: number; page: number; pageSize: number } | null>(null);
   const [audit, setAudit] = useState<AuditRow[] | null>(null);
@@ -395,6 +396,7 @@ export function Platform() {
         <div className="pf-tabs" role="tablist">
           <button type="button" role="tab" aria-selected={tab === 'companies'} className={cx(tab === 'companies' && 'on')} onClick={() => setTab('companies')} data-testid="pf-tab-companies"><Icon name="building" size={15} />Empresas</button>
           <button type="button" role="tab" aria-selected={tab === 'audit'} className={cx(tab === 'audit' && 'on')} onClick={() => setTab('audit')} data-testid="pf-tab-audit"><Icon name="list" size={15} />Registro de ações</button>
+          <button type="button" role="tab" aria-selected={tab === 'push'} className={cx(tab === 'push' && 'on')} onClick={() => setTab('push')} data-testid="pf-tab-push"><Icon name="bell" size={15} />Notificações</button>
         </div>
       </TopbarActions>
 
@@ -421,7 +423,7 @@ export function Platform() {
         </div>
       </div>
 
-      {tab === 'companies' ? (
+      {tab === 'push' ? <PlatformPush /> : tab === 'companies' ? (
         <div className="card ct-card pf-table-card">
           <div className="pf-table-top">
             <div className="fl-search ct-search">
