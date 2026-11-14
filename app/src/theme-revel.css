@@ -1,0 +1,121 @@
+/* =====================================================================
+   Visual "grade + títulos apertados": mesma paleta do Converza (todas as
+   cores continuam vindo das variáveis de index.css). Muda só forma,
+   tipografia, profundidade e movimento:
+   - Inter com títulos grossos e letras apertadas; números tabulares
+   - botões em pílula; secundários com brilho de vidro nas bordas
+   - cartões com borda fina, leve degradê e filete de luz no topo
+   - rótulos pequenos em caixa alta e espaçados
+   - grade sutil no fundo da área de conteúdo, que some para baixo
+   - barra do topo translúcida com desfoque
+   ===================================================================== */
+:root{
+  --font:'Inter Variable','Inter','Manrope',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --radius:18px; --radius-sm:12px;
+  --hair:color-mix(in srgb, var(--text) 7%, transparent);
+  --hair-2:color-mix(in srgb, var(--text) 11%, transparent);
+  --grid-line:color-mix(in srgb, var(--text) 6%, transparent);
+  --card-sheen:linear-gradient(180deg, color-mix(in srgb, var(--text) 2.5%, var(--surface)), var(--surface));
+}
+html.dark{
+  --grid-line:color-mix(in srgb, var(--text) 6.5%, transparent);
+  --card-sheen:linear-gradient(180deg, color-mix(in srgb, var(--text) 3.5%, var(--surface)), color-mix(in srgb, var(--text) 1%, var(--surface)));
+}
+body{letter-spacing:-.006em;font-feature-settings:"cv11","ss01"}
+code,.mono,.num{font-family:var(--mono)}
+
+/* ---------- fundo: grade que some para baixo */
+.main{background-color:var(--bg);background-image:
+  radial-gradient(60% 420px at 50% 0%, color-mix(in srgb, var(--primary) 11%, transparent), transparent 72%),
+  linear-gradient(180deg, transparent 0%, var(--bg) 78%),
+  linear-gradient(var(--grid-line) 1px, transparent 1px),
+  linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size:auto, auto, 42px 42px, 42px 42px}
+
+/* ---------- barra do topo translúcida */
+.topbar{background:color-mix(in srgb, var(--surface) 72%, transparent);backdrop-filter:blur(14px) saturate(1.15);-webkit-backdrop-filter:blur(14px) saturate(1.15);border-bottom:1px solid var(--hair-2);position:relative;z-index:5}
+.topbar h1{font-size:22px;font-weight:800;letter-spacing:-.045em}
+.topbar .sub{font-weight:500;letter-spacing:0}
+
+/* ---------- menu lateral */
+.brand b{letter-spacing:-.04em;font-size:19px}
+.navgroup{font-size:10px;letter-spacing:.18em;font-weight:700}
+.navitem{border-radius:11px;letter-spacing:-.01em}
+.navitem.active{background:linear-gradient(90deg, color-mix(in srgb, var(--nav-active) 85%, #fff 0%), color-mix(in srgb, var(--nav-active) 55%, transparent));box-shadow:inset 0 0 0 1px color-mix(in srgb, #fff 12%, transparent), 0 8px 24px -12px var(--nav-active)}
+.navitem.active::before{content:"";position:absolute;left:-12px;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--primary-600);box-shadow:0 0 12px var(--primary-600)}
+.tokens{border-radius:14px;box-shadow:inset 0 0 0 1px color-mix(in srgb, #fff 6%, transparent)}
+.tokens .n{font-family:var(--mono);letter-spacing:-.02em}
+
+/* ---------- cartões */
+.card{border-radius:var(--radius);border:1px solid var(--hair-2);background:var(--card-sheen);box-shadow:var(--shadow);position:relative}
+html.dark .card{box-shadow:0 1px 0 color-mix(in srgb, #fff 3%, transparent) inset, 0 18px 40px -24px rgba(0,0,0,.7)}
+.title{font-size:17px;font-weight:800;letter-spacing:-.04em}
+h2,h3{letter-spacing:-.03em}
+
+/* números grandes: grossos e apertados; pequenos dados: mono */
+.kcard-v,.kpi .val{font-size:30px;font-weight:800;letter-spacing:-.045em;font-variant-numeric:tabular-nums}
+.kcard{position:relative;overflow:hidden}
+.kcard::before{content:"";position:absolute;top:0;left:14%;right:14%;height:1px;background:linear-gradient(90deg,transparent,color-mix(in srgb, var(--t, var(--primary)) 75%, transparent),transparent);opacity:.9}
+.kcard-ic{border-radius:10px}
+.ktrend{border-radius:999px;font-family:var(--mono);font-weight:700;letter-spacing:-.02em}
+.dhead h2{font-size:26px;font-weight:800;letter-spacing:-.05em}
+.dhead p{font-weight:500}
+td,.kcard-b{font-variant-numeric:tabular-nums}
+
+/* ---------- botões */
+.btn{border-radius:999px;font-weight:600;letter-spacing:-.01em;border-color:var(--hair-2);transition:background .18s,border-color .18s,box-shadow .18s,transform .18s,scale .25s cubic-bezier(.4,0,.2,1)}
+.btn.sm{border-radius:999px}
+.btn.icon{border-radius:12px}
+.btn.primary{font-weight:700;box-shadow:0 0 0 1px color-mix(in srgb, var(--primary) 60%, transparent), 0 8px 22px -10px var(--primary)}
+.btn.primary:hover{transform:translateY(-1px);box-shadow:0 0 0 1px var(--primary-600), 0 12px 28px -10px var(--primary)}
+/* secundário de vidro (no escuro) */
+html.dark .btn:not(.primary):not(.ghost):not(.danger){background:color-mix(in srgb, #fff 2%, transparent);border-color:transparent;box-shadow:
+  inset 3px 3px .5px -3.5px rgba(255,255,255,.09), inset -3px -3px .5px -3.5px rgba(255,255,255,.55),
+  inset 1px 1px 1px -.5px rgba(255,255,255,.32), inset -1px -1px 1px -.5px rgba(255,255,255,.32),
+  inset 0 0 6px 6px rgba(255,255,255,.04), 0 0 10px rgba(0,0,0,.2)}
+html.dark .btn:not(.primary):not(.ghost):not(.danger):hover{background:color-mix(in srgb, #fff 5%, transparent)}
+html:not(.dark) .btn:not(.primary):not(.ghost){box-shadow:0 1px 0 rgba(255,255,255,.8) inset, 0 1px 2px rgba(13,27,30,.06)}
+
+/* ---------- etiquetas e rótulos */
+.pill{border-radius:999px;font-weight:700;letter-spacing:.01em}
+.label{font-size:11.5px;font-weight:600;letter-spacing:.01em}
+th{font-size:10.5px;letter-spacing:.14em;font-weight:700}
+.lbl-caps,.st-eyebrow{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:700}
+
+/* ---------- campos */
+.input,.select,textarea.input{border-radius:12px;border-color:var(--hair-2);background:color-mix(in srgb, var(--text) 1.5%, var(--surface))}
+.input:focus,.select:focus,textarea.input:focus{border-color:var(--primary);box-shadow:0 0 0 4px var(--primary-ring), 0 0 24px -8px var(--primary)}
+
+/* ---------- abas em pílula (a ativa ganha a cor da marca) */
+.seg{border-radius:999px;padding:4px;background:color-mix(in srgb, var(--text) 4%, transparent);box-shadow:inset 0 0 0 1px var(--hair)}
+.seg button{border-radius:999px;font-weight:600}
+.seg button.active{background:var(--primary);color:#fff;box-shadow:0 6px 18px -8px var(--primary)}
+.chip{border-radius:999px;border-color:var(--hair-2);font-weight:600}
+.chip.active{box-shadow:0 0 0 3px var(--primary-ring)}
+
+/* ---------- janelas */
+.modal-bg{backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.modal{border-radius:22px;border-color:var(--hair-2);background:var(--card-sheen)}
+.modal::before{content:"";position:absolute;top:0;left:18%;right:18%;height:1px;background:linear-gradient(90deg,transparent,var(--primary),transparent);opacity:.7}
+.modal{position:relative}
+.modal .mh{font-weight:800;letter-spacing:-.03em}
+
+/* ---------- tabelas: linhas finas */
+th,td{border-bottom-color:var(--hair)}
+tbody tr{transition:background .15s}
+
+/* ---------- entrada suave */
+.fade{animation:rv-in .45s cubic-bezier(.22,1,.36,1)}
+@keyframes rv-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+/* ---------- interruptor com brilho */
+.switch.on{box-shadow:0 0 14px -2px var(--primary)}
+
+@media (max-width:760px){
+  .topbar h1{font-size:17px}
+  .kcard-v,.kpi .val{font-size:24px}
+  .dhead h2{font-size:20px;letter-spacing:-.04em}
+  .navitem.active::before{left:-12px}
+}
+@media (prefers-reduced-motion:reduce){.fade{animation:none}}

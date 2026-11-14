@@ -12,240 +12,378 @@
 <meta property="og:image" content="/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  /* Um mundo só (escuro, como o app): fundo tinta-petróleo, acento verde-água da marca,
-     âmbar só para dinheiro entrando. Layout: conversa à esquerda vira fluxo à direita. */
-  --ink:#06171a;        /* fundo */
-  --panel:#0b2126;      /* superfícies */
-  --line:#18363c;       /* bordas */
-  --text:#e4f2ef;       /* texto */
-  --muted:#8fb0ab;      /* texto secundário */
-  --teal:#2dd4bf;       /* marca / ação */
-  --money:#f6c453;      /* venda, valores */
-  --display:"Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
-  --body:"Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  /* Paleta do Converza (igual à anterior): tinta-petróleo, verde-água da marca, âmbar só para dinheiro.
+     Linguagem visual: preto profundo com grade, títulos enormes e apertados, rótulos em pílula,
+     palavra destacada em caixa ou circulada à mão, mono para números, vidro nos botões secundários. */
+  --ink:#06171a;
+  --ink-2:#081d21;
+  --panel:#0b2126;
+  --line:#18363c;
+  --text:#e4f2ef;
+  --muted:#8fb0ab;
+  --teal:#2dd4bf;
+  --teal-2:#5eead4;
+  --money:#f6c453;
+  --sans:"Inter", ui-sans-serif, system-ui, sans-serif;
   --mono:"JetBrains Mono", ui-monospace, Menlo, monospace;
-  color-scheme:dark;
+  --hair:rgba(228,242,239,.06);
+  --hair-2:rgba(228,242,239,.1);
+  --glass:rgba(228,242,239,.04);
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{margin:0;background:var(--ink);color:var(--text);font:16px/1.6 var(--body);-webkit-font-smoothing:antialiased}
-a{color:inherit}
-img{max-width:100%}
-h1,h2,h3{font-family:var(--display);line-height:1.05;margin:0;text-wrap:balance;letter-spacing:-.02em}
-p{margin:0}
-:focus-visible{outline:2px solid var(--teal);outline-offset:3px;border-radius:6px}
-.wrap{width:min(1160px,100% - 40px);margin-inline:auto}
-.num{font-variant-numeric:tabular-nums}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--ink);color:var(--text);font:400 16px/1.6 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+img{display:block}
+.wrap{width:min(1180px,100% - 40px);margin:0 auto}
+.num,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+b,strong{font-weight:600;color:var(--text)}
+section{position:relative;padding:112px 0}
+section + section{border-top:1px solid var(--hair)}
 
-/* ---------- topo ---------- */
-.nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--ink) 82%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid color-mix(in srgb,var(--line) 70%,transparent)}
-.nav .wrap{display:flex;align-items:center;gap:28px;height:68px}
-.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font:800 21px var(--display);letter-spacing:-.02em}
-.brand img{width:34px;height:34px}
-.nav ul{display:flex;gap:22px;list-style:none;margin:0;padding:0;font-size:14.5px;color:var(--muted)}
-.nav ul a{text-decoration:none}
+/* ---------- botões */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 20px;border-radius:999px;font:600 14px var(--sans);cursor:pointer;border:0;transition:transform .2s,background-color .2s,scale .3s cubic-bezier(.4,0,.2,1);white-space:nowrap}
+.btn.main{background:var(--teal);color:#032421;font-weight:700}
+.btn.main:hover{background:var(--teal-2);transform:translateY(-1px)}
+/* vidro: brilho nas bordas por sombras internas */
+.btn.glass{color:var(--text);background:rgba(228,242,239,.02);box-shadow:
+  inset 3px 3px .5px -3.5px rgba(255,255,255,.09), inset -3px -3px .5px -3.5px rgba(255,255,255,.8),
+  inset 1px 1px 1px -.5px rgba(255,255,255,.55), inset -1px -1px 1px -.5px rgba(255,255,255,.55),
+  inset 0 0 6px 6px rgba(255,255,255,.08), inset 0 0 2px 2px rgba(255,255,255,.05), 0 0 12px rgba(0,0,0,.25)}
+.btn.glass:hover{scale:1.05}
+/* CTA principal: pílula escura, quadrado verde-água com o ícone, texto em caixa alta */
+.cta-big{display:inline-flex;align-items:center;gap:22px;height:64px;padding:0 34px 0 8px;border-radius:22px;background:#081b1f;box-shadow:inset 0 0 0 1px rgba(228,242,239,.14),0 20px 50px -20px rgba(45,212,191,.35);font:700 17px var(--sans);letter-spacing:.04em;text-transform:uppercase;color:var(--text);position:relative;overflow:hidden;transition:transform .25s,box-shadow .25s}
+.cta-big .sq{width:48px;height:48px;border-radius:15px;background:var(--teal);color:#032421;display:grid;place-items:center;position:relative;z-index:1;transition:width .35s cubic-bezier(.22,1,.36,1)}
+.cta-big:hover{transform:translateY(-2px);box-shadow:inset 0 0 0 1px rgba(45,212,191,.5),0 24px 60px -18px rgba(45,212,191,.5)}
+.cta-big .lbl-t{position:relative;z-index:1}
+.cta-big::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,rgba(94,234,212,.14) 50%,transparent 70%);transform:translateX(-100%);transition:transform .7s}
+.cta-big:hover::after{transform:translateX(100%)}
+.cta-glow{display:inline-flex;align-items:center;gap:12px;height:56px;padding:0 30px;border-radius:16px;background:linear-gradient(180deg,#5eead4,#2dd4bf);color:#032421;font:800 16px var(--sans);letter-spacing:.04em;text-transform:uppercase;box-shadow:0 0 0 1px rgba(94,234,212,.6),0 0 40px rgba(45,212,191,.45),0 0 90px rgba(45,212,191,.2),inset 0 1px 0 rgba(255,255,255,.5);transition:transform .2s,box-shadow .2s}
+.cta-glow:hover{transform:translateY(-2px);box-shadow:0 0 0 1px rgba(94,234,212,.8),0 0 50px rgba(45,212,191,.6),0 0 110px rgba(45,212,191,.3),inset 0 1px 0 rgba(255,255,255,.5)}
+
+/* ---------- topo */
+.nav{position:sticky;top:0;z-index:50;background:rgba(6,23,26,.82);backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);border-bottom:1px solid var(--hair)}
+.nav .wrap{display:flex;align-items:center;height:64px;gap:20px}
+.brand{display:flex;align-items:center;gap:9px;font:800 19px var(--sans);letter-spacing:-.03em}
+.brand img{border-radius:9px}
+.nav ul{display:flex;gap:28px;list-style:none;margin:0 auto;padding:0}
+.nav ul a{font-size:14px;color:var(--muted);transition:color .2s}
 .nav ul a:hover{color:var(--text)}
-.nav .act{margin-left:auto;display:flex;gap:10px;align-items:center}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:11px;padding:11px 18px;font:700 15px var(--body);text-decoration:none;border:1px solid transparent;cursor:pointer;transition:transform .15s,background .15s,border-color .15s}
-.btn:hover{transform:translateY(-1px)}
-.btn.main{background:var(--teal);color:#032521}
-.btn.main:hover{background:color-mix(in srgb,var(--teal) 86%,white)}
-.btn.ghost{border-color:var(--line);color:var(--text)}
-.btn.ghost:hover{border-color:var(--teal)}
-.btn.lg{padding:15px 24px;font-size:16px;border-radius:13px}
-/* celular: menu com os links das seções, e Entrar + Criar conta sempre visíveis */
-.nav .menu{display:none;width:40px;height:40px;border-radius:11px;border:1px solid var(--line);background:transparent;color:var(--text);align-items:center;justify-content:center;cursor:pointer;flex:none}
-@media (max-width:860px){
-  .nav .wrap{gap:10px;height:62px}
-  .nav .menu{display:inline-flex;order:3}
-  .nav .act{order:2}
-  .nav ul{display:none;position:absolute;left:0;right:0;top:62px;flex-direction:column;gap:0;padding:6px 20px 14px;background:color-mix(in srgb,var(--ink) 96%,transparent);border-bottom:1px solid var(--line);font-size:16px}
-  .nav.open ul{display:flex}
-  .nav ul a{display:block;padding:12px 0;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
-  .nav ul li:last-child a{border-bottom:0}
-  .nav .act .btn{padding:9px 13px;font-size:14px;border-radius:10px}
-}
-@media (max-width:440px){.brand span{display:none}.nav .act{gap:8px}}
-@media (max-width:340px){.nav .act .btn{padding:8px 10px;font-size:13px}}
+.nav .act{display:flex;gap:10px}
+.menu{display:none;background:none;border:0;color:var(--text);padding:8px;cursor:pointer;border-radius:10px}
 
-/* ---------- hero ---------- */
-.hero{padding:72px 0 56px;position:relative;overflow:hidden}
-.hero::before{content:"";position:absolute;inset:-30% -10% auto auto;width:720px;height:720px;background:radial-gradient(closest-side,color-mix(in srgb,var(--teal) 16%,transparent),transparent);pointer-events:none}
-.hero .wrap{display:grid;grid-template-columns:1.02fr 1fr;gap:56px;align-items:center;position:relative}
-@media (max-width:960px){.hero .wrap{grid-template-columns:1fr}}
-.kicker{display:inline-flex;align-items:center;gap:8px;font:500 12.5px var(--mono);color:var(--teal);letter-spacing:.04em;text-transform:uppercase;margin-bottom:22px}
-.kicker i{width:8px;height:8px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 4px color-mix(in srgb,var(--teal) 22%,transparent)}
-.hero h1{font-size:clamp(38px,5vw,62px);font-weight:800}
-.hero h1 em{font-style:normal;color:var(--teal)}
-.hero h1 .money{color:var(--money)}
-.lead{margin-top:22px;font-size:19px;color:var(--muted);max-width:33em}
-.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px}
-.proof{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:34px;font-size:13.5px;color:var(--muted)}
-.proof span{display:inline-flex;align-items:center;gap:7px}
-.proof svg{color:var(--teal)}
+/* ---------- peças compartilhadas */
+.pill{display:inline-flex;align-items:center;gap:8px;padding:5px 13px;border-radius:999px;background:var(--glass);border:1px solid var(--hair);color:#9db8b3;font:700 11px var(--sans);letter-spacing:.16em;text-transform:uppercase}
+.pill.on{background:rgba(45,212,191,.1);border-color:rgba(45,212,191,.28);color:var(--teal)}
+.kicker{display:inline-flex;align-items:center;gap:9px;padding:7px 15px;border-radius:999px;background:var(--glass);border:1px solid var(--hair-2);font-size:13px;font-weight:500;color:#bcd6d1}
+.kicker i{font-style:normal;color:var(--teal)}
+.sec-hd{text-align:center;max-width:860px;margin:0 auto 60px}
+.sec-hd .pill{margin-bottom:22px}
+h1,h2,h3{margin:0;font-family:var(--sans);color:var(--text)}
+h2{font-size:clamp(36px,5.2vw,64px);line-height:1.08;font-weight:800;letter-spacing:-.05em}
+.sec-hd p{margin:22px auto 0;max-width:620px;color:var(--muted);font-size:17px}
+.hl{display:inline-block;background:var(--teal);color:#032421;padding:0 .14em;margin:0 -.02em;border-radius:4px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.t{color:var(--teal)}
+.money{color:var(--money)}
+/* palavra circulada / sublinhada à mão (desenha quando aparece) */
+.ring,.under{position:relative;display:inline-block;white-space:nowrap}
+.ring svg,.under svg{position:absolute;pointer-events:none;overflow:visible}
+.ring svg{left:-6%;top:-14%;width:112%;height:128%}
+.under svg{left:-2%;bottom:-.16em;width:104%;height:.36em}
+.ring path,.under path{fill:none;stroke:var(--teal);stroke-width:3;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1;transition:stroke-dashoffset 1.1s cubic-bezier(.22,1,.36,1) .35s}
+.in .ring path,.in .under path,.ring.in path,.under.in path{stroke-dashoffset:0}
+.card{background:linear-gradient(180deg,rgba(228,242,239,.035),rgba(228,242,239,.015));border:1px solid var(--hair-2);border-radius:20px}
+.check{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:11px}
+.check li{display:flex;gap:11px;align-items:flex-start;color:#c3d9d5;font-size:15px;line-height:1.5}
+.check svg{flex:none;margin-top:3px;color:var(--teal)}
+/* grade do fundo, com máscara radial */
+.grid-bg{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(228,242,239,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(228,242,239,.05) 1px,transparent 1px);background-size:42px 42px;-webkit-mask-image:radial-gradient(75% 65% at 50% 28%,#000 25%,transparent 85%);mask-image:radial-gradient(75% 65% at 50% 28%,#000 25%,transparent 85%)}
+.glow-top{position:absolute;left:0;right:0;top:0;height:420px;pointer-events:none;background:radial-gradient(60% 100% at 50% 0%,rgba(45,212,191,.12),transparent 70%)}
+/* aparecer ao rolar */
+.rv{opacity:0;transform:translateY(22px);transition:opacity .8s cubic-bezier(.22,1,.36,1),transform .8s cubic-bezier(.22,1,.36,1)}
+.rv.in{opacity:1;transform:none}
+.rv.d1{transition-delay:.08s}.rv.d2{transition-delay:.16s}.rv.d3{transition-delay:.24s}
 
-/* demo: conversa + fluxo */
-.demo{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:stretch}
-@media (max-width:540px){.demo{grid-template-columns:1fr}}
-.phone{background:#0a1c1f;border:1px solid var(--line);border-radius:26px;padding:14px;box-shadow:0 30px 80px -30px #000}
-.phone-hd{display:flex;align-items:center;gap:9px;padding:4px 4px 12px;border-bottom:1px solid var(--line);margin-bottom:10px}
-.phone-hd b{font-size:13.5px}
-.phone-hd small{display:block;font-size:11.5px;color:var(--teal)}
-.av{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#f6c453,#f08a5d);display:grid;place-items:center;font:700 13px var(--display);color:#3a1f00}
-.msgs{display:flex;flex-direction:column;gap:8px;font-size:13.5px;line-height:1.4}
-.m{max-width:86%;padding:8px 11px;border-radius:13px;transition:box-shadow .3s,transform .3s}
-.m.in{background:#13302f;align-self:flex-start;border-bottom-left-radius:4px}
-.m.out{background:#0f4d45;align-self:flex-end;border-bottom-right-radius:4px}
-.m small{display:block;font-size:10.5px;color:var(--muted);text-align:right;margin-top:2px}
-.m.file{display:flex;gap:8px;align-items:center}
-.m.file .pdf{width:28px;height:34px;border-radius:5px;background:#e9f4f2;color:#b42318;font:700 9px var(--mono);display:grid;place-items:center;flex:none}
-.m.on{box-shadow:0 0 0 2px var(--teal);transform:translateX(0) scale(1.02)}
-.typing{align-self:flex-end;display:none;gap:4px;padding:9px 12px;background:#0f4d45;border-radius:13px}
+/* ---------- herói */
+.hero{padding:90px 0 0;overflow:hidden;text-align:center}
+.hero .wrap{position:relative}
+.hero h1{font-size:clamp(42px,7vw,88px);line-height:1.02;font-weight:800;letter-spacing:-.055em;margin:28px auto 0;max-width:1000px}
+.hero h1 .l2{display:block;color:var(--teal)}
+.hero .lead{max-width:640px;margin:28px auto 0;font-size:18px;color:var(--muted);line-height:1.65}
+.hero .lead b{color:var(--text)}
+.hero .lead u{text-decoration:none;color:var(--text);font-weight:600;border-bottom:1.5px solid var(--teal)}
+.hero .cta{margin-top:40px;display:flex;justify-content:center;gap:14px;flex-wrap:wrap;align-items:center}
+.hero .facts{margin-top:26px;font:400 13px var(--mono);color:#6f9590;letter-spacing:.02em}
+.hero .facts span{color:#a9c6c1}
+/* janela do produto */
+.window{position:relative;margin:70px auto 0;max-width:1120px;border-radius:18px 18px 0 0;border:1px solid var(--hair-2);border-bottom:0;background:#071a1e;box-shadow:0 -30px 120px -40px rgba(45,212,191,.28);overflow:hidden}
+.window::before{content:"";position:absolute;top:0;left:12%;right:12%;height:1px;background:linear-gradient(90deg,transparent,rgba(45,212,191,.9),transparent)}
+.win-bar{display:flex;align-items:center;gap:8px;height:44px;padding:0 16px;border-bottom:1px solid var(--hair);font:400 12px var(--mono);color:#6f9590}
+.win-bar i{width:11px;height:11px;border-radius:50%;display:inline-block}
+.win-bar .url{margin-left:10px}
+.live{margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--teal);letter-spacing:.12em;font-size:11px}
+.live::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 0 rgba(45,212,191,.6);animation:ping 1.8s infinite}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(45,212,191,.6)}80%,100%{box-shadow:0 0 0 9px rgba(45,212,191,0)}}
+.demo{display:grid;grid-template-columns:340px 1fr;gap:0;text-align:left;min-height:440px}
+.phone{border-right:1px solid var(--hair);display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(228,242,239,.02),transparent)}
+.phone-hd{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--hair)}
+.av{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#2dd4bf,#0f766e);display:grid;place-items:center;font-weight:800;color:#032421}
+.phone-hd b{display:block;font-size:14px}
+.phone-hd small{color:var(--teal);font-size:12px}
+.msgs{padding:16px;display:flex;flex-direction:column;gap:9px;flex:1}
+.m{max-width:85%;padding:9px 12px 18px;border-radius:14px;font-size:13.5px;line-height:1.45;position:relative;opacity:.38;transition:opacity .4s,transform .4s}
+.m small{position:absolute;right:9px;bottom:3px;font:400 10px var(--mono);color:#7ea29d}
+.m.in{align-self:flex-start;background:#0e262b;border:1px solid var(--hair);border-bottom-left-radius:4px}
+.m.out{align-self:flex-end;background:#0c3a37;border:1px solid rgba(45,212,191,.22);border-bottom-right-radius:4px}
+.m.on,.m.seen{opacity:1}
+.m.file{display:flex;align-items:center;gap:8px}
+.pdf{font:700 10px var(--mono);background:#b91c1c;color:#fff;padding:3px 5px;border-radius:4px}
+.typing{align-self:flex-end;display:none;gap:4px;padding:10px 12px;background:#0c3a37;border-radius:14px}
 .typing.on{display:flex}
-.typing i{width:6px;height:6px;border-radius:50%;background:#9fe7dc;animation:dot 1s infinite}
+.typing i{width:6px;height:6px;border-radius:50%;background:var(--teal);animation:bl 1s infinite}
 .typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
-@keyframes dot{0%,80%,100%{opacity:.3}40%{opacity:1}}
+@keyframes bl{0%,100%{opacity:.3}50%{opacity:1}}
+.flowpane{position:relative;padding:22px 26px;background-image:radial-gradient(rgba(228,242,239,.07) 1px,transparent 1px);background-size:18px 18px}
+.flow-top{display:flex;align-items:center;gap:10px;margin-bottom:18px;font:500 12px var(--mono);color:#6f9590}
+.flow-top b{color:var(--text);font-family:var(--sans);font-size:14px}
+.flow-top .tag{margin-left:auto;padding:3px 9px;border-radius:999px;border:1px solid rgba(45,212,191,.3);color:var(--teal);font-size:11px}
+.nodes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 18px;position:relative}
+.node{padding:13px 14px;border-radius:14px;background:#0a2227;border:1px solid var(--hair-2);transition:border-color .35s,box-shadow .35s,transform .35s}
+.node .nt{display:flex;align-items:center;gap:9px;font-weight:700;font-size:14px}
+.node .nt i{font-style:normal;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:13px}
+.node p{margin:6px 0 0;color:var(--muted);font-size:12.5px}
+.node .st{margin-top:10px;display:flex;gap:12px;font:500 11px var(--mono);color:#6f9590}
+.node .st em{font-style:normal;color:var(--teal)}
+.node.on{border-color:rgba(45,212,191,.7);box-shadow:0 0 0 4px rgba(45,212,191,.1),0 10px 40px -10px rgba(45,212,191,.35);transform:translateY(-2px)}
+.sale{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:14px;background:rgba(246,196,83,.06);border:1px solid rgba(246,196,83,.22);opacity:.45;transition:opacity .4s,box-shadow .4s}
+.sale .ic{width:30px;height:30px;border-radius:9px;background:var(--money);color:#2a1d02;display:grid;place-items:center;font-weight:800}
+.sale .v{white-space:nowrap;margin-left:auto;color:var(--money);font-size:20px;font-weight:700}
+.sale small{display:block;color:#bfa66a;font:400 11px var(--mono)}
+.sale.on{opacity:1;box-shadow:0 0 50px -10px rgba(246,196,83,.4)}
+.window-fade{position:absolute;left:0;right:0;bottom:0;height:90px;background:linear-gradient(180deg,transparent,var(--ink));pointer-events:none}
 
-.flow{position:relative;display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:22px;border:1px dashed var(--line);background:
-  radial-gradient(circle,color-mix(in srgb,var(--line) 90%,transparent) 1px,transparent 1.2px) 0 0/16px 16px}
-.node{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:10px 12px;transition:border-color .3s,box-shadow .3s}
-.node+.node::before{content:"";position:absolute;left:24px;top:-13px;width:2px;height:13px;background:var(--line)}
-.node .t{display:flex;align-items:center;gap:8px;font:700 13px var(--body)}
-.node .t i{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;flex:none}
-.node p{font-size:12px;color:var(--muted);margin-top:3px}
-.node.on{border-color:var(--teal);box-shadow:0 0 0 3px color-mix(in srgb,var(--teal) 25%,transparent)}
-.node.on+.node::before{background:var(--teal)}
-.sale{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:999px;border:2px solid var(--money);background:color-mix(in srgb,var(--money) 10%,var(--panel));font:800 14px var(--display)}
-.sale .ic{width:30px;height:30px;border-radius:50%;background:var(--money);color:#3a2600;display:grid;place-items:center;font:800 16px var(--display)}
-.sale .v{margin-left:auto;color:var(--money);white-space:nowrap}
-.sale.on{animation:neon 1.4s ease-in-out infinite}
-@keyframes neon{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--money) 0%,transparent)}50%{box-shadow:0 0 26px 2px color-mix(in srgb,var(--money) 55%,transparent)}}
+/* ---------- vazamentos: lado a lado, como "problema / solução" */
+.leaks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.leak{padding:26px;display:flex;flex-direction:column;gap:16px;transition:border-color .3s,transform .3s}
+.leak:hover{border-color:rgba(45,212,191,.35);transform:translateY(-3px)}
+.leak .top{display:flex;align-items:center;gap:12px}
+.leak .n{font:700 12px var(--mono);color:var(--teal);padding:4px 9px;border-radius:8px;background:rgba(45,212,191,.08);border:1px solid rgba(45,212,191,.2)}
+.leak h3{font-size:20px;font-weight:700;letter-spacing:-.025em}
+.leak .pain{margin:0;color:var(--muted);font-size:15px;padding-left:14px;border-left:2px solid rgba(239,116,116,.55)}
+.leak .fix{padding-left:14px;border-left:2px solid var(--teal);font-size:15px;color:#c3d9d5}
+.leak .fix b{display:block;color:var(--text);margin-bottom:2px}
 
-/* ---------- seções ---------- */
-section{padding:84px 0}
-@media (max-width:760px){section{padding:56px 0}.sec-hd{margin-bottom:28px}.hero{padding:40px 0 36px}.tile{min-height:0}}
-.sec-hd{display:grid;gap:14px;max-width:720px;margin-bottom:44px}
-.sec-hd .lbl{font:500 12.5px var(--mono);color:var(--teal);letter-spacing:.06em;text-transform:uppercase}
-.sec-hd h2{font-size:clamp(30px,4vw,48px);font-weight:800}
-.sec-hd p{color:var(--muted);font-size:17.5px;max-width:38em}
+/* ---------- recursos: leque de cartões + grade */
+.fan{position:relative;height:560px;max-width:1080px;margin:0 auto 26px}
+.fan .fc{position:absolute;top:60px;width:420px;padding:26px;border-radius:22px;background:#0a2126;border:1px solid var(--hair-2);transition:transform .7s cubic-bezier(.22,1,.36,1),opacity .7s;box-shadow:0 40px 80px -30px rgba(0,0,0,.7)}
+.fan .fc.l{left:2%;transform:rotate(-7deg) translateY(40px);opacity:.55}
+.fan .fc.r{right:2%;transform:rotate(7deg) translateY(40px);opacity:.55}
+.fan .fc.c{left:50%;top:0;width:460px;transform:translateX(-50%);z-index:2;background:#0b252a;border-color:rgba(45,212,191,.35);box-shadow:0 0 0 1px rgba(45,212,191,.12),0 50px 100px -30px rgba(0,0,0,.8),0 -20px 80px -40px rgba(45,212,191,.4)}
+.fan:hover .fc.l{transform:rotate(-9deg) translate(-16px,40px);opacity:.75}
+.fan:hover .fc.r{transform:rotate(9deg) translate(16px,40px);opacity:.75}
+.fc .fh{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.fc .ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:rgba(45,212,191,.1);color:var(--teal)}
+.fc h3{font-size:22px;font-weight:700;letter-spacing:-.03em;margin-bottom:8px}
+.fc p{margin:0 0 16px;color:var(--muted);font-size:14.5px}
+.fc .check li{font-size:14px}
+.fc .ex{margin-top:20px;border-top:1px solid var(--hair);padding-top:14px}
+.fc .ex-l{font:700 10.5px var(--sans);letter-spacing:.16em;color:#6f9590;text-transform:uppercase;margin-bottom:10px}
+.mini-flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.mini-flow span{padding:5px 10px;border-radius:9px;border:1px solid var(--hair-2);background:rgba(228,242,239,.03);font:500 12px var(--mono);color:#bcd6d1}
+.mini-flow em{font-style:normal;color:#4e7671;font-size:12px}
+.wave{display:flex;align-items:center;gap:3px;height:34px}
+.wave i{display:block;width:4px;border-radius:2px;background:var(--teal);opacity:.8;animation:wv 1.4s ease-in-out infinite}
+@keyframes wv{0%,100%{transform:scaleY(.55)}50%{transform:scaleY(1)}}
+.qrow{display:flex;gap:8px;flex-wrap:wrap}
+.qrow span{font:500 11.5px var(--mono);padding:5px 9px;border-radius:8px;background:rgba(228,242,239,.04);border:1px solid var(--hair);color:#a9c6c1}
+.qrow span.on{color:var(--teal);border-color:rgba(45,212,191,.3)}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.tile{padding:22px;display:flex;flex-direction:column;gap:10px;transition:border-color .3s,transform .3s}
+.tile:hover{border-color:rgba(45,212,191,.35);transform:translateY(-3px)}
+.tile .ic{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;background:rgba(45,212,191,.08);color:var(--teal)}
+.tile h3{font-size:16.5px;font-weight:700;letter-spacing:-.02em}
+.tile p{margin:0;color:var(--muted);font-size:14px}
+.tile .foot{margin-top:auto;padding-top:6px;font:500 12px var(--mono);color:#6f9590}
+.tile .foot b{font-family:var(--mono);color:var(--money);font-weight:700}
 
-/* onde as vendas escapam: dor → resposta */
-.leaks{display:grid;gap:0;border-top:1px solid var(--line)}
-.leak{display:grid;grid-template-columns:70px 1fr 1fr;gap:24px;padding:26px 0;border-bottom:1px solid var(--line);align-items:start}
-.leak .n{font:800 34px var(--display);color:color-mix(in srgb,var(--text) 22%,transparent);line-height:1}
-.leak h3{font-size:22px;font-weight:700}
-.leak .pain{color:var(--muted);margin-top:6px}
-.leak .fix{padding-left:18px;border-left:2px solid var(--teal)}
-.leak .fix b{display:block;font-size:13px;color:var(--teal);font-family:var(--mono);font-weight:500;letter-spacing:.03em;margin-bottom:4px}
-@media (max-width:760px){.leak{grid-template-columns:44px 1fr}.leak .fix{grid-column:2}}
+/* ---------- integrações: letreiro */
+.marquee{position:relative;overflow:hidden;-webkit-mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);display:flex;flex-direction:column;gap:14px}
+.track{display:flex;gap:14px;width:max-content;animation:mq-l 38s linear infinite}
+.track.rev{animation-name:mq-r}
+.marquee:hover .track{animation-play-state:paused}
+@keyframes mq-l{to{transform:translateX(-50%)}}
+@keyframes mq-r{from{transform:translateX(-50%)}to{transform:none}}
+.chipx{display:flex;align-items:center;gap:10px;padding:12px 18px;border-radius:14px;background:rgba(228,242,239,.03);border:1px solid var(--hair-2);font-weight:700;font-size:15px;white-space:nowrap}
+.chipx small{font:400 11px var(--mono);color:#6f9590}
+.chipx .dot{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:rgba(45,212,191,.1);color:var(--teal);font:800 12px var(--sans)}
+.chipx .new{font:800 10px var(--sans);letter-spacing:.08em;padding:3px 7px;border-radius:999px;background:var(--teal);color:#032421}
+.marq-note{text-align:center;margin-top:26px;color:#6f9590;font-size:13px}
 
-/* recursos em grade de tamanhos diferentes */
-.bento{display:grid;grid-template-columns:repeat(6,1fr);gap:14px}
-.tile{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:24px;display:flex;flex-direction:column;gap:10px;min-height:220px}
-.tile h3{font-size:22px;font-weight:700}
-.tile p{color:var(--muted);font-size:15px}
-.tile .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto}
-.chip{font:500 11.5px var(--mono);padding:4px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
-.w3{grid-column:span 3}.w2{grid-column:span 2}.w4{grid-column:span 4}
-@media (max-width:900px){.w3,.w2,.w4{grid-column:span 6}}
-.tile.big{background:linear-gradient(160deg,color-mix(in srgb,var(--teal) 12%,var(--panel)),var(--panel) 60%)}
-.mini-flow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px}
-.mini-flow span{font:600 12px var(--body);padding:6px 10px;border-radius:9px;background:#0f2c31;border:1px solid var(--line)}
-.mini-flow em{font-style:normal;color:var(--teal)}
-.wave{display:flex;align-items:center;gap:3px;height:28px;margin-top:4px}
-.wave i{width:4px;border-radius:2px;background:var(--teal);opacity:.85}
-.roas{display:flex;gap:18px;margin-top:6px}
-.roas div{display:grid}
-.roas b{font:800 26px var(--display);color:var(--money)}
-.roas small{font-size:12px;color:var(--muted)}
+/* ---------- como começar: abas em pílula */
+.seg{display:inline-flex;gap:4px;padding:4px;border-radius:999px;background:rgba(228,242,239,.04);border:1px solid var(--hair-2)}
+.seg button{border:0;background:none;color:var(--muted);font:600 13.5px var(--sans);padding:9px 16px;border-radius:999px;cursor:pointer;transition:background .25s,color .25s;position:relative;overflow:hidden}
+.seg button.on{background:var(--teal);color:#032421}
+.seg button .bar{position:absolute;left:0;bottom:0;height:2px;background:rgba(3,36,33,.45);width:0}
+.seg button.on .bar{animation:fill 5s linear forwards}
+@keyframes fill{to{width:100%}}
+.steps-wrap{text-align:center}
+.step-panel{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;margin-top:40px;text-align:left;padding:34px}
+.step-panel h3{font-size:30px;font-weight:800;letter-spacing:-.04em;margin-bottom:12px}
+.step-panel p{color:var(--muted);margin:0 0 20px;font-size:16px}
+.step-vis{border-radius:16px;border:1px solid var(--hair-2);background:#071a1e;padding:20px;min-height:230px;display:flex;flex-direction:column;gap:10px;justify-content:center}
+.sv-row{display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:12px;background:rgba(228,242,239,.03);border:1px solid var(--hair);font-size:14px}
+.sv-row .k{margin-left:auto;font:500 12px var(--mono);color:var(--teal)}
+.sv-row.hi{border-color:rgba(45,212,191,.4);background:rgba(45,212,191,.06)}
+.step-fade{animation:sf .5s cubic-bezier(.22,1,.36,1)}
+@keyframes sf{from{opacity:0;transform:translateY(10px)}}
 
-/* como começar */
-.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;counter-reset:s}
-@media (max-width:820px){.steps{grid-template-columns:1fr}}
-.step{padding:26px;border-radius:20px;border:1px solid var(--line);position:relative}
-.step::before{counter-increment:s;content:"0" counter(s);font:500 13px var(--mono);color:var(--teal)}
-.step h3{font-size:21px;margin:12px 0 8px}
-.step p{color:var(--muted);font-size:15px}
+/* ---------- calculadora */
+.calc{display:grid;grid-template-columns:1.1fr .9fr;gap:18px;max-width:1000px;margin:0 auto}
+.calc .card{padding:28px}
+.field{margin-bottom:24px}
+.field label{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;color:#c3d9d5;margin-bottom:10px;font-weight:500}
+.field output{font:700 15px var(--mono);color:var(--text)}
+input[type=range]{width:100%;-webkit-appearance:none;appearance:none;height:6px;border-radius:99px;background:linear-gradient(90deg,var(--teal) var(--p,50%),rgba(228,242,239,.1) var(--p,50%));outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#e4f2ef;border:4px solid var(--teal);cursor:pointer;box-shadow:0 0 0 4px rgba(45,212,191,.15)}
+input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#e4f2ef;border:4px solid var(--teal);cursor:pointer}
+.result{display:flex;flex-direction:column}
+.result .row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:15px 0;border-bottom:1px solid var(--hair);font-size:14.5px;color:var(--muted)}
+.result .row b{font:700 18px var(--mono);color:var(--text)}
+.result .row.big{border:0;margin:6px -10px 0;padding:18px 16px;border-radius:14px;background:rgba(246,196,83,.07);border:1px solid rgba(246,196,83,.2)}
+.result .row.big span{color:#e8d3a0}
+.result .row.big b{font-size:26px;color:var(--money)}
+.note{color:#6f9590;font-size:13px;margin:16px 0 0;line-height:1.55}
 
-/* calculadora */
-.calc{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-@media (max-width:880px){.calc{grid-template-columns:1fr}}
-@media (max-width:520px){.row b{font-size:22px;white-space:nowrap}.row.hl b{font-size:30px}.row span{font-size:14.5px}}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:28px}
-.field{display:grid;gap:8px;margin-bottom:20px}
-.field label{display:flex;justify-content:space-between;font-weight:600;font-size:14.5px}
-.field label output{font-family:var(--mono);color:var(--teal);font-weight:500}
-input[type=range]{width:100%;accent-color:var(--teal)}
-.result{display:grid;gap:18px;align-content:start}
-.row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:14px;border-bottom:1px dashed var(--line)}
-.row span{color:var(--muted)}
-.row b{font:800 26px var(--display)}
-.row.hl b{color:var(--money);font-size:38px}
-.note{font-size:13px;color:var(--muted)}
-
-/* preço */
-.price{display:grid;grid-template-columns:1.1fr 1fr;gap:18px}
-@media (max-width:880px){.price{grid-template-columns:1fr}}
-@media (max-width:520px){.amount{flex-wrap:wrap;gap:4px 10px}.amount b{font-size:52px}.card{padding:22px}.final .box{padding:26px}.total{font-size:34px}}
-.plan h3{font-size:16px;font-family:var(--mono);font-weight:500;color:var(--teal);letter-spacing:.04em;text-transform:uppercase}
-.amount{display:flex;align-items:baseline;gap:8px;margin:12px 0 4px}
-.amount b{font:800 64px var(--display);letter-spacing:-.03em}
-.amount span{color:var(--muted)}
-.inc{list-style:none;padding:0;margin:22px 0 26px;display:grid;gap:10px}
-.inc li{display:flex;gap:10px;align-items:flex-start}
-.inc svg{flex:none;margin-top:4px;color:var(--teal)}
-.qty{display:flex;align-items:center;gap:12px;margin:14px 0 18px}
-.qty button{width:40px;height:40px;border-radius:11px;border:1px solid var(--line);background:transparent;color:var(--text);font:700 20px var(--body);cursor:pointer}
+/* ---------- preços: um cartão dividido */
+.price{display:grid;grid-template-columns:.95fr 1.05fr;max-width:1000px;margin:0 auto;overflow:hidden;padding:0}
+.price .l{padding:34px;border-right:1px solid var(--hair-2);display:flex;flex-direction:column;gap:18px}
+.price .r{padding:34px;background:rgba(0,0,0,.12)}
+.plan-hd{display:flex;align-items:center;justify-content:space-between}
+.plan-hd h3{font-size:15px;font-weight:600;color:#c3d9d5}
+.badge{font:800 11px var(--sans);padding:5px 10px;border-radius:999px;background:var(--teal);color:#032421}
+.amount{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.amount b{font:800 clamp(52px,6vw,72px) var(--sans);letter-spacing:-.05em;color:var(--teal);line-height:1}
+.amount span{color:var(--muted);font-size:15px}
+.amount small{display:block;width:100%;color:#6f9590;font-size:13px}
+.btn-wide{display:flex;align-items:center;justify-content:center;gap:10px;height:52px;border-radius:999px;font:700 15px var(--sans);letter-spacing:.06em;text-transform:uppercase;background:rgba(228,242,239,.06);box-shadow:inset 0 0 0 1px rgba(228,242,239,.3);transition:background .25s,box-shadow .25s}
+.btn-wide:hover{background:var(--teal);color:#032421;box-shadow:inset 0 0 0 1px var(--teal)}
+.sub{color:#6f9590;font-size:12.5px;text-align:center;margin-top:-8px}
+.mybox{padding:18px;border-radius:16px;background:rgba(45,212,191,.05);border:1px solid rgba(45,212,191,.18);border-left:3px solid var(--teal)}
+.mybox .bh{font:800 11px var(--sans);letter-spacing:.14em;color:var(--teal);text-transform:uppercase;margin-bottom:12px;display:flex;gap:8px;align-items:center}
+.qty{display:flex;align-items:center;gap:12px}
+.qty button{width:38px;height:38px;border-radius:12px;border:1px solid var(--hair-2);background:rgba(228,242,239,.04);color:var(--text);font-size:20px;cursor:pointer;transition:border-color .2s}
 .qty button:hover{border-color:var(--teal)}
-.qty output{font:800 28px var(--display);min-width:3ch;text-align:center}
-.total{font:800 40px var(--display);color:var(--money)}
-.extras{display:grid;gap:12px;margin-top:22px;padding-top:22px;border-top:1px solid var(--line)}
-.extras div{display:flex;justify-content:space-between;gap:12px;font-size:15px}
-.extras span{color:var(--muted)}
+.qty output{font:700 24px var(--mono);min-width:34px;text-align:center}
+.qty .tot{margin-left:auto;text-align:right}
+.qty .tot b{display:block;font:700 22px var(--mono);color:var(--money)}
+.qty .tot small{color:#6f9590;font-size:12px}
+.inc-lbl{font:700 11px var(--sans);letter-spacing:.16em;color:#6f9590;text-transform:uppercase;margin-bottom:18px}
+.inc-g{margin-bottom:22px}
+.inc-g h4{display:flex;align-items:center;gap:10px;margin:0 0 12px;font-size:15px;font-weight:700}
+.inc-g h4 i{font-style:normal;width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:rgba(45,212,191,.1);color:var(--teal)}
+.inc-g .check{padding-left:4px;gap:8px}
+.inc-g .check li{font-size:14px}
+.extras{display:flex;flex-direction:column;gap:0;margin-top:4px;border-top:1px solid var(--hair);padding-top:6px}
+.extras div{display:flex;justify-content:space-between;gap:12px;padding:9px 0;font-size:13.5px;color:var(--muted)}
+.extras b{font:600 13px var(--mono);color:var(--text)}
+.trust{text-align:center;margin-top:22px;color:#6f9590;font-size:13px}
 
-/* perguntas */
-.faq{display:grid;gap:10px;max-width:860px}
-details{border:1px solid var(--line);border-radius:16px;background:var(--panel);padding:0 22px}
-summary{cursor:pointer;list-style:none;padding:19px 0;font:700 17px var(--body);display:flex;justify-content:space-between;gap:16px}
-summary::-webkit-details-marker{display:none}
-summary::after{content:"+";font:500 22px var(--mono);color:var(--teal);line-height:1}
-details[open] summary::after{content:"–"}
-details p{padding:0 0 20px;color:var(--muted)}
+/* ---------- perguntas */
+.faq{max-width:780px;margin:0 auto}
+.faq details{border-bottom:1px solid var(--hair-2)}
+.faq summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 2px;font-size:16px;font-weight:500;color:var(--text);transition:color .2s}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary:hover{color:var(--teal)}
+.faq summary::after{content:"";width:9px;height:9px;border-right:1.6px solid #7ea29d;border-bottom:1.6px solid #7ea29d;transform:rotate(45deg) translateY(-3px);transition:transform .3s;flex:none}
+.faq details[open] summary::after{transform:rotate(225deg) translateY(-1px)}
+.faq details p{margin:0;padding:0 2px 22px;color:var(--muted);font-size:15px;line-height:1.7;animation:sf .4s}
 
-/* final */
-.final{text-align:left}
-.final .box{border-radius:28px;padding:56px;background:
-  linear-gradient(120deg,color-mix(in srgb,var(--teal) 22%,var(--panel)),var(--panel) 55%);border:1px solid color-mix(in srgb,var(--teal) 35%,var(--line));display:grid;grid-template-columns:1.4fr auto;gap:28px;align-items:center}
-@media (max-width:820px){.final .box{grid-template-columns:1fr;padding:34px}}
-.final h2{font-size:clamp(30px,4vw,50px);font-weight:800}
-.final p{color:var(--muted);margin-top:12px;font-size:17px}
+/* ---------- chamada final */
+.final{text-align:center;overflow:hidden;padding:120px 0}
+.final h2{font-size:clamp(40px,6vw,76px);max-width:900px;margin:22px auto 0}
+.final h2 .l2{display:block;color:var(--teal)}
+.final p{color:var(--muted);font-size:17px;margin:22px auto 36px;max-width:560px}
+.final .mini{margin-top:18px;font:400 12.5px var(--mono);color:#6f9590}
 
-footer{border-top:1px solid var(--line);padding:40px 0 56px;color:var(--muted);font-size:14px}
-footer .wrap{display:flex;flex-wrap:wrap;gap:20px 40px;justify-content:space-between;align-items:center}
-footer nav{display:flex;flex-wrap:wrap;gap:8px 22px}
-footer a{text-decoration:none}
-footer a:hover{color:var(--text)}
+/* ---------- rodapé */
+footer{border-top:1px solid var(--hair);padding:64px 0 34px}
+.fgrid{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:30px}
+.fgrid p{color:#7ea29d;font-size:14px;max-width:300px;margin:14px 0 0}
+.fgrid h5{margin:4px 0 14px;font-size:13px;font-weight:700;color:var(--text)}
+.fgrid a{display:block;color:#7ea29d;font-size:14px;padding:4px 0;transition:color .2s}
+.fgrid a:hover{color:var(--text)}
+.fgrid a.brand{display:inline-flex;color:var(--text);padding:0}
+.fbot{margin-top:46px;padding-top:22px;border-top:1px solid var(--hair);display:flex;justify-content:space-between;gap:16px;color:#5f8580;font:400 12px var(--mono)}
 
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+/* ---------- celular */
+@media (max-width:960px){
+  .demo{grid-template-columns:1fr}
+  .phone{border-right:0;border-bottom:1px solid var(--hair)}
+  .fan{height:auto;display:flex;flex-direction:column;gap:14px}
+  .fan .fc,.fan .fc.l,.fan .fc.r,.fan .fc.c,.fan:hover .fc.l,.fan:hover .fc.r{position:static;width:auto;transform:none;opacity:1}
+  .fan .fc.c{order:-1}
+  .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .calc,.price,.step-panel{grid-template-columns:minmax(0,1fr)}
+  .price .l{border-right:0;border-bottom:1px solid var(--hair-2)}
+  .fgrid{grid-template-columns:1fr 1fr}
+}
+@media (max-width:760px){
+  section{padding:76px 0}
+  .wrap{width:calc(100% - 32px)}
+  .nav ul{display:none;position:absolute;top:64px;left:0;right:0;flex-direction:column;gap:0;padding:8px 16px 16px;background:rgba(6,23,26,.97);border-bottom:1px solid var(--hair)}
+  .nav.open ul{display:flex}
+  .nav ul a{display:block;padding:12px 4px;font-size:16px}
+  .menu{display:block;order:-1;margin-left:-8px}
+  .brand{margin-right:auto}
+  .nav .act .btn.main{display:none}
+  .nav .act .btn{min-height:36px;padding:0 16px;font-size:13px}
+  .hero{padding-top:56px}
+  .hero .lead{font-size:16px}
+  .cta-big{height:58px;font-size:15px;gap:16px;padding-right:24px}
+  .cta-big .sq{width:42px;height:42px}
+  .window{margin-top:50px;border-radius:14px 14px 0 0}
+  .win-bar .url{display:none}
+  .nodes{grid-template-columns:1fr}
+  .leaks,.tiles{grid-template-columns:1fr}
+  .leak{padding:20px}
+  .sec-hd{margin-bottom:40px}
+  .sec-hd p{font-size:15.5px}
+  .seg{display:flex;width:100%}
+  .seg button{flex:1;padding:9px 6px;font-size:12.5px}
+  .step-panel{padding:20px;gap:24px}
+  .step-panel h3{font-size:24px}
+  .price .l,.price .r,.calc .card{padding:22px}
+  .plan-hd{flex-wrap:wrap;gap:8px}
+  .qty{flex-wrap:wrap}
+  .qty .tot{flex-basis:100%;text-align:left;margin:4px 0 0}
+  .extras div{flex-wrap:wrap}
+  .btn-wide{font-size:14px}
+  .fgrid{grid-template-columns:1fr}
+  .fbot{flex-direction:column}
+  .ring svg{display:none}
+  .ring{border-bottom:2px solid var(--teal)}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}.rv{opacity:1;transform:none}.ring path,.under path{stroke-dashoffset:0}}
 </style>
 </head>
 <body>
 
 <header class="nav">
   <div class="wrap">
-    <a class="brand" href="#topo" aria-label="Converza, início"><img src="/logo.png" alt="" width="34" height="34"><span>Converza</span></a>
-    <button class="menu" type="button" aria-label="Abrir o menu" aria-expanded="false" aria-controls="nav-links"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <a class="brand" href="#topo" aria-label="Converza, início"><img src="/logo.png" alt="" width="30" height="30"><span>Converza</span></a>
+    <button class="menu" type="button" aria-label="Abrir o menu" aria-expanded="false" aria-controls="nav-links"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
     <ul id="nav-links">
       <li><a href="#recursos">Recursos</a></li>
       <li><a href="#como-comecar">Como começar</a></li>
+      <li><a href="#calculadora">Faça a conta</a></li>
       <li><a href="#precos">Preços</a></li>
       <li><a href="#perguntas">Perguntas</a></li>
     </ul>
     <div class="act">
-      <a class="btn ghost" href="/entrar">Entrar</a>
+      <a class="btn glass" href="/entrar">Entrar</a>
       <a class="btn main" href="/criar-conta">Criar conta</a>
     </div>
   </div>
@@ -253,61 +391,63 @@ footer a:hover{color:var(--text)}
 
 <main id="topo">
   <section class="hero">
+    <div class="grid-bg" aria-hidden="true"></div>
+    <div class="glow-top" aria-hidden="true"></div>
     <div class="wrap">
-      <div>
-        <div class="kicker"><i></i>Vendas e atendimento no WhatsApp</div>
-        <h1>Do <em>“oi”</em> ao <span class="money">Pix pago</span>, sem perder ninguém no caminho.</h1>
-        <p class="lead">Fluxos que respondem na hora, agentes de IA que entendem áudio e comprovante, e uma equipe atendendo junto no mesmo número. Você monta, o Converza conversa e cada venda aparece no seu painel.</p>
-        <div class="cta">
-          <a class="btn main lg" href="/criar-conta">Criar minha conta</a>
-          <a class="btn ghost lg" href="#precos">Ver preços</a>
-        </div>
-        <div class="proof">
-          <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>API oficial da Meta ou QR Code</span>
-          <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Pix e cartão pela Asaas</span>
-          <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Cancele quando quiser</span>
-        </div>
+      <div class="kicker rv"><i>✦</i>Vendas e atendimento no WhatsApp — Fluxos + Agentes de IA</div>
+      <h1 class="rv d1">Do “oi” ao Pix pago.<span class="l2">Sem perder <span class="under">ninguém<svg viewBox="0 0 300 20" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M3 14 C 60 4, 140 4, 200 10 S 270 16, 297 8"/></svg></span>.</span></h1>
+      <p class="lead rv d2">Você monta. <u>O Converza conversa.</u> Fluxos que respondem na hora, <b>agentes de IA que entendem áudio e comprovante</b> e a equipe atendendo junto no mesmo número — com cada venda aparecendo no seu painel.</p>
+      <div class="cta rv d3">
+        <a class="cta-big" href="/criar-conta"><span class="sq" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg></span><span class="lbl-t">Criar minha conta</span></a>
       </div>
+      <div class="facts rv d3">API oficial da Meta ou QR Code · <span>21 blocos</span> de fluxo · Pix e cartão pela Asaas · cancele quando quiser</div>
 
-      <div class="demo" aria-label="Exemplo: uma conversa no WhatsApp e o fluxo que respondeu">
-        <div class="phone">
-          <div class="phone-hd"><span class="av">M</span><div><b>Marina Souza</b><small>online</small></div></div>
-          <div class="msgs">
-            <div class="m in" data-step="0">Oi! Vi o anúncio do guia de orações 🙏<small>14:02</small></div>
-            <div class="m out" data-step="1">Oi, Marina! O guia tem 9 dias de roteiro e sai por R$ 15. Quer receber agora?<small>14:02</small></div>
-            <div class="m in" data-step="2">Quero sim, como pago?<small>14:03</small></div>
-            <div class="m out" data-step="2">Pix copia e cola: 00020126…5802BR<small>14:03</small></div>
-            <div class="m in file" data-step="3"><span class="pdf">PDF</span>comprovante.pdf<small>14:05</small></div>
-            <div class="typing" aria-hidden="true"><i></i><i></i><i></i></div>
-            <div class="m out" data-step="4">Pagamento confirmado ✅ Aqui está o seu guia!<small>14:05</small></div>
+      <div class="window rv" aria-label="Exemplo: uma conversa no WhatsApp e o fluxo que respondeu">
+        <div class="win-bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span class="url">app.converza — Fluxo “Guia de orações”</span><span class="live">AO VIVO</span></div>
+        <div class="demo">
+          <div class="phone">
+            <div class="phone-hd"><span class="av">M</span><div><b>Marina Souza</b><small>online</small></div></div>
+            <div class="msgs">
+              <div class="m in" data-step="0">Oi! Vi o anúncio do guia de orações 🙏<small>14:02</small></div>
+              <div class="m out" data-step="1">Oi, Marina! O guia tem 9 dias de roteiro e sai por R$ 15. Quer receber agora?<small>14:02</small></div>
+              <div class="m in" data-step="2">Quero sim, como pago?<small>14:03</small></div>
+              <div class="m out" data-step="2">Pix copia e cola: 00020126…5802BR<small>14:03</small></div>
+              <div class="m in file" data-step="3"><span class="pdf">PDF</span>comprovante.pdf<small>14:05</small></div>
+              <div class="typing" aria-hidden="true"><i></i><i></i><i></i></div>
+              <div class="m out" data-step="4">Pagamento confirmado ✅ Aqui está o seu guia!<small>14:05</small></div>
+            </div>
+          </div>
+          <div class="flowpane">
+            <div class="flow-top"><b>Fluxo do anúncio</b>· exemplo<span class="tag">ativo</span></div>
+            <div class="nodes">
+              <div class="node" data-step="0"><div class="nt"><i style="background:#0f4d45">⚡</i>Início</div><p>Clicou no anúncio</p><div class="st">entradas <em>1.284</em></div></div>
+              <div class="node" data-step="1"><div class="nt"><i style="background:#1e3a8a">💬</i>Mensagem</div><p>Oferta com digitando… 3 s</p><div class="st">avançaram <em>92%</em></div></div>
+              <div class="node" data-step="2"><div class="nt"><i style="background:#065f46">◆</i>Botão Pix</div><p>R$ 15,00 · copia e cola</p><div class="st">pediram o Pix <em>41%</em></div></div>
+              <div class="node" data-step="3"><div class="nt"><i style="background:#7c2d12">✦</i>Bloco de IA</div><p>Comprovante válido · chave Pix confere</p><div class="st">conferidos <em>auto</em></div></div>
+              <div class="sale" data-step="4"><span class="ic">$</span><div>Venda aprovada<small>enviada ao Pixel com o valor</small></div><span class="v num">R$ 15,00</span></div>
+            </div>
           </div>
         </div>
-        <div class="flow">
-          <div class="node" data-step="0"><div class="t"><i style="background:#0f4d45">⚡</i>Início</div><p>Clicou no anúncio</p></div>
-          <div class="node" data-step="1"><div class="t"><i style="background:#1e3a8a">💬</i>Mensagem</div><p>Oferta com digitando… 3 s</p></div>
-          <div class="node" data-step="2"><div class="t"><i style="background:#065f46">◆</i>Botão Pix</div><p>R$ 15,00 · copia e cola</p></div>
-          <div class="node" data-step="3"><div class="t"><i style="background:#7c2d12">✦</i>Bloco de IA</div><p>Comprovante válido · chave Pix confere</p></div>
-          <div class="sale" data-step="4"><span class="ic">$</span>Venda aprovada<span class="v num">R$ 15,00</span></div>
-        </div>
+        <div class="window-fade" aria-hidden="true"></div>
       </div>
     </div>
   </section>
 
   <section id="vazamentos">
     <div class="wrap">
-      <div class="sec-hd">
-        <span class="lbl">Onde as vendas escapam</span>
-        <h2>Quatro buracos que todo atendimento no WhatsApp tem.</h2>
-        <p>E o que o Converza coloca em cada um.</p>
+      <div class="sec-hd rv">
+        <span class="pill">Onde as vendas escapam</span>
+        <h2>Quatro buracos.<br><span class="hl">Um painel</span> para fechar todos.</h2>
+        <p>Todo atendimento no WhatsApp tem esses vazamentos. Veja o que o Converza coloca em cada um.</p>
       </div>
       <div class="leaks">
-        <div class="leak"><span class="n">01</span><div><h3>Resposta que chega tarde</h3><p class="pain">O cliente manda mensagem às 23h, ninguém responde, e de manhã ele já comprou no concorrente.</p></div>
+        <div class="leak card rv"><div class="top"><span class="n">01</span><h3>Resposta que chega tarde</h3></div><p class="pain">O cliente manda mensagem às 23h, ninguém responde, e de manhã ele já comprou no concorrente.</p>
           <div class="fix"><b>Fluxos e agentes 24h</b>Responde na hora, com o tempo de “digitando” de uma pessoa, e passa para a equipe quando precisa.</div></div>
-        <div class="leak"><span class="n">02</span><div><h3>Comprovante que ninguém confere</h3><p class="pain">Chega a foto do Pix, alguém precisa abrir, conferir valor, chave e nome, e só então liberar.</p></div>
+        <div class="leak card rv d1"><div class="top"><span class="n">02</span><h3>Comprovante que ninguém confere</h3></div><p class="pain">Chega a foto do Pix, alguém precisa abrir, conferir valor, chave e nome, e só então liberar.</p>
           <div class="fix"><b>Bloco de IA</b>Lê o comprovante em foto ou PDF, confere a chave Pix e o recebedor, e segue o fluxo certo.</div></div>
-        <div class="leak"><span class="n">03</span><div><h3>Lead que some da lista</h3><p class="pain">Quem não comprou hoje fica perdido no meio de centenas de conversas.</p></div>
+        <div class="leak card rv"><div class="top"><span class="n">03</span><h3>Lead que some da lista</h3></div><p class="pain">Quem não comprou hoje fica perdido no meio de centenas de conversas.</p>
           <div class="fix"><b>CRM, Kanban e disparos</b>Etiquetas, etapas e campos em cada contato, e disparos para quem parou no meio do caminho.</div></div>
-        <div class="leak"><span class="n">04</span><div><h3>Anúncio sem saber se vendeu</h3><p class="pain">O Gerenciador mostra conversas iniciadas, mas não quanto cada anúncio faturou de verdade.</p></div>
+        <div class="leak card rv d1"><div class="top"><span class="n">04</span><h3>Anúncio sem saber se vendeu</h3></div><p class="pain">O Gerenciador mostra conversas iniciadas, mas não quanto cada anúncio faturou de verdade.</p>
           <div class="fix"><b>Facebook e Pixel</b>Cada lead chega marcado com o anúncio de origem, e a venda aprovada volta para a Meta com o valor.</div></div>
       </div>
     </div>
@@ -315,85 +455,98 @@ footer a:hover{color:var(--text)}
 
   <section id="recursos">
     <div class="wrap">
-      <div class="sec-hd">
-        <span class="lbl">Recursos</span>
-        <h2>Tudo que acontece depois do primeiro “oi”.</h2>
+      <div class="sec-hd rv">
+        <span class="pill">Recursos</span>
+        <h2>Tudo depois do primeiro “oi”.<br><span class="t">Num lugar só.</span></h2>
         <p>Um painel para montar a conversa, atender junto com a equipe e ver o dinheiro entrando.</p>
       </div>
-      <div class="bento">
-        <article class="tile big w4">
-          <h3>Fluxos visuais com 21 blocos</h3>
-          <p>Arraste blocos de mensagem, menu, carrossel, Pix, condição, IA, Kanban e venda aprovada. Teste no simulador antes de ligar. Tem um fluxo pronto em outra ferramenta? Envie os prints e a IA monta para você.</p>
-          <div class="mini-flow"><span>Início</span><em>→</em><span>Menu</span><em>→</em><span>Botão Pix</span><em>→</em><span>Bloco de IA</span><em>→</em><span style="border-color:var(--money);color:var(--money)">Venda aprovada</span></div>
-        </article>
-        <article class="tile w2">
+      <div class="fan rv">
+        <article class="fc l">
+          <div class="fh"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></svg></span><span class="pill">Voz</span></div>
           <h3>Agentes de IA que falam</h3>
-          <p>Entendem áudio, respondem em texto ou em mensagem de voz com uma voz clonada.</p>
-          <div class="wave" aria-hidden="true"></div>
+          <p>Entendem áudio e respondem em texto ou em mensagem de voz, com uma voz clonada.</p>
+          <ul class="check"><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Bases de conhecimento: sites, PDFs e perguntas</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Passa para a equipe quando precisa</li></ul>
+          <div class="ex"><div class="wave" aria-hidden="true"></div></div>
         </article>
-        <article class="tile w2">
+        <article class="fc c">
+          <div class="fh"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.5 6H14a4 4 0 0 1 4 4v5.5"/></svg></span><span class="pill on">Mais usado</span></div>
+          <h3>Fluxos visuais com 21 blocos</h3>
+          <p>Mensagem, menu, carrossel, Pix, condição, IA, Kanban e venda aprovada. Teste no simulador antes de ligar.</p>
+          <ul class="check">
+            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Comece de um modelo ou descreva para a IA</li>
+            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Envie prints de outra ferramenta e a IA monta</li>
+            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Entradas, avanços e taxa em cada bloco</li>
+          </ul>
+          <div class="ex"><div class="ex-l">Exemplo de fluxo</div><div class="mini-flow"><span>Início</span><em>→</em><span>Menu</span><em>→</em><span>Botão Pix</span><em>→</em><span>Bloco de IA</span><em>→</em><span style="border-color:rgba(246,196,83,.45);color:var(--money)">Venda aprovada</span></div></div>
+        </article>
+        <article class="fc r">
+          <div class="fh"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span><span class="pill">Equipe</span></div>
           <h3>Chats ao vivo</h3>
           <p>Fila Aguardando, Atendendo e Resolvidos, setores, respostas rápidas com #atalho e notas internas.</p>
-          <div class="chips"><span class="chip">multiatendente</span><span class="chip">tempo real</span></div>
+          <ul class="check"><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Várias pessoas no mesmo número</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Histórico de transferências</li></ul>
+          <div class="ex"><div class="qrow"><span class="on">Aguardando 4</span><span>Atendendo 7</span><span>Resolvidos 31</span></div></div>
         </article>
-        <article class="tile w2">
-          <h3>CRM e Kanban</h3>
-          <p>Contatos com etiquetas, campos e compras. Quadros com valor no pipeline e taxa de conversão.</p>
-          <div class="chips"><span class="chip">importar CSV</span><span class="chip">sem duplicados</span></div>
-        </article>
-        <article class="tile w2">
-          <h3>Disparos em massa</h3>
-          <p>Envie um fluxo para muitos contatos, com a regra das 24h da Meta, agendamento e pausa automática.</p>
-          <div class="chips"><span class="chip">SAIR / VOLTAR</span></div>
-        </article>
-        <article class="tile w3">
-          <h3>Facebook Ads com ROAS real</h3>
-          <p>Campanhas, conjuntos e anúncios cruzados com as vendas aprovadas no Converza.</p>
-          <div class="roas"><div><b class="num">4,2×</b><small>ROAS (exemplo)</small></div><div><b class="num">R$ 8,40</b><small>custo por conversa (exemplo)</small></div></div>
-        </article>
-        <article class="tile w3">
-          <h3>Webhooks e integrações</h3>
-          <p>Hotmart, Kiwify e formulários disparam fluxos, etiquetas e vendas. Ferramentas MCP deixam Claude, ChatGPT ou n8n agirem na sua conta.</p>
-          <div class="chips"><span class="chip">Hotmart</span><span class="chip">Kiwify</span><span class="chip">MCP</span><span class="chip">cURL</span></div>
-        </article>
+      </div>
+      <div class="tiles">
+        <article class="tile card rv"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="10" rx="1.5"/><rect x="17" y="4" width="4" height="13" rx="1.5"/></svg></span><h3>CRM e Kanban</h3><p>Contatos com etiquetas, campos e compras. Quadros com valor no pipeline e taxa de conversão.</p><div class="foot">importar CSV · sem duplicados</div></article>
+        <article class="tile card rv d1"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg></span><h3>Disparos em massa</h3><p>Envie um fluxo para muitos contatos, com a regra das 24h da Meta, agendamento e pausa automática.</p><div class="foot">SAIR / VOLTAR automático</div></article>
+        <article class="tile card rv d2"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></span><h3>Facebook Ads com ROAS real</h3><p>Campanhas, conjuntos e anúncios cruzados com as vendas aprovadas no Converza.</p><div class="foot">ROAS <b>4,2×</b> (exemplo)</div></article>
+        <article class="tile card rv d3"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></span><h3>Webhooks e MCP</h3><p>Hotmart, Kiwify e formulários disparam fluxos e vendas. Claude, ChatGPT ou n8n agem na sua conta.</p><div class="foot">10 mil eventos / mês</div></article>
       </div>
     </div>
   </section>
 
-  <section id="como-comecar">
+  <section id="integracoes">
     <div class="wrap">
-      <div class="sec-hd">
-        <span class="lbl">Como começar</span>
-        <h2>Três passos até a primeira venda automática.</h2>
+      <div class="sec-hd rv" style="margin-bottom:44px">
+        <span class="pill">Integrações</span>
+        <h2>Conectado ao que você <span style="white-space:nowrap"><span class="ring">já usa<svg viewBox="0 0 300 110" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M150 6 C 260 4, 298 30, 294 58 C 290 92, 210 106, 140 104 C 60 102, 6 86, 8 54 C 10 24, 80 8, 170 10"/></svg></span>.</span></h2>
+        <p>WhatsApp oficial ou por QR Code, pagamentos, plataformas de produto digital e as IAs que você já usa.</p>
       </div>
-      <div class="steps">
-        <div class="step"><h3>Conecte seu número</h3><p>Pela API oficial da Meta em 1 clique, pelo WhatsApp Business do celular ou lendo um QR Code.</p></div>
-        <div class="step"><h3>Monte o fluxo</h3><p>Comece de um modelo, descreva o que quer para a IA ou envie prints de um fluxo que você já usa.</p></div>
-        <div class="step"><h3>Acompanhe as vendas</h3><p>Entradas, avanços e taxa em cada bloco, e faturamento por anúncio no Dashboard.</p></div>
+    </div>
+    <div class="marquee rv" aria-label="Integrações">
+      <div class="track" id="mq1"></div>
+      <div class="track rev" id="mq2"></div>
+    </div>
+    <p class="marq-note">Novas integrações entram com frequência.</p>
+  </section>
+
+  <section id="como-comecar">
+    <div class="glow-top" aria-hidden="true" style="opacity:.6"></div>
+    <div class="wrap steps-wrap">
+      <div class="sec-hd rv" style="margin-bottom:34px">
+        <span class="pill on">Como começar</span>
+        <h2>Três passos até a <span class="t">primeira venda automática.</span></h2>
       </div>
+      <div class="seg rv" role="tablist" aria-label="Passos">
+        <button type="button" role="tab" class="on" data-i="0">1 · Conecte<span class="bar"></span></button>
+        <button type="button" role="tab" data-i="1">2 · Monte o fluxo<span class="bar"></span></button>
+        <button type="button" role="tab" data-i="2">3 · Acompanhe<span class="bar"></span></button>
+      </div>
+      <div class="step-panel card rv" id="step-panel" aria-live="polite"></div>
     </div>
   </section>
 
   <section id="calculadora">
     <div class="wrap">
-      <div class="sec-hd">
-        <span class="lbl">Faça a conta</span>
-        <h2>Quantas vendas pagam o Converza?</h2>
+      <div class="sec-hd rv">
+        <span class="pill">Faça a conta</span>
+        <h2>Quantas vendas<br><span class="hl">pagam o Converza?</span></h2>
         <p>Coloque os números do seu negócio. A conta é sua: nada aqui é promessa de resultado.</p>
       </div>
       <div class="calc">
-        <div class="card">
-          <div class="field"><label for="c-leads">Conversas por mês <output id="o-leads" class="num"></output></label><input id="c-leads" type="range" min="100" max="20000" step="100" value="2000"></div>
-          <div class="field"><label for="c-ticket">Ticket médio <output id="o-ticket" class="num"></output></label><input id="c-ticket" type="range" min="10" max="2000" step="1" value="97"></div>
-          <div class="field"><label for="c-now">Conversão hoje <output id="o-now" class="num"></output></label><input id="c-now" type="range" min="0.5" max="30" step="0.5" value="3"></div>
-          <div class="field"><label for="c-goal">Conversão que você quer atingir <output id="o-goal" class="num"></output></label><input id="c-goal" type="range" min="0.5" max="40" step="0.5" value="5"></div>
-          <div class="field" style="margin-bottom:0"><label for="c-inst">Números de WhatsApp <output id="o-inst" class="num"></output></label><input id="c-inst" type="range" min="1" max="10" step="1" value="1"></div>
+        <div class="card rv">
+          <div class="field"><label for="c-leads">Conversas por mês <output id="o-leads"></output></label><input id="c-leads" type="range" min="100" max="20000" step="100" value="2000"></div>
+          <div class="field"><label for="c-ticket">Ticket médio <output id="o-ticket"></output></label><input id="c-ticket" type="range" min="10" max="2000" step="1" value="97"></div>
+          <div class="field"><label for="c-now">Conversão hoje <output id="o-now"></output></label><input id="c-now" type="range" min="0.5" max="30" step="0.5" value="3"></div>
+          <div class="field"><label for="c-goal">Conversão que você quer atingir <output id="o-goal"></output></label><input id="c-goal" type="range" min="0.5" max="40" step="0.5" value="5"></div>
+          <div class="field" style="margin-bottom:0"><label for="c-inst">Números de WhatsApp <output id="o-inst"></output></label><input id="c-inst" type="range" min="1" max="10" step="1" value="1"></div>
         </div>
-        <div class="card result" aria-live="polite">
-          <div class="row"><span>Faturamento hoje</span><b id="r-now" class="num"></b></div>
-          <div class="row"><span>Com a conversão que você quer</span><b id="r-goal" class="num"></b></div>
-          <div class="row hl"><span>Diferença por mês</span><b id="r-diff" class="num"></b></div>
-          <div class="row"><span>Converza por mês</span><b id="r-cost" class="num"></b></div>
+        <div class="card result rv d1" aria-live="polite">
+          <div class="row"><span>Faturamento hoje</span><b id="r-now"></b></div>
+          <div class="row"><span>Com a conversão que você quer</span><b id="r-goal"></b></div>
+          <div class="row"><span>Converza por mês</span><b id="r-cost"></b></div>
+          <div class="row big"><span>Diferença por mês</span><b id="r-diff"></b></div>
           <p class="note" id="r-pay"></p>
         </div>
       </div>
@@ -401,53 +554,60 @@ footer a:hover{color:var(--text)}
   </section>
 
   <section id="precos">
-    <div class="wrap">
-      <div class="sec-hd">
-        <span class="lbl">Preços</span>
-        <h2>Um preço por número de WhatsApp.</h2>
-        <p>Sem plano escondido: todos os recursos entram para todo mundo. Você escolhe quantos números conectar.</p>
+    <div class="grid-bg" aria-hidden="true" style="opacity:.6"></div>
+    <div class="wrap" style="position:relative">
+      <div class="sec-hd rv">
+        <span class="pill">Preços</span>
+        <h2>Simples. Um preço.<br><span class="hl">Tudo incluso.</span></h2>
+        <p>Sem plano escondido: todos os recursos entram para todo mundo. Você escolhe quantos números de WhatsApp conectar.</p>
       </div>
-      <div class="price">
-        <div class="card plan">
-          <h3>Por instância</h3>
-          <div class="amount"><b class="num">R$&nbsp;127</b><span>por número / mês</span></div>
-          <ul class="inc">
-            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>1 número de WhatsApp (API oficial ou QR Code)</li>
-            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>2 agentes de IA</li>
-            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>1.000 contatos em disparos por mês</li>
-            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>10 mil eventos de webhook por mês</li>
-            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Fluxos, chats ao vivo, CRM, Kanban, Facebook e Pixel</li>
-          </ul>
-          <a class="btn main lg" href="/criar-conta">Criar minha conta</a>
-        </div>
-        <div class="card">
-          <h3 style="font-size:22px">Monte o seu</h3>
-          <div class="qty">
-            <button type="button" id="q-minus" aria-label="Menos um número">−</button>
-            <output id="q-n" class="num">1</output>
-            <button type="button" id="q-plus" aria-label="Mais um número">+</button>
-            <span style="color:var(--muted)">números</span>
+      <div class="price card rv">
+        <div class="l">
+          <div class="plan-hd"><h3>Por número de WhatsApp</h3><span class="badge">Todos os recursos</span></div>
+          <div class="amount"><b>R$&nbsp;127</b><span>/ número / mês</span><small>no Pix ou no cartão · cancele quando quiser</small></div>
+          <a class="btn-wide" href="/criar-conta"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 1.9 5.8L20 10l-5 3.9L16.6 20 12 16.6 7.4 20 9 13.9 4 10l6.1-1.2z"/></svg>Criar minha conta</a>
+          <div class="sub">Criar a conta é grátis: pague só ao conectar um número</div>
+          <div class="mybox">
+            <div class="bh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18M12 8S9 3 7 4s0 4 5 4zM12 8s3-5 5-4 0 4-5 4z"/></svg>Monte o seu</div>
+            <div class="qty">
+              <button type="button" id="q-minus" aria-label="Menos um número">−</button>
+              <output id="q-n">1</output>
+              <button type="button" id="q-plus" aria-label="Mais um número">+</button>
+              <span style="color:var(--muted);font-size:14px">números</span>
+              <div class="tot"><b id="q-total">R$ 127,00</b><small>por mês</small></div>
+            </div>
           </div>
-          <div class="total num" id="q-total">R$ 127,00</div>
-          <p class="note">por mês, no Pix ou no cartão</p>
+        </div>
+        <div class="r">
+          <div class="inc-lbl">Tudo incluso em cada número</div>
+          <div class="inc-g">
+            <h4><i><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4M9 13h.01M15 13h.01"/></svg></i>Atendimento automático</h4>
+            <ul class="check"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>1 número de WhatsApp (API oficial ou QR Code)</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>2 agentes de IA</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Fluxos visuais com todos os blocos</li></ul>
+          </div>
+          <div class="inc-g">
+            <h4><i><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4z"/></svg></i>Alcance e vendas</h4>
+            <ul class="check"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>1.000 contatos em disparos por mês</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>10 mil eventos de webhook por mês</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Chats ao vivo, CRM, Kanban, Facebook e Pixel</li></ul>
+          </div>
           <div class="extras">
-            <div><span>Tokens de IA avulsos</span><b class="num">R$ 1,00 / 1.000</b></div>
-            <div><span>Disparos extras</span><b class="num">a partir de R$ 29,90</b></div>
+            <div><span>Tokens de IA avulsos</span><b>R$ 1,00 / 1.000</b></div>
+            <div><span>Disparos extras</span><b>a partir de R$ 29,90</b></div>
             <div><span>Mais números no meio do mês</span><b>proporcional</b></div>
           </div>
         </div>
       </div>
+      <p class="trust">Dados de cartão nunca passam pelo Converza · Pagamentos pela Asaas</p>
     </div>
   </section>
 
   <section id="perguntas">
     <div class="wrap">
-      <div class="sec-hd">
-        <span class="lbl">Perguntas</span>
-        <h2>Antes de você começar.</h2>
+      <div class="sec-hd rv">
+        <span class="pill">Dúvidas</span>
+        <h2>Perguntas frequentes.</h2>
+        <p>O que mais perguntam antes de começar.</p>
       </div>
-      <div class="faq">
-        <details open><summary>Qual a diferença entre API oficial e QR Code?</summary><p>A API oficial da Meta é a forma mais estável e com menor risco de bloqueio, mas exige uma conta no Gerenciador do WhatsApp e mensagens modelo fora da janela de 24h. O QR Code conecta qualquer WhatsApp em segundos, sem janela de 24h, mas usa o protocolo do WhatsApp Web e tem risco de banimento. Você escolhe por número.</p></details>
+      <div class="faq rv">
+        <details><summary>Qual a diferença entre API oficial e QR Code?</summary><p>A API oficial da Meta é a forma mais estável e com menor risco de bloqueio, mas exige uma conta no Gerenciador do WhatsApp e mensagens modelo fora da janela de 24h. O QR Code conecta qualquer WhatsApp em segundos, sem janela de 24h, mas usa o protocolo do WhatsApp Web e tem risco de banimento. Você escolhe por número.</p></details>
         <details><summary>Posso conhecer antes de pagar?</summary><p>Sim. Criar a conta não custa nada: você monta fluxos, configura agentes e testa tudo no simulador. A assinatura só é necessária para conectar um número e falar com clientes de verdade.</p></details>
         <details><summary>Como pago e como cancelo?</summary><p>Por Pix ou cartão, pela Asaas. Para cancelar, é um clique em Cobranças e assinaturas: os números continuam funcionando até o fim do período já pago.</p></details>
         <details><summary>Como funcionam os tokens de IA?</summary><p>Agentes, Bloco de IA, leitura de comprovantes e geração de fluxos usam tokens. Você compra quanto quiser, a partir de 5 mil, e eles não vencem. Também dá para usar a sua própria chave de IA no Bloco de IA.</p></details>
@@ -459,72 +619,108 @@ footer a:hover{color:var(--text)}
   </section>
 
   <section class="final">
-    <div class="wrap">
-      <div class="box">
-        <div>
-          <h2>Seu próximo cliente já está mandando “oi”.</h2>
-          <p>Crie a conta, monte o primeiro fluxo e conecte o número quando estiver pronto.</p>
-        </div>
-        <a class="btn main lg" href="/criar-conta">Criar minha conta</a>
-      </div>
+    <div class="grid-bg" aria-hidden="true"></div>
+    <div class="glow-top" aria-hidden="true"></div>
+    <div class="wrap" style="position:relative">
+      <span class="pill on rv">Comece hoje</span>
+      <h2 class="rv d1">Seu próximo cliente<span class="l2">já está mandando “oi”.</span></h2>
+      <p class="rv d2">Crie a conta, monte o primeiro fluxo e conecte o número quando estiver pronto.</p>
+      <a class="cta-glow rv d3" href="/criar-conta"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>Criar minha conta</a>
+      <div class="mini rv d3">R$ 127 por número / mês · criar a conta é grátis</div>
     </div>
   </section>
 </main>
 
 <footer>
   <div class="wrap">
-    <a class="brand" href="#topo"><img src="/logo.png" alt="" width="28" height="28">Converza</a>
-    <nav aria-label="Links do rodapé">
-      <a href="#recursos">Recursos</a>
-      <a href="#precos">Preços</a>
-      <a href="/entrar">Entrar</a>
-      <a href="/termos">Termos de Uso</a>
-      <a href="/privacidade">Privacidade</a>
-      <a href="/exclusao-de-dados">Exclusão de dados</a>
-    </nav>
-    <span>© <span id="yr">2026</span> Converza</span>
+    <div class="fgrid">
+      <div><a class="brand" href="#topo"><img src="/logo.png" alt="" width="28" height="28">Converza</a><p>Fluxos, agentes de IA, chats ao vivo e CRM para vender no WhatsApp.</p></div>
+      <div><h5>Produto</h5><a href="#recursos">Recursos</a><a href="#como-comecar">Como começar</a><a href="#precos">Preços</a><a href="#perguntas">Perguntas</a></div>
+      <div><h5>Conta</h5><a href="/entrar">Entrar</a><a href="/criar-conta">Criar conta</a></div>
+      <div><h5>Legal</h5><a href="/termos">Termos de Uso</a><a href="/privacidade">Privacidade</a><a href="/exclusao-de-dados">Exclusão de dados</a></div>
+    </div>
+    <div class="fbot"><span>© <span id="yr">2026</span> Converza</span><span>Feito para vender no WhatsApp</span></div>
   </div>
 </footer>
 
 <script>
 (() => {
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   /* menu do celular */
   const nav = document.querySelector('.nav'); const mb = nav.querySelector('.menu');
   mb.addEventListener('click', () => { const o = nav.classList.toggle('open'); mb.setAttribute('aria-expanded', String(o)); });
   nav.querySelectorAll('ul a').forEach((a) => a.addEventListener('click', () => { nav.classList.remove('open'); mb.setAttribute('aria-expanded', 'false'); }));
+
+  /* aparecer ao rolar */
+  const io = 'IntersectionObserver' in window ? new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: 0.12, rootMargin: '0px 0px -40px 0px' }) : null;
+  document.querySelectorAll('.rv, .ring, .under').forEach((el) => (io && !reduce ? io.observe(el) : el.classList.add('in')));
 
   const brl = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: v >= 1000 ? 0 : 2 });
   const PRICE = 127;
 
   /* onda do agente de voz */
   const wave = document.querySelector('.wave');
-  if (wave) for (let i = 0; i < 34; i++) { const b = document.createElement('i'); b.style.height = `${6 + Math.round(Math.abs(Math.sin(i * 0.7) * 18 + Math.cos(i * 1.9) * 4))}px`; wave.appendChild(b); }
+  if (wave) for (let i = 0; i < 46; i++) { const b = document.createElement('i'); b.style.height = `${8 + Math.round(Math.abs(Math.sin(i * 0.7) * 20 + Math.cos(i * 1.9) * 5))}px`; b.style.animationDelay = `${(i % 9) * 0.09}s`; wave.appendChild(b); }
+
+  /* integrações: duas faixas em sentidos opostos */
+  const A = [['W', 'WhatsApp Cloud API', 'oficial da Meta'], ['QR', 'WhatsApp por QR Code', 'qualquer número'], ['f', 'Facebook Ads', 'ROAS real'], ['P', 'Pixel da Meta', 'venda com valor'], ['$', 'Asaas', 'Pix e cartão'], ['H', 'Hotmart', 'webhook', 1]];
+  const B = [['K', 'Kiwify', 'webhook'], ['n8n', 'n8n', 'MCP'], ['C', 'Claude', 'MCP', 1], ['G', 'ChatGPT', 'MCP'], ['{}', 'Webhooks', 'qualquer sistema'], ['AI', 'Sua chave de IA', 'Bloco de IA']];
+  const chip = ([d, n, s, isNew]) => `<span class="chipx"><span class="dot">${d}</span>${n}<small>${s}</small>${isNew ? '<span class="new">NOVO</span>' : ''}</span>`;
+  const fill = (id, list) => { const html = list.map(chip).join(''); document.getElementById(id).innerHTML = html + html + html + html; };
+  fill('mq1', A); fill('mq2', B);
 
   /* demonstração: a conversa e o bloco do fluxo acendem juntos */
-  const steps = [0, 1, 2, 3, 4];
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const typing = document.querySelector('.typing');
   const show = (s) => {
-    document.querySelectorAll('[data-step]').forEach((el) => el.classList.toggle('on', Number(el.dataset.step) === s));
-    if (s === 4) document.querySelector('.sale').classList.add('on');
+    document.querySelectorAll('.demo [data-step]').forEach((el) => {
+      const st = Number(el.dataset.step);
+      el.classList.toggle('on', st === s);
+      if (el.classList.contains('m')) el.classList.toggle('seen', st <= s);
+    });
   };
   if (reduce) show(4);
   else {
     let i = 0;
     const tick = () => {
-      const s = steps[i % steps.length];
+      const s = i % 5;
       if (s === 4) { typing.classList.add('on'); setTimeout(() => { typing.classList.remove('on'); show(4); }, 900); }
       else show(s);
       i++;
-      setTimeout(tick, s === 4 ? 3600 : 1700);
+      setTimeout(tick, s === 4 ? 3800 : 1700);
     };
     tick();
   }
 
+  /* como começar: abas que avançam sozinhas */
+  const ck = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  const STEPS = [
+    { h: 'Conecte seu número', p: 'Pela API oficial da Meta em 1 clique, pelo WhatsApp Business do celular ou lendo um QR Code.', li: ['API oficial: mais estável, menor risco de bloqueio', 'QR Code: conecta qualquer WhatsApp em segundos', 'Vários números na mesma conta'],
+      v: [['Número principal', 'API oficial', 1], ['Comercial', 'QR Code'], ['Suporte', 'conectar']] },
+    { h: 'Monte o fluxo', p: 'Comece de um modelo, descreva o que quer para a IA ou envie prints de um fluxo que você já usa.', li: ['21 blocos: mensagem, menu, Pix, IA, Kanban…', 'Simulador para testar antes de ligar', 'Agentes de IA para o que fugir do roteiro'],
+      v: [['Início · clicou no anúncio', '⚡'], ['Mensagem com oferta', '💬'], ['Botão Pix · R$ 15', '◆', 1], ['Bloco de IA · comprovante', '✦']] },
+    { h: 'Acompanhe as vendas', p: 'Entradas, avanços e taxa em cada bloco, e faturamento por anúncio no Dashboard.', li: ['Venda aprovada volta para o Pixel com o valor', 'Lucro por anúncio e regras automáticas', 'Aviso de venda no celular'],
+      v: [['Hoje · vendas', 'R$ 1.455 (exemplo)', 1], ['Anúncio “Guia 9 dias”', 'ROAS 4,2×'], ['Conversas atendidas', '312']] },
+  ];
+  const panel = document.getElementById('step-panel');
+  const tabs = [...document.querySelectorAll('.seg button')];
+  let cur = 0; let timer = null;
+  const render = (i) => {
+    cur = i; const s = STEPS[i];
+    tabs.forEach((t, j) => { t.classList.toggle('on', j === i); t.setAttribute('aria-selected', String(j === i)); const bar = t.querySelector('.bar'); bar.style.animation = 'none'; void bar.offsetWidth; bar.style.animation = ''; });
+    panel.innerHTML = `<div class="step-fade"><h3>${s.h}</h3><p>${s.p}</p><ul class="check">${s.li.map((x) => `<li>${ck}${x}</li>`).join('')}</ul></div>
+      <div class="step-vis step-fade">${s.v.map(([a, b, hi]) => `<div class="sv-row${hi ? ' hi' : ''}">${a}<span class="k">${b}</span></div>`).join('')}</div>`;
+    clearTimeout(timer);
+    if (!reduce) timer = setTimeout(() => render((cur + 1) % STEPS.length), 5000);
+  };
+  tabs.forEach((t, i) => t.addEventListener('click', () => render(i)));
+  render(0);
+
   /* calculadora */
   const $ = (id) => document.getElementById(id);
+  const paint = (el) => { const p = (el.value - el.min) / (el.max - el.min) * 100; el.style.setProperty('--p', `${p}%`); };
   const calc = () => {
     const leads = +$('c-leads').value, ticket = +$('c-ticket').value, now = +$('c-now').value, goal = +$('c-goal').value, inst = +$('c-inst').value;
+    ['c-leads', 'c-ticket', 'c-now', 'c-goal', 'c-inst'].forEach((id) => paint($(id)));
     $('o-leads').textContent = leads.toLocaleString('pt-BR');
     $('o-ticket').textContent = brl(ticket);
     $('o-now').textContent = `${now.toLocaleString('pt-BR')}%`;
