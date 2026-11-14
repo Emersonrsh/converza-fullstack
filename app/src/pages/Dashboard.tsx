@@ -15,8 +15,9 @@ import { fmtNum, todayLocal } from '../dashboard/format';
 import type { AttendanceDash, DashFilters, PartnerInfo, Period, SalesDash } from '../dashboard/types';
 import type { Product, Subscription } from '../types';
 import { TodayView } from '../dashboard/TodayView';
+import { AdAccountFilter } from '../dashboard/AdAccountFilter';
 
-const DEFAULTS: DashFilters = { period: 'today', from: '', to: '', connectionId: '', productId: '', currency: 'BRL' };
+const DEFAULTS: DashFilters = { period: 'today', from: '', to: '', connectionId: '', productId: '', currency: 'BRL', adAccounts: [] };
 const PERIOD_OPTS: [Period, string][] = [
   ['today', 'Hoje'], ['yesterday', 'Ontem'], ['7d', 'Últimos 7 dias'], ['30d', 'Últimos 30 dias'],
   ['month', 'Este mês'], ['last_month', 'Mês passado'], ['custom', 'Personalizado'],
@@ -32,6 +33,7 @@ const toQuery = (f: DashFilters) => {
   if (f.period === 'custom') { q.set('from', f.from); q.set('to', f.to); }
   if (f.connectionId) q.set('connectionId', f.connectionId);
   if (f.productId) q.set('productId', f.productId);
+  if (f.adAccounts?.length) q.set('adAccounts', f.adAccounts.join(','));
   return q.toString();
 };
 function greeting() {
@@ -211,6 +213,7 @@ export function Dashboard() {
           </select>
         )}
         <span className="spacer" />
+        {tab !== 'atendimento' && <AdAccountFilter value={filters.adAccounts ?? []} onChange={(adAccounts) => set({ adAccounts })} />}
         {tab !== 'atendimento' && <CurrencyPicker value={filters.currency} options={[...new Set([...currencies, filters.currency])]} onChange={(currency) => set({ currency })} />}
         <div className="dicons">
           <IconBtn icon="rotateCcw" title="Restaurar filtros padrão" onClick={resetFilters} testId="reset-filters" />
@@ -224,7 +227,7 @@ export function Dashboard() {
       {!customOk && <div className="note warn"><Icon name="calendar" size={15} /><span>Escolha as duas datas do período personalizado.</span></div>}
 
       {tab === 'hoje'
-        ? <TodayView currency={filters.currency} products={products} canEdit={canEdit} refreshKey={refreshKey} />
+        ? <TodayView currency={filters.currency} adAccounts={filters.adAccounts ?? []} products={products} canEdit={canEdit} refreshKey={refreshKey} />
         : tab === 'vendas'
         ? (sales ? <div className={cx('dbody', loading && 'busy')}><SalesView data={sales} query={query} currency={filters.currency} refreshKey={refreshKey}
             products={products} connections={connections} onChanged={changed} onAdSpend={() => setModal('adspend')} /></div> : <div style={{ height: 300 }}><Spinner /></div>)

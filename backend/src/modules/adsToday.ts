@@ -15,6 +15,7 @@ import { asyncHandler, AppError, isUuid } from '../utils/http';
 import { addDays, todayIn } from '../meta/adsSync';
 import { validTz } from './dashboard';
 import { loadManagerRows } from './meta';
+import { adIdsOf, parseActIds } from '../meta/adIndex';
 
 export const adsTodayRouter = Router();
 
@@ -39,12 +40,16 @@ adsTodayRouter.get('/', asyncHandler(async (req, res) => {
   const accountId = req.accountId!;
   const currency = typeof req.query.currency === 'string' && /^[A-Z]{3}$/.test(req.query.currency) ? req.query.currency : 'BRL';
   const fresh = req.query.fresh === '1';
+  const acts = parseActIds(req.query.adAccounts);
+  const adIds = acts.length ? await adIdsOf(accountId, acts) : [];
+  const anyAd = sql`array[${sql.join(adIds.length ? adIds.map((i) => sql`${i}`) : [sql`''`], sql`, `)}]::text[]`;
+  const onlyAds = acts.length ? sql`and s.source_id = any(${anyAd})` : sql``;
   const [acc] = await db.select({ tz: schema.accounts.timezone }).from(schema.accounts).where(eq(schema.accounts.id, accountId)).limit(1);
   const tz = validTz(acc?.tz);
   const today = todayIn(tz);
 
   // gasto e vendas atribuídas de hoje, por campanha (cache curto: o painel é "ao vivo")
-  const m = await loadManagerRows({ accountId, level: 'campaign', d0: today, d1: today, tz, fresh, ttl: 90 });
+  const m = await loadManagerRows({ accountId, level: 'campaign', d0: today, d1: today, tz, fresh, ttl: 90, acts });
   const camps = m.rows.filter((r) => r.currency === currency);
 
   const r = (await db.execute(sql`select (${today}::date::timestamp at time zone ${tz}) as s, (${addDays(today, 1)}::date::timestamp at time zone ${tz}) as e,
@@ -56,12 +61,12 @@ adsTodayRouter.get('/', asyncHandler(async (req, res) => {
         coalesce(sum(s.amount), 0)::float as revenue, coalesce(sum(s.cost), 0)::float as cost,
         count(*) filter (where s.source_id is not null)::int as ad_sales
       from sales s left join products p on p.id = s.product_id
-      where s.account_id = ${accountId} and s.status = 'approved' and s.currency = ${currency} and s.created_at >= ${r.s} and s.created_at < ${r.e}
+      where s.account_id = ${accountId} and s.status = 'approved' and s.currency = ${currency} and s.created_at >= ${r.s} and s.created_at < ${r.e} ${onlyAds}
       group by 1, 2`),
     db.execute(sql`select s.id, s.amount::float as amount, s.created_at as at, coalesce(p.name, s.product_name, 'Sem produto') as product,
         s.customer_name as customer, s.source_id as ad
       from sales s left join products p on p.id = s.product_id
-      where s.account_id = ${accountId} and s.status = 'approved' and s.currency = ${currency} and s.created_at >= ${r.s} and s.created_at < ${r.e}
+      where s.account_id = ${accountId} and s.status = 'approved' and s.currency = ${currency} and s.created_at >= ${r.s} and s.created_at < ${r.e} ${onlyAds}
       order by s.created_at desc limit 8`),
     db.select({ campaignId: schema.metaCampaignProducts.campaignId, productId: schema.metaCampaignProducts.productId })
       .from(schema.metaCampaignProducts).where(eq(schema.metaCampaignProducts.accountId, accountId)),
@@ -125,7 +130,7 @@ adsTodayRouter.get('/', asyncHandler(async (req, res) => {
     campaigns,
     recent: (recent.rows as { id: string; amount: number; at: Date; product: string; customer: string | null; ad: string | null }[])
       .map((x) => ({ id: x.id, amount: r2(n(x.amount)), at: x.at, product: x.product, customer: x.customer, fromAd: !!x.ad })),
-    accounts: m.accounts.filter((a) => a.currency === currency).map((a) => ({ actId: a.actId, name: a.name })),
+    accounts: m.accounts.filter((a) => a.currency === currency && (!acts.length || acts.includes(a.actId))).map((a) => ({ actId: a.actId, name: a.name })),
     otherCurrencies: [...new Set(m.accounts.filter((a) => a.currency !== currency).map((a) => a.currency))],
     errors: m.errors,
     updatedAt: new Date(m.oldest).toISOString(),

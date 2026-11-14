@@ -7,6 +7,8 @@ export interface DashFilters {
   connectionId: string;
   productId: string;
   currency: string;
+  /** contas de anúncios (actId); vazio = todas */
+  adAccounts: string[];
 }
 
 export interface RangeInfo {

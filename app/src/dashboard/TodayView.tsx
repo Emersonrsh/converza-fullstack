@@ -30,7 +30,7 @@ const ago = (iso: string, now: number) => {
 const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
 /** Painel do dia: gasto × faturamento × lucro de hoje, por produto e por campanha, atualizando sozinho. */
-export function TodayView({ currency, products, canEdit, refreshKey }: { currency: string; products: Product[]; canEdit: boolean; refreshKey: number }) {
+export function TodayView({ currency, adAccounts, products, canEdit, refreshKey }: { currency: string; adAccounts: string[]; products: Product[]; canEdit: boolean; refreshKey: number }) {
   const [data, setData] = useState<TodayData | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -42,14 +42,14 @@ export function TodayView({ currency, products, canEdit, refreshKey }: { currenc
     const id = ++req.current;
     setBusy(true);
     try {
-      const r = await api.get<TodayData>(`/ads-today?currency=${currency}${fresh ? '&fresh=1' : ''}`);
+      const r = await api.get<TodayData>(`/ads-today?currency=${currency}${adAccounts.length ? `&adAccounts=${adAccounts.join(',')}` : ''}${fresh ? '&fresh=1' : ''}`);
       if (id === req.current) { setData(r); setErr(null); }
     } catch (e) {
       if (id === req.current) setErr((e as Error).message);
     } finally {
       if (id === req.current) setBusy(false);
     }
-  }, [currency]);
+  }, [currency, adAccounts.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { void load(refreshKey > 0); }, [load, refreshKey]);
   // ao vivo: venda nova chega pelo socket; gasto da Meta a cada minuto; relógio do "há X min"

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { asyncHandler, AppError, isUuid } from '../utils/http';
+import { adIdsOf, parseActIds } from '../meta/adIndex';
 
 export const dashboardRouter = Router();
 
@@ -87,14 +88,23 @@ async function resolveRange(accountId: string, q: Request['query']): Promise<Ran
 
 /* ------------------------------------------------------------------ filtros */
 
-interface Filters { connectionId: string | null; productId: string | null; currency: string; }
+interface Filters { connectionId: string | null; productId: string | null; currency: string;
+  /** contas de anúncios escolhidas (vazio = todas) e os IDs dos anúncios delas */
+  actIds: string[]; adIds: string[]; }
 
 function parseFilters(q: Request['query']): Filters {
   const c = String(q.connectionId ?? '');
   const p = String(q.productId ?? '');
   const cur = String(q.currency ?? 'BRL').toUpperCase();
-  return { connectionId: isUuid(c) ? c : null, productId: isUuid(p) ? p : null, currency: /^[A-Z]{3}$/.test(cur) ? cur : 'BRL' };
+  return { connectionId: isUuid(c) ? c : null, productId: isUuid(p) ? p : null, currency: /^[A-Z]{3}$/.test(cur) ? cur : 'BRL', actIds: parseActIds(q.adAccounts), adIds: [] };
 }
+/** Filtros + os anúncios das contas escolhidas (vendas e leads só dos anúncios delas). */
+async function filtersOf(accountId: string, q: Request['query']): Promise<Filters> {
+  const f = parseFilters(q);
+  if (f.actIds.length) f.adIds = await adIdsOf(accountId, f.actIds);
+  return f;
+}
+const anyOf = (ids: string[]) => sql`array[${sql.join(ids.length ? ids.map((i) => sql`${i}`) : [sql`''`], sql`, `)}]::text[]`;
 
 const rows = async <T = Record<string, any>>(q: SQL) => (await db.execute(q)).rows as T[];
 const n = (v: unknown) => Number(v ?? 0) || 0;
@@ -105,12 +115,14 @@ function salesWhere(accountId: string, f: Filters, start: Date, end: Date): SQL 
   ];
   if (f.connectionId) parts.push(sql`s.connection_id = ${f.connectionId}`);
   if (f.productId) parts.push(sql`s.product_id = ${f.productId}`);
+  if (f.actIds.length) parts.push(sql`s.source_id = any(${anyOf(f.adIds)})`);
   return sql.join(parts, sql` and `);
 }
 
 function leadsWhere(accountId: string, f: Filters, start: Date, end: Date): SQL {
   const parts: SQL[] = [sql`c.account_id = ${accountId}`, sql`c.created_at >= ${start}`, sql`c.created_at < ${end}`];
   if (f.connectionId) parts.push(sql`c.first_connection_id = ${f.connectionId}`);
+  if (f.actIds.length) parts.push(sql`c.source_id = any(${anyOf(f.adIds)})`);
   return sql.join(parts, sql` and `);
 }
 
@@ -147,7 +159,8 @@ async function salesKpis(accountId: string, f: Filters, start: Date, end: Date, 
     from sales s where ${salesWhere(accountId, f, start, end)}`);
   const [l] = await rows(sql`select count(*) as n from contacts c where ${leadsWhere(accountId, f, start, end)}`);
   const [ad] = await rows(sql`select coalesce(sum(amount), 0) as spend from ad_spend
-    where account_id = ${accountId} and date between ${d0}::date and ${d1}::date and currency = ${f.currency}`);
+    where account_id = ${accountId} and date between ${d0}::date and ${d1}::date and currency = ${f.currency}
+      ${f.actIds.length ? sql`and ad_account_id = any(${anyOf(f.actIds)})` : sql``}`);
   return computeKpis({ revenue: n(a?.revenue), sales: n(a?.sales), cost: n(a?.cost), leads: n(l?.n), adSpend: n(ad?.spend) }, ps);
 }
 
@@ -167,7 +180,7 @@ export function buckets(d0: string, d1: string, bucket: 'hour' | 'day') {
 dashboardRouter.get('/sales', asyncHandler(async (req, res) => {
   const accountId = req.accountId!;
   const r = await resolveRange(accountId, req.query);
-  const f = parseFilters(req.query);
+  const f = await filtersOf(accountId, req.query);
   const ps = profitSettings(r.account.settings);
   const w = salesWhere(accountId, f, r.start, r.end);
   const fmt = r.bucket === 'hour' ? 'YYYY-MM-DD HH24' : 'YYYY-MM-DD';
@@ -197,7 +210,7 @@ dashboardRouter.get('/sales', asyncHandler(async (req, res) => {
 
   // contas de anúncios do painel: período com hoje → busca o gasto na Meta agora (sem esperar a rodada de hora em hora)
   const adAccs = await db.select({
-    id: schema.metaAdAccounts.id, name: schema.metaAdAccounts.name, currency: schema.metaAdAccounts.currency,
+    id: schema.metaAdAccounts.id, actId: schema.metaAdAccounts.actId, name: schema.metaAdAccounts.name, currency: schema.metaAdAccounts.currency, profileName: schema.metaProfiles.name,
     lastSyncAt: schema.metaAdAccounts.lastSyncAt, lastError: schema.metaAdAccounts.lastError, profileStatus: schema.metaProfiles.status,
   }).from(schema.metaAdAccounts)
     .innerJoin(schema.metaProfiles, eq(schema.metaProfiles.id, schema.metaAdAccounts.profileId))
@@ -230,10 +243,23 @@ dashboardRouter.get('/sales', asyncHandler(async (req, res) => {
     byProduct: byProduct.map((x) => ({ id: String(x.id), name: x.name, count: n(x.count), revenue: n(x.revenue) })),
     currencies: [...new Set(['BRL', ...currencies.map((c) => String(c.currency))])],
     adAccounts: adAccs.map((a) => ({
+      actId: a.actId, profileName: a.profileName,
       name: a.name, currency: a.currency, lastSyncAt: a.lastSyncAt,
       error: a.profileStatus !== 'connected' ? 'O login do perfil do Facebook venceu. Reconecte em Facebook → Perfis e contas.' : a.lastError,
     })),
   });
+}));
+
+/** Contas de anúncios para o filtro: as do painel (escolhíveis) e as outras dos perfis (desabilitadas). */
+dashboardRouter.get('/ad-accounts', asyncHandler(async (req, res) => {
+  const list = await db.select({ actId: schema.metaAdAccounts.actId, name: schema.metaAdAccounts.name, currency: schema.metaAdAccounts.currency,
+    selected: schema.metaAdAccounts.selected, profileName: schema.metaProfiles.name })
+    .from(schema.metaAdAccounts).innerJoin(schema.metaProfiles, eq(schema.metaProfiles.id, schema.metaAdAccounts.profileId))
+    .where(eq(schema.metaAdAccounts.accountId, req.accountId!)).limit(300);
+  const seen = new Set<string>();
+  const out = list.sort((a, b) => Number(b.selected) - Number(a.selected) || a.name.localeCompare(b.name, 'pt-BR'))
+    .filter((a) => (seen.has(a.actId) ? false : (seen.add(a.actId), true)));
+  res.json({ accounts: out });
 }));
 
 /* -------------------------------------------------------- histórico de vendas */
@@ -264,7 +290,7 @@ function listQuery(accountId: string, r: Range, f: Filters, status: string | nul
 dashboardRouter.get('/sales/list', asyncHandler(async (req, res) => {
   const accountId = req.accountId!;
   const r = await resolveRange(accountId, req.query);
-  const f = parseFilters(req.query);
+  const f = await filtersOf(accountId, req.query);
   const status = (STATUSES as readonly string[]).includes(String(req.query.status)) ? String(req.query.status) : null;
   const page = Math.max(1, Math.floor(Number(req.query.page) || 1));
   const pageSize = Math.min(100, Math.max(5, Math.floor(Number(req.query.pageSize) || 20)));
@@ -288,7 +314,7 @@ const STATUS_PT: Record<string, string> = { pending: 'Pendente', approved: 'Apro
 dashboardRouter.get('/sales/export.csv', asyncHandler(async (req, res) => {
   const accountId = req.accountId!;
   const r = await resolveRange(accountId, req.query);
-  const f = parseFilters(req.query);
+  const f = await filtersOf(accountId, req.query);
   const status = (STATUSES as readonly string[]).includes(String(req.query.status)) ? String(req.query.status) : null;
   const q = listQuery(accountId, r, f, status);
   const list = await rows(sql`${q.select} order by s.created_at desc limit 50000`);
@@ -348,7 +374,7 @@ async function attendanceKpis(accountId: string, f: Filters, start: Date, end: D
 dashboardRouter.get('/attendance', asyncHandler(async (req, res) => {
   const accountId = req.accountId!;
   const r = await resolveRange(accountId, req.query);
-  const f = parseFilters(req.query);
+  const f = await filtersOf(accountId, req.query);
   const fmt = r.bucket === 'hour' ? 'YYYY-MM-DD HH24' : 'YYYY-MM-DD';
   const mw = msgWhere(accountId, f, r.start, r.end);
   const queueParts: SQL[] = [sql`v.account_id = ${accountId}`, sql`v.bot_paused = true`, sql`v.status <> 'resolved'`];

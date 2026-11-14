@@ -11,6 +11,7 @@ import {
   type InsightRow, type Level, type RemoteAdAccount, type RemoteEntity,
 } from '../meta/graphAds';
 import { profitSettings } from './dashboard';
+import { cached } from '../meta/adIndex';
 import { accountStatusLabel, addMetrics, breakdownKey, buildRows, dailySeries, derive, metricsOf, totalsByCurrency, zero, type Attribution, type EntityIn, type Metrics } from '../meta/insights';
 import { addDays, dropAdAccountSpend, markProfileProblem, syncAdAccountSpend, todayIn } from '../meta/adsSync';
 import { PERIODS, periodDates, validTz, type Period } from './dashboard';
@@ -221,18 +222,6 @@ metaRouter.post('/sync', asyncHandler(async (req, res) => {
 
 /* ------------------------------------------------------------------ Gerenciador */
 
-async function cached<T>(key: string, ttlSec: number, fresh: boolean, fn: () => Promise<T>): Promise<{ v: T; at: number }> {
-  if (!fresh) {
-    try {
-      const hit = await redis.get(key);
-      if (hit) return JSON.parse(hit) as { v: T; at: number };
-    } catch { /* sem cache */ }
-  }
-  const out = { v: await fn(), at: Date.now() };
-  redis.set(key, JSON.stringify(out), 'EX', ttlSec).catch(() => {});
-  return out;
-}
-
 const LEVELS = ['campaign', 'adset', 'ad'] as const;
 
 /**
@@ -241,7 +230,7 @@ const LEVELS = ['campaign', 'adset', 'ad'] as const;
  */
 export async function loadManagerRows(o: {
   accountId: string; level: Level; d0: string; d1: string; tz: string; fresh?: boolean;
-  onlyAct?: string | null; campaignId?: string | null; adsetId?: string | null; withDaily?: boolean; ttl?: number;
+  onlyAct?: string | null; acts?: string[]; campaignId?: string | null; adsetId?: string | null; withDaily?: boolean; ttl?: number;
 }) {
   const { accountId, level, d0, d1, tz } = o;
   const fresh = !!o.fresh; const campaignId = o.campaignId ?? null; const adsetId = o.adsetId ?? null; const onlyAct = o.onlyAct ?? null;
@@ -259,7 +248,7 @@ export async function loadManagerRows(o: {
   const [accRow] = await db.select({ settings: schema.accounts.settings }).from(schema.accounts).where(eq(schema.accounts.id, accountId)).limit(1);
   const ps = profitSettings((accRow?.settings ?? {}) as Record<string, unknown>);
   const feePct = ps.gatewayFeePercent + ps.taxPercent;
-  const use = selected.filter((s) => !onlyAct || s.a.actId === onlyAct);
+  const use = selected.filter((s) => (!onlyAct || s.a.actId === onlyAct) && (!o.acts?.length || o.acts.includes(s.a.actId)));
 
   const errors: { actId: string; name: string; message: string; expired: boolean }[] = [];
   const entities: EntityIn[] = [];
