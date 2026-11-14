@@ -541,6 +541,8 @@ export const sales = pgTable('sales', {
   invoiceNumber: text('invoice_number'),
   invoiceUrl: text('invoice_url'),
   invoiceIssuedAt: timestamp('invoice_issued_at', { withTimezone: true }),
+  /** venda já avisada no celular (Web Push) */
+  pushNotifiedAt: timestamp('push_notified_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -807,6 +809,23 @@ export const metaCampaignFlows = pgTable('meta_campaign_flows', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   perCampaign: uniqueIndex('meta_campaign_flows_uq').on(t.accountId, t.campaignId),
+}));
+
+/** Aparelho inscrito para notificações no celular (Web Push), por usuário e empresa. */
+export const pushSubscriptions = pgTable('push_subscriptions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  endpoint: text('endpoint').notNull(),
+  p256dh: text('p256dh').notNull(),
+  auth: text('auth').notNull(),
+  device: text('device'),
+  prefs: jsonb('prefs').$type<{ sales: boolean }>().notNull().default({ sales: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  lastSentAt: timestamp('last_sent_at', { withTimezone: true }),
+}, (t) => ({
+  perDevice: uniqueIndex('push_subscriptions_uq').on(t.accountId, t.endpoint),
+  byUser: index('push_subscriptions_user_idx').on(t.userId),
 }));
 
 /** Campanha da Meta ligada a um produto: o gasto dela entra no lucro do produto no painel do dia. */
@@ -1243,7 +1262,7 @@ export const schema = {
   accounts, users, memberships, connections, contacts, conversations, messages, quickReplies,
   tags, flowFolders, flows, flowRuns, flowNodeStats, voices, agents, agentRuns, campaigns, webhooks, products, sales, adSpend, subscriptions,
   kanbanBoards, kanbanColumns, kanbanCards, contactFields, contactExports, webhookEvents, webhookUsage, flowPending,
-  campaignRecipients, dispatchUsage, metaProfiles, metaAdAccounts, metaCampaignFlows, metaCampaignProducts, adRules, adRuleLogs, pixels, pixelEvents, invoices, billingEvents,
+  campaignRecipients, dispatchUsage, metaProfiles, metaAdAccounts, metaCampaignFlows, metaCampaignProducts, adRules, adRuleLogs, pushSubscriptions, pixels, pixelEvents, invoices, billingEvents,
   departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, platformAudit, storedFiles, storedFileChunks, storedFileMedia,
   globalVariables, flowTranslations, aiUsage, trackingLinks, trackingClicks, apiKeys, mcpCalls, flowDistributions,
   waWebAuth, waWebMedia, accessLogs,

@@ -34,7 +34,7 @@ export function SettingsLayout() {
 
   return (
     <div className={cx('st', collapsed && 'collapsed')} data-testid="settings">
-      <nav className="st-nav" aria-label="Configurações">
+      <nav className="st-nav" aria-label="Configurações" ref={(el) => { if (el && window.innerWidth <= 760) el.querySelector('.st-item.active')?.scrollIntoView({ block: 'nearest', inline: 'center' }); }}>
         <div className="st-nav-top">
           <b>Configurações</b>
           <button type="button" className="btn icon sm ghost" onClick={toggle} title={collapsed ? 'Abrir menu' : 'Recolher menu'} aria-label={collapsed ? 'Abrir menu' : 'Recolher menu'} data-testid="st-collapse">

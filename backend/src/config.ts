@@ -130,6 +130,13 @@ export const config = {
   },
   // endereço público da API (ex.: https://converza-api.onrender.com) — usado nas URLs de webhook
   publicApiUrl: (process.env.PUBLIC_API_URL ?? '').replace(/\/+$/, ''),
+  /** Notificações no celular (Web Push). Gere o par com `npx web-push generate-vapid-keys`. */
+  push: {
+    publicKey: process.env.VAPID_PUBLIC_KEY ?? '',
+    privateKey: process.env.VAPID_PRIVATE_KEY ?? '',
+    // contato do remetente exigido pelos serviços de push (mailto: ou https:)
+    subject: process.env.VAPID_SUBJECT ?? '',
+  },
   // programa de parceiros (banner do dashboard)
   partners: {
     enabled: process.env.PARTNER_PROGRAM_ENABLED !== 'false',

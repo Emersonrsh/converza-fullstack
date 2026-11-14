@@ -9,6 +9,7 @@ import { emitToAccount } from '../realtime/io';
 import { onPaymentApproved } from '../flows/runner';
 import { normCurrency, normState, recordSale } from './salesStore';
 import { firePixels } from '../pixels/sender';
+import { notifySaleApproved } from './push';
 
 /** Vendas lançadas à mão, edição, nota fiscal e exclusão (Histórico de vendas do dashboard). */
 export const salesRouter = Router();
@@ -112,6 +113,7 @@ salesRouter.patch('/:id', asyncHandler(async (req, res) => {
     const [row] = await db.update(schema.sales).set(patch).where(eq(schema.sales.id, sale.id)).returning();
     if (row.status === 'approved' && sale.status !== 'approved' && row.contactId) await onPaymentApproved(accountId, row.contactId);
     if (row.status === 'approved' && sale.status !== 'approved') void firePixels(accountId, 'sale', { saleId: row.id, contactId: row.contactId });
+    if (row.status === 'approved' && sale.status !== 'approved') void notifySaleApproved(row.id);
     emitToAccount(accountId, 'sale:changed', { id: row.id });
     res.json({ sale: row });
   } catch (err) {

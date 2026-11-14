@@ -51,6 +51,8 @@ O Render faz deploy a partir de um repositório. Sem instalar Git pela linha de 
    | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `EMAIL_FROM` | (opcional, mas recomendado) envio de e-mail — veja a Parte 9. Sem isso, os convites mostram um link para você copiar. |
    | `SUPPORT_EMAILS` | (opcional) e-mails da sua equipe de suporte, separados por vírgula — veja a Parte 9. |
    | `HOUSE_EMAILS` / `HOUSE_INSTANCES` | (opcional) **conta da casa** — veja a Parte 10. |
+   | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | (opcional, recomendado) **notificações no celular** (“Venda aprovada”). Gere o par uma vez com `npx web-push generate-vapid-keys` (no seu computador, com Node instalado) e cole as duas chaves. Não troque depois: trocar obriga todo mundo a ativar as notificações de novo. A chave privada é segredo, como o `JWT_SECRET`. |
+   | `VAPID_SUBJECT` | (opcional) contato do remetente das notificações: `mailto:seu-email@dominio.com` ou o endereço do site (`https://...`). Sem ela, usa o `APP_ORIGIN`. |
    | `PLATFORM_ADMIN_EMAILS` | seu e-mail (pode ter vários, separados por vírgula): libera o **Painel da plataforma** — veja a Parte 12. |
 | `WA_WEB_MENU` | Opcional. Como os menus dos fluxos saem no QR Code: `poll` (padrão, enquete clicável), `text` (lista numerada) ou `buttons` (botões nativos, experimental: o WhatsApp costuma não entregar). |
    | `LEGAL_TRADE_NAME` / `LEGAL_COMPANY_NAME` / `LEGAL_CNPJ` / `LEGAL_ADDRESS` / `LEGAL_EMAIL` / `LEGAL_DPO_NAME` / `LEGAL_DPO_EMAIL` / `LEGAL_CITY` | dados da sua empresa (ou seus, se vende com CPF: `LEGAL_CNPJ` aceita CPF) nos **Termos de Uso**, na **Política de Privacidade** e na **Exclusão de dados** — veja a Parte 10. |

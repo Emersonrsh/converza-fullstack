@@ -2631,3 +2631,42 @@ body:has(.ed-shell, .modal-bg, [aria-modal="true"]:not(.dc-pop)) .dc-fab-wrap{di
 .aaf-sep{height:1px;background:var(--border);margin:6px 0}
 .aaf-note{font-size:11.5px}
 .aaf-f{display:flex;justify-content:flex-end;gap:8px;padding-top:4px;border-top:1px solid var(--border)}
+
+/* Configurações → Notificações no celular */
+.push-steps{margin-top:14px;padding:14px 16px;border-radius:12px;background:var(--surface-2);font-size:13px;display:flex;flex-direction:column;gap:8px}
+.push-steps ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;line-height:1.45}
+.push-steps .icon,.push-steps svg{vertical-align:-2px}
+.push-list{display:flex;flex-direction:column}
+.push-dev{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+.push-dev:last-child{border-bottom:0}
+.push-dev-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.push-dev-t b{font-size:13.5px;display:flex;align-items:center;gap:4px}
+.push-dev-t small{font-size:12px}
+.push-pref{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--muted);white-space:nowrap}
+@media (max-width:640px){.push-dev{flex-wrap:wrap}.push-pref{order:3}}
+
+/* ------------------------------------------------------------------ celular (app na tela de início) */
+.m-menu,.m-backdrop{display:none}
+@media (max-width:760px){
+  .shell,.shell.side-hidden{grid-template-columns:1fr}
+  .shell > .side-open{display:none}
+  .shell > .sidebar,.shell.side-hidden > .sidebar{position:fixed;inset:0 auto 0 0;width:min(280px,84vw);z-index:90;visibility:visible;padding:16px 12px;overflow-y:auto;
+    transform:translateX(-105%);transition:transform .22s ease;box-shadow:var(--shadow-lg);padding-top:max(16px,env(safe-area-inset-top))}
+  .shell.m-open > .sidebar{transform:none}
+  .m-backdrop{display:block;position:fixed;inset:0;z-index:89;background:rgba(0,0,0,.45)}
+  .m-menu{display:flex;align-items:center;justify-content:center;position:fixed;top:10px;left:10px;z-index:70;width:40px;height:40px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
+  .topbar{padding-left:60px}
+  .content{padding:14px}
+  /* Configurações: o menu vira uma faixa rolável no topo */
+  .st,.st.collapsed{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
+  .st-nav{flex-direction:row;align-items:center;overflow-x:auto;overflow-y:hidden;border-right:0;border-bottom:1px solid var(--border);padding:10px 10px 10px 60px;gap:6px;scrollbar-width:none}
+  .st-nav::-webkit-scrollbar{display:none}
+  .st-nav-top,.st-group,.st-sep{display:none !important}
+  .st-item,.st.collapsed .st-item{flex:none;white-space:nowrap;padding:8px 12px;justify-content:flex-start}
+  .st-nav > div:not(.st-nav-top){display:contents}
+  .st-item span,.st.collapsed .st-item span{display:inline !important}
+  .st-main{padding:16px 14px 90px}
+  .st-card-h{flex-wrap:wrap}
+  .dc-fab{width:52px;height:52px}
+  .dc-fab-wrap{right:16px;bottom:16px}
+}

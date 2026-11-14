@@ -78,6 +78,9 @@ export function Layout() {
   const [hideInv, setHideInv] = useState(false);
   // barra lateral escondida (fica lembrado neste navegador)
   const [sideHidden, setSideHidden] = useState(() => { try { return localStorage.getItem('cz-side-hidden') === '1'; } catch { return false; } });
+  // celular: o menu lateral vira gaveta (abre pelo botão ☰ e fecha ao trocar de tela)
+  const [mOpen, setMOpen] = useState(false);
+  useEffect(() => { setMOpen(false); }, [loc.pathname]);
   const toggleSide = (v: boolean) => { setSideHidden(v); try { localStorage.setItem('cz-side-hidden', v ? '1' : '0'); } catch { /* sem storage */ } };
   useEffect(() => {
     api.get<{ invites: typeof invites }>('/accounts/invites').then((r) => setInvites(r.invites)).catch(() => setInvites([]));
@@ -123,7 +126,9 @@ export function Layout() {
   const account = accounts.find((a) => a.id === accountId);
 
   return (
-    <div className={cx('shell', sideHidden && 'side-hidden')}>
+    <div className={cx('shell', sideHidden && 'side-hidden', mOpen && 'm-open')}>
+      <button type="button" className="m-menu" onClick={() => setMOpen(true)} aria-label="Abrir o menu" data-testid="m-menu"><Icon name="menu" size={20} /></button>
+      {mOpen && <div className="m-backdrop" onClick={() => setMOpen(false)} />}
       {sideHidden && (
         <button type="button" className="side-open" onClick={() => toggleSide(false)} title="Mostrar a barra lateral" aria-label="Mostrar a barra lateral" data-testid="side-show">
           <Icon name="chevronRight" size={16} />

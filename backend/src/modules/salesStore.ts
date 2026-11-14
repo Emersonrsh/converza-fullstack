@@ -3,6 +3,7 @@ import { db, schema } from '../db';
 import { emitToAccount } from '../realtime/io';
 import { ufFromPhone, UFS } from '../utils/ddd';
 import { firePixels } from '../pixels/sender';
+import { notifySaleApproved } from './push';
 
 export type SaleStatus = 'pending' | 'approved' | 'refused' | 'refunded';
 
@@ -120,5 +121,7 @@ export async function recordSale(input: SaleInput) {
   emitToAccount(input.accountId, 'sale:changed', { id: row.id });
   // pixels: venda aprovada vira evento de compra (uma vez só por venda)
   if (row.status === 'approved') void firePixels(input.accountId, 'sale', { saleId: row.id, contactId: row.contactId });
+  // celular: "Venda aprovada" (uma vez por venda)
+  if (row.status === 'approved') void notifySaleApproved(row.id);
   return row;
 }
