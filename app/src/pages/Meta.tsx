@@ -8,15 +8,17 @@ import { Spinner, cx } from '../components/ui';
 import { Manager } from '../facebook/Manager';
 import { Pixels } from '../facebook/Pixels';
 import { Profiles } from '../facebook/Profiles';
+import { Rules } from '../facebook/Rules';
 import type { Overview } from '../facebook/types';
 
 const TABS: [string, string, string][] = [
   ['', 'Gerenciador', 'fb-tab-manager'],
+  ['regras', 'Regras automáticas', 'fb-tab-rules'],
   ['pixel', 'Pixel', 'fb-tab-pixel'],
   ['perfis', 'Perfis e contas', 'fb-tab-profiles'],
 ];
 
-/** Facebook: Gerenciador (anúncios), Pixel (eventos de conversão) e Perfis e contas (login da Meta). */
+/** Facebook: Gerenciador (anúncios), Regras automáticas, Pixel (eventos de conversão) e Perfis e contas (login da Meta). */
 export function Meta() {
   const loc = useLocation();
   const nav = useNavigate();
@@ -53,6 +55,7 @@ export function Meta() {
       )}
       {!overview && !err && <Spinner />}
       {overview && tab === '' && <Manager overview={overview} />}
+      {overview && tab === 'regras' && <Rules overview={overview} />}
       {overview && tab === 'pixel' && <Pixels canEdit={overview.canEdit} />}
       {overview && tab === 'perfis' && <Profiles overview={overview} onChanged={() => void load()} />}
     </div>

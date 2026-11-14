@@ -809,6 +809,62 @@ export const metaCampaignFlows = pgTable('meta_campaign_flows', {
   perCampaign: uniqueIndex('meta_campaign_flows_uq').on(t.accountId, t.campaignId),
 }));
 
+/** Campanha da Meta ligada a um produto: o gasto dela entra no lucro do produto no painel do dia. */
+export const metaCampaignProducts = pgTable('meta_campaign_products', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  actId: text('act_id').notNull(),
+  campaignId: text('campaign_id').notNull(),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  perCampaign: uniqueIndex('meta_campaign_products_uq').on(t.accountId, t.campaignId),
+}));
+
+export interface AdRuleCondition { metric: string; op: 'gt' | 'lt'; value: number }
+export interface AdRuleAction { type: 'pause' | 'activate' | 'budget_up' | 'budget_down' | 'notify'; pct?: number; limit?: number | null }
+/** Regra automática: quando as condições valem na janela, aplica a ação em cada campanha/conjunto/anúncio. */
+export const adRules = pgTable('ad_rules', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  enabled: boolean('enabled').notNull().default(true),
+  actId: text('act_id').notNull(),
+  level: text('level').notNull(),
+  campaignIds: jsonb('campaign_ids').$type<string[]>().notNull().default([]),
+  conditions: jsonb('conditions').$type<AdRuleCondition[]>().notNull().default([]),
+  window: text('window').notNull().default('today'),
+  action: jsonb('action').$type<AdRuleAction>().notNull(),
+  cooldownHours: integer('cooldown_hours').notNull().default(24),
+  lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+  lastError: text('last_error'),
+  createdBy: uuid('created_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  byAccount: index('ad_rules_account_idx').on(t.accountId),
+}));
+
+/** Histórico das regras: o que cada uma fez (ou tentou) em cada objeto. */
+export const adRuleLogs = pgTable('ad_rule_logs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  ruleId: uuid('rule_id').references(() => adRules.id, { onDelete: 'cascade' }),
+  ruleName: text('rule_name').notNull(),
+  objectId: text('object_id').notNull(),
+  objectName: text('object_name').notNull(),
+  level: text('level').notNull(),
+  action: text('action').notNull(),
+  /** applied | error | skipped */
+  status: text('status').notNull(),
+  detail: text('detail').notNull(),
+  values: jsonb('values').$type<Record<string, number>>().notNull().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  byAccount: index('ad_rule_logs_account_idx').on(t.accountId, t.createdAt),
+  byRuleObj: index('ad_rule_logs_rule_obj_idx').on(t.ruleId, t.objectId, t.createdAt),
+}));
+
 /** Pixel (ou conjunto de dados) que recebe os eventos de conversão: Meta, Meta pelo WhatsApp ou TikTok. */
 export const pixels = pgTable('pixels', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -1187,7 +1243,7 @@ export const schema = {
   accounts, users, memberships, connections, contacts, conversations, messages, quickReplies,
   tags, flowFolders, flows, flowRuns, flowNodeStats, voices, agents, agentRuns, campaigns, webhooks, products, sales, adSpend, subscriptions,
   kanbanBoards, kanbanColumns, kanbanCards, contactFields, contactExports, webhookEvents, webhookUsage, flowPending,
-  campaignRecipients, dispatchUsage, metaProfiles, metaAdAccounts, metaCampaignFlows, pixels, pixelEvents, invoices, billingEvents,
+  campaignRecipients, dispatchUsage, metaProfiles, metaAdAccounts, metaCampaignFlows, metaCampaignProducts, adRules, adRuleLogs, pixels, pixelEvents, invoices, billingEvents,
   departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, platformAudit, storedFiles, storedFileChunks, storedFileMedia,
   globalVariables, flowTranslations, aiUsage, trackingLinks, trackingClicks, apiKeys, mcpCalls, flowDistributions,
   waWebAuth, waWebMedia, accessLogs,

@@ -43,6 +43,8 @@ import { apiKeysRouter } from './modules/apiKeys';
 import { mcpRouter } from './mcp/server';
 import { integrationsRouter } from './modules/integrations';
 import { metaRouter } from './modules/meta';
+import { adsTodayRouter } from './modules/adsToday';
+import { adRulesRouter, startAdRules } from './meta/rules';
 import { pixelsRouter } from './modules/pixels';
 import { startMetaAdsSync } from './meta/adsSync';
 import { whatsappWebhookRouter } from './whatsapp/webhook';
@@ -122,6 +124,8 @@ app.use('/api/v1/team', ...guard, teamRouter);
 app.use('/api/v1/settings', ...guard, settingsRouter);
 app.use('/api/v1/billing', ...guard, billingRouter);
 app.use('/api/v1/meta', ...guard, metaRouter);
+app.use('/api/v1/ads-today', ...guard, adsTodayRouter);
+app.use('/api/v1/ad-rules', ...guard, adRulesRouter);
 app.use('/api/v1/pixels', ...guard, pixelsRouter);
 app.use('/api/v1/departments', ...guard, departmentsRouter);
 app.use('/api/v1/business-hours', ...guard, businessHoursRouter);
@@ -150,6 +154,7 @@ if (process.env.START_WORKER !== 'false') {
   startPixelWorker();
   startConnectionHealthSweep();
   startMetaAdsSync();
+  startAdRules();
   startBillingJobs();
   startTranslationSweep();
   // registros de acesso (Marco Civil): apaga os que passaram de 6 meses, uma vez por dia

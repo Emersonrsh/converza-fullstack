@@ -23,7 +23,8 @@ export interface Derived {
   ctr: number; cpc: number; cpm: number; costPerConversation: number; costPerLead: number; frequency: number; ctrAll: number; cpcAll: number;
   costPerPurchase: number; roasMeta: number; costPerLpv: number; costPerThruplay: number; hookRate: number;
 }
-export interface Converza { leads: number; sales: number; revenue: number; roas: number }
+/** Números do Converza: vendas atribuídas ao anúncio, custo dos produtos, taxas (gateway + imposto) e lucro líquido. */
+export interface Converza { leads: number; sales: number; revenue: number; roas: number; cost: number; fees: number; profit: number; margin: number; cpa: number }
 export interface ManagerRow {
   id: string; level: Level; name: string; actId: string; accountName: string; currency: string;
   campaignId: string | null; adsetId: string | null;
@@ -47,6 +48,8 @@ export interface ManagerData {
   daily: Record<string, { date: string; spend: number; conversations: number; linkClicks: number }[]>;
   errors: { actId: string; name: string; message: string; expired: boolean }[];
   updatedAt: string | null; unmatched: { leads: number; sales: number };
+  /** ajustes do lucro (Dashboard): % sobre o faturamento */
+  profit?: { gatewayFeePercent: number; taxPercent: number };
 }
 
 export type Platform = 'meta' | 'meta_whatsapp' | 'tiktok';

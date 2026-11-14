@@ -202,10 +202,14 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
   const foot = useMemo((): TRow | null => {
     if (!rows.length) return null;
     const metrics = sumMetrics(rows.map((r) => r.metrics));
-    const cz = { leads: 0, sales: 0, revenue: 0, roas: 0 };
-    for (const r of rows) { cz.leads += r.converza.leads; cz.sales += r.converza.sales; cz.revenue += r.converza.revenue; }
-    cz.revenue = Math.round(cz.revenue * 100) / 100;
-    cz.roas = metrics.spend ? Math.round((cz.revenue / metrics.spend) * 100) / 100 : 0;
+    const r2 = (x: number) => Math.round(x * 100) / 100;
+    const cz = { leads: 0, sales: 0, revenue: 0, roas: 0, cost: 0, fees: 0, profit: 0, margin: 0, cpa: 0 };
+    for (const r of rows) { cz.leads += r.converza.leads; cz.sales += r.converza.sales; cz.revenue += r.converza.revenue; cz.cost += r.converza.cost; cz.fees += r.converza.fees; }
+    cz.revenue = r2(cz.revenue); cz.cost = r2(cz.cost); cz.fees = r2(cz.fees);
+    cz.roas = metrics.spend ? r2(cz.revenue / metrics.spend) : 0;
+    cz.profit = r2(cz.revenue - cz.cost - cz.fees - metrics.spend);
+    cz.margin = cz.revenue ? r2((cz.profit / cz.revenue) * 100) : 0;
+    cz.cpa = cz.sales ? r2(metrics.spend / cz.sales) : 0;
     const k = rows[0].result?.key;
     const same = !!k && rows.every((r) => r.result?.key === k);
     const value = same ? rows.reduce((n, r) => n + (r.result?.value ?? 0), 0) : 0;
@@ -362,11 +366,14 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
         <div className="fbm-kpi-group cz">
           <div className="fbm-kpi-h"><Icon name="chats" size={15} />No Converza
             <small className="faint" title="Contatos que chegaram por um anúncio de clique para o WhatsApp (pelo ID do anúncio) e as vendas aprovadas deles no período">quem veio dos anúncios</small></div>
-          <div className="fbm-kpis four" data-testid="fb-kpis-converza">
+          <div className="fbm-kpis five" data-testid="fb-kpis-converza">
             <Stat label="Leads dos anúncios" value={num(t?.converza.leads ?? 0)} sub={t?.converza.leads ? `${fm((t.metrics.spend || 0) / t.converza.leads)} por lead` : undefined} testId="fb-kpi-cz-leads" />
             <Stat label="Vendas aprovadas" value={num(t?.converza.sales ?? 0)} sub={t?.converza.sales ? `ticket médio ${fm(t.converza.revenue / t.converza.sales)}` : undefined} testId="fb-kpi-cz-sales" />
             <Stat label="Faturamento" value={fm(t?.converza.revenue ?? 0)} testId="fb-kpi-cz-revenue" tone="good" />
             <Stat label="ROAS real" value={`${(t?.converza.roas ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}x`} sub="faturamento ÷ investimento" testId="fb-kpi-cz-roas" tone={(t?.converza.roas ?? 0) >= 1 ? 'good' : undefined} />
+            <Stat label="Lucro líquido" value={fm(t?.converza.profit ?? 0)} testId="fb-kpi-cz-profit"
+              sub={t?.converza.revenue ? `margem ${(t.converza.margin).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% · custos e taxas ${fm(t.converza.cost + t.converza.fees)}` : 'faturamento − custos − taxas − gasto'}
+              tone={t && (t.converza.revenue || t.metrics.spend) ? (t.converza.profit >= 0 ? 'good' : 'bad') : undefined} />
           </div>
           {data.unmatched.leads + data.unmatched.sales > 0 && (
             <small className="faint fbm-unmatched" data-testid="fb-unmatched">
@@ -466,7 +473,7 @@ function ManagerView({ canEdit }: { canEdit: boolean }) {
                       </div>
                       </div>
                     </td>
-                    {columns.map((c) => <td key={c.id} className={cx(c.cz && 'cz', c.id === 'czRoas' && r.converza.roas >= 1 && 'good')} data-col={c.id}>{c.id === 'spend' ? <b>{c.f(r as TRow)}</b> : c.id === 'results' && r.result ? <span className="fbm-result">{c.f(r as TRow)}<small>{r.result.label}</small></span> : c.f(r as TRow)}</td>)}
+                    {columns.map((c) => <td key={c.id} className={cx(c.cz && 'cz', c.id === 'czRoas' && r.converza.roas >= 1 && 'good', (c.id === 'czProfit' || c.id === 'czMargin') && r.converza.revenue + r.metrics.spend > 0 && (r.converza.profit >= 0 ? 'good' : 'bad'))} data-col={c.id}>{c.id === 'spend' ? <b>{c.f(r as TRow)}</b> : c.id === 'results' && r.result ? <span className="fbm-result">{c.f(r as TRow)}<small>{r.result.label}</small></span> : c.f(r as TRow)}</td>)}
                   </tr>,
                   ...subRows(r.id).map((x) => (
                     <tr key={`${r.actId}-${r.id}-${x.key}`} className="fbm-bdrow" data-testid="fb-sub-row">

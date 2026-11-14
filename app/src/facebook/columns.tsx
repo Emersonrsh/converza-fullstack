@@ -82,12 +82,18 @@ export const COLUMNS: Col[] = [
   { id: 'czCpl', label: 'Custo por lead (Converza)', group: 'Converza', cz: true, v: (r) => (r.converza?.leads ? r.metrics.spend / r.converza.leads : null), f: (r) => (r.converza?.leads ? money(r.metrics.spend / r.converza.leads, r.currency) : '—') },
   { id: 'czSales', label: 'Vendas', group: 'Converza', cz: true, title: 'Vendas aprovadas no Converza desses leads', v: (r) => r.converza?.sales ?? null, f: (r) => (r.converza ? num(r.converza.sales) : '—') },
   { id: 'czRevenue', label: 'Faturamento', group: 'Converza', cz: true, v: (r) => r.converza?.revenue ?? null, f: (r) => (r.converza ? money(r.converza.revenue, r.currency) : '—') },
+  { id: 'czCpa', label: 'Custo por venda (CPA)', group: 'Converza', cz: true, title: 'Valor gasto ÷ vendas aprovadas no Converza', v: (r) => (r.converza?.sales ? r.converza.cpa : null), f: (r) => (r.converza?.sales ? money(r.converza.cpa, r.currency) : '—') },
+  { id: 'czCost', label: 'Custo dos produtos', group: 'Converza', cz: true, title: 'Custo cadastrado nos produtos das vendas (Configurações → Produtos)', v: (r) => r.converza?.cost ?? null, f: (r) => (r.converza ? money(r.converza.cost, r.currency) : '—') },
+  { id: 'czFees', label: 'Taxas e impostos', group: 'Converza', cz: true, title: 'Taxa do gateway + imposto sobre o faturamento (ajustes do lucro no Dashboard)', v: (r) => r.converza?.fees ?? null, f: (r) => (r.converza ? money(r.converza.fees, r.currency) : '—') },
+  { id: 'czProfit', label: 'Lucro líquido', group: 'Converza', cz: true, title: 'Faturamento − custo dos produtos − taxas e impostos − valor gasto', v: (r) => r.converza?.profit ?? null, f: (r) => (r.converza ? money(r.converza.profit, r.currency) : '—') },
+  { id: 'czMargin', label: 'Margem líquida', group: 'Converza', cz: true, title: 'Lucro líquido ÷ faturamento', v: (r) => (r.converza?.revenue ? r.converza.margin : null), f: (r) => (r.converza?.revenue ? `${r.converza.margin.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : '—') },
   { id: 'czRoas', label: 'ROAS', group: 'Converza', cz: true, title: 'Faturamento no Converza ÷ valor gasto', v: (r) => r.converza?.roas ?? null, f: (r) => (r.converza && r.metrics.spend ? `${r.converza.roas.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}x` : '—') },
 ];
 export const colById = (id: string) => COLUMNS.find((c) => c.id === id);
 
 export const PRESETS: { id: string; label: string; cols: string[] }[] = [
-  { id: 'performance', label: 'Desempenho', cols: ['results', 'costPerResult', 'spend', 'impressions', 'linkClicks', 'ctr', 'cpc', 'conversations', 'cpConv', 'czLeads', 'czSales', 'czRevenue', 'czRoas'] },
+  { id: 'performance', label: 'Desempenho', cols: ['results', 'costPerResult', 'spend', 'impressions', 'linkClicks', 'ctr', 'cpc', 'conversations', 'cpConv', 'czLeads', 'czSales', 'czRevenue', 'czRoas', 'czProfit'] },
+  { id: 'profit', label: 'Lucro', cols: ['spend', 'czSales', 'czCpa', 'czRevenue', 'czCost', 'czFees', 'czProfit', 'czMargin', 'czRoas'] },
   { id: 'delivery', label: 'Entrega', cols: ['spend', 'reach', 'impressions', 'frequency', 'cpm', 'budget', 'bidStrategy', 'endTime'] },
   { id: 'engagement', label: 'Engajamento', cols: ['results', 'spend', 'postEngagement', 'pageLikes', 'clicks', 'ctrAll', 'cpcAll', 'uniqueLinkClicks'] },
   { id: 'video', label: 'Engajamento com o vídeo', cols: ['spend', 'impressions', 'videoViews', 'hookRate', 'thruplays', 'costPerThruplay', 'p25', 'p50', 'p75', 'p100'] },

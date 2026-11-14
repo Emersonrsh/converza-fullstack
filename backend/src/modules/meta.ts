@@ -10,6 +10,7 @@ import {
   BREAKDOWNS, debugUserToken, exchangeAdsCode, extendUserToken, graphAds, fetchAdAccounts, fetchBreakdown, fetchEntities, fetchInsights, fetchMe, MetaApiError,
   type InsightRow, type Level, type RemoteAdAccount, type RemoteEntity,
 } from '../meta/graphAds';
+import { profitSettings } from './dashboard';
 import { accountStatusLabel, addMetrics, breakdownKey, buildRows, dailySeries, derive, metricsOf, totalsByCurrency, zero, type Attribution, type EntityIn, type Metrics } from '../meta/insights';
 import { addDays, dropAdAccountSpend, markProfileProblem, syncAdAccountSpend, todayIn } from '../meta/adsSync';
 import { PERIODS, periodDates, validTz, type Period } from './dashboard';
@@ -234,23 +235,17 @@ async function cached<T>(key: string, ttlSec: number, fresh: boolean, fn: () => 
 
 const LEVELS = ['campaign', 'adset', 'ad'] as const;
 
-metaRouter.get('/manager', asyncHandler(async (req, res) => {
-  const accountId = req.accountId!;
-  const q = req.query;
-  const level: Level = (LEVELS as readonly string[]).includes(String(q.level)) ? (q.level as Level) : 'campaign';
-  const period: Period = (PERIODS as readonly string[]).includes(String(q.period)) ? (q.period as Period) : '7d';
-  const fresh = q.fresh === '1';
-  const campaignId = typeof q.campaignId === 'string' && /^\d{1,30}$/.test(q.campaignId) ? q.campaignId : null;
-  const adsetId = typeof q.adsetId === 'string' && /^\d{1,30}$/.test(q.adsetId) ? q.adsetId : null;
-  const onlyAct = typeof q.actId === 'string' && /^act_\d{1,30}$/.test(q.actId) ? q.actId : null;
-
-  const [acc] = await db.select({ tz: schema.accounts.timezone }).from(schema.accounts).where(eq(schema.accounts.id, accountId)).limit(1);
-  const tz = validTz(acc?.tz);
-  const p = periodDates(period, todayIn(tz), q.from, q.to);
-  const d0 = p.d0; const d1 = p.d1;
-  const days: string[] = [];
-  for (let d = d0; d <= d1 && days.length < 400; d = addDays(d, 1)) days.push(d);
-
+/**
+ * Linhas do Gerenciador num período: entidades e métricas da Meta de cada conta escolhida + leads, vendas,
+ * custo e lucro do Converza atribuídos pelo ID do anúncio. Usado pela tabela, pelo painel do dia e pelas regras.
+ */
+export async function loadManagerRows(o: {
+  accountId: string; level: Level; d0: string; d1: string; tz: string; fresh?: boolean;
+  onlyAct?: string | null; campaignId?: string | null; adsetId?: string | null; withDaily?: boolean; ttl?: number;
+}) {
+  const { accountId, level, d0, d1, tz } = o;
+  const fresh = !!o.fresh; const campaignId = o.campaignId ?? null; const adsetId = o.adsetId ?? null; const onlyAct = o.onlyAct ?? null;
+  const ttl = o.ttl ?? 300;
   const selected = await db.select({ a: schema.metaAdAccounts, profileName: schema.metaProfiles.name, profileStatus: schema.metaProfiles.status, token: schema.metaProfiles.accessToken, scopes: schema.metaProfiles.scopes })
     .from(schema.metaAdAccounts)
     .innerJoin(schema.metaProfiles, eq(schema.metaProfiles.id, schema.metaAdAccounts.profileId))
@@ -260,17 +255,17 @@ metaRouter.get('/manager', asyncHandler(async (req, res) => {
     id: s.a.id, actId: s.a.actId, name: s.a.name, currency: s.a.currency, timezone: s.a.timezone, profileName: s.profileName, profileStatus: s.profileStatus,
     lastSyncAt: s.a.lastSyncAt, canManage: s.profileStatus === 'connected' && canManage(s.scopes),
   }));
+  const tokens = new Map(selected.map((s) => [s.a.actId, s.token]));
+  const [accRow] = await db.select({ settings: schema.accounts.settings }).from(schema.accounts).where(eq(schema.accounts.id, accountId)).limit(1);
+  const ps = profitSettings((accRow?.settings ?? {}) as Record<string, unknown>);
+  const feePct = ps.gatewayFeePercent + ps.taxPercent;
   const use = selected.filter((s) => !onlyAct || s.a.actId === onlyAct);
-  if (!use.length) {
-    res.json({ level, period, from: d0, to: d1, days, accounts, rows: [], total: 0, totals: {}, daily: {}, errors: [], updatedAt: null, unmatched: { leads: 0, sales: 0 } });
-    return;
-  }
 
   const errors: { actId: string; name: string; message: string; expired: boolean }[] = [];
   const entities: EntityIn[] = [];
   const insights: (InsightRow & { actId: string; accountName: string; currency: string })[] = [];
   const daily: (InsightRow & { currency: string })[] = [];
-  const ads: RemoteEntity[] = [];
+  const ads: (RemoteEntity & { actId?: string })[] = [];
   let oldest = Date.now();
 
   await Promise.all(use.map(async (s) => {
@@ -284,11 +279,11 @@ metaRouter.get('/manager', asyncHandler(async (req, res) => {
       const [adList, ents, ins, day] = await Promise.all([
         cached(`${k}:ent:ad`, 600, fresh, () => fetchEntities(a.actId, s.token, 'ad')),
         level === 'ad' ? null : cached(`${k}:ent:${level}`, 600, fresh, () => fetchEntities(a.actId, s.token, level)),
-        cached(`${k}:ins:${level}:${d0}:${d1}`, 300, fresh, () => fetchInsights(a.actId, s.token, { level, since: d0, until: d1 })),
-        cached(`${k}:daily:${d0}:${d1}`, 300, fresh, () => fetchInsights(a.actId, s.token, { level: 'account', since: d0, until: d1, daily: true })),
+        cached(`${k}:ins:${level}:${d0}:${d1}`, ttl, fresh, () => fetchInsights(a.actId, s.token, { level, since: d0, until: d1 })),
+        o.withDaily ? cached(`${k}:daily:${d0}:${d1}`, ttl, fresh, () => fetchInsights(a.actId, s.token, { level: 'account', since: d0, until: d1, daily: true })) : null,
       ]);
-      oldest = Math.min(oldest, adList.at, ins.at, day.at, ents?.at ?? Date.now());
-      ads.push(...adList.v);
+      oldest = Math.min(oldest, adList.at, ins.at, day?.at ?? Date.now(), ents?.at ?? Date.now());
+      ads.push(...adList.v.map((x) => ({ ...x, actId: a.actId })));
       const mine = (ents ?? adList).v
         .filter((e) => !campaignId || (level === 'campaign' ? e.id === campaignId : e.campaign_id === campaignId))
         .filter((e) => !adsetId || (level === 'adset' ? e.id === adsetId : e.adset_id === adsetId));
@@ -297,7 +292,7 @@ metaRouter.get('/manager', asyncHandler(async (req, res) => {
         .filter((r) => !campaignId || r.campaign_id === campaignId)
         .filter((r) => !adsetId || level === 'campaign' || r.adset_id === adsetId)
         .map((r) => ({ ...r, actId: a.actId, accountName: a.name, currency: a.currency })));
-      daily.push(...day.v.map((r) => ({ ...r, currency: a.currency })));
+      if (day) daily.push(...day.v.map((r) => ({ ...r, currency: a.currency })));
     } catch (err) {
       const e = err instanceof MetaApiError ? err : new MetaApiError((err as Error).message);
       if (e.tokenExpired) await markProfileProblem(a.profileId, e);
@@ -309,19 +304,47 @@ metaRouter.get('/manager', asyncHandler(async (req, res) => {
   const r = (await db.execute(sql`select (${d0}::date::timestamp at time zone ${tz}) as s, (${addDays(d1, 1)}::date::timestamp at time zone ${tz}) as e`)).rows[0] as { s: Date; e: Date };
   const leadRows = (await db.execute(sql`select source_id as ad, count(*)::int as n from contacts
     where account_id = ${accountId} and source_id is not null and created_at >= ${r.s} and created_at < ${r.e} group by 1`)).rows as { ad: string; n: number }[];
-  const saleRows = (await db.execute(sql`select source_id as ad, currency, count(*)::int as n, coalesce(sum(amount), 0)::float as v from sales
-    where account_id = ${accountId} and status = 'approved' and source_id is not null and created_at >= ${r.s} and created_at < ${r.e} group by 1, 2`)).rows as { ad: string; currency: string; n: number; v: number }[];
+  const saleRows = (await db.execute(sql`select source_id as ad, currency, count(*)::int as n, coalesce(sum(amount), 0)::float as v, coalesce(sum(cost), 0)::float as c from sales
+    where account_id = ${accountId} and status = 'approved' and source_id is not null and created_at >= ${r.s} and created_at < ${r.e} group by 1, 2`)).rows as { ad: string; currency: string; n: number; v: number; c: number }[];
   const attrByAd = new Map<string, Attribution>();
-  const get = (ad: string) => { const x = attrByAd.get(ad) ?? { leads: 0, sales: 0, revenue: {} }; attrByAd.set(ad, x); return x; };
+  const get = (ad: string) => { const x = attrByAd.get(ad) ?? { leads: 0, sales: 0, revenue: {}, cost: {} }; attrByAd.set(ad, x); return x; };
   for (const l of leadRows) get(l.ad).leads += Number(l.n);
-  for (const s of saleRows) { const x = get(s.ad); x.sales += Number(s.n); x.revenue[s.currency] = (x.revenue[s.currency] ?? 0) + Number(s.v); }
+  for (const s of saleRows) {
+    const x = get(s.ad); x.sales += Number(s.n);
+    x.revenue[s.currency] = (x.revenue[s.currency] ?? 0) + Number(s.v);
+    x.cost![s.currency] = (x.cost![s.currency] ?? 0) + Number(s.c);
+  }
   const known = new Set(ads.map((a) => a.id));
   const unmatched = { leads: 0, sales: 0 };
   if (!campaignId && !adsetId && !onlyAct && !errors.length) {
     for (const [ad, x] of attrByAd) if (!known.has(ad)) { unmatched.leads += x.leads; unmatched.sales += x.sales; }
   }
+  const rows = buildRows(level, entities, insights, ads, attrByAd, feePct);
+  return { accounts, tokens, rows, ads, daily, errors, unmatched, oldest, feePct, profit: ps };
+}
 
-  const rows = buildRows(level, entities, insights, ads, attrByAd);
+metaRouter.get('/manager', asyncHandler(async (req, res) => {
+  const accountId = req.accountId!;
+  const q = req.query;
+  const level: Level = (LEVELS as readonly string[]).includes(String(q.level)) ? (q.level as Level) : 'campaign';
+  const period: Period = (PERIODS as readonly string[]).includes(String(q.period)) ? (q.period as Period) : '7d';
+  const campaignId = typeof q.campaignId === 'string' && /^\d{1,30}$/.test(q.campaignId) ? q.campaignId : null;
+  const adsetId = typeof q.adsetId === 'string' && /^\d{1,30}$/.test(q.adsetId) ? q.adsetId : null;
+  const onlyAct = typeof q.actId === 'string' && /^act_\d{1,30}$/.test(q.actId) ? q.actId : null;
+
+  const [acc] = await db.select({ tz: schema.accounts.timezone }).from(schema.accounts).where(eq(schema.accounts.id, accountId)).limit(1);
+  const tz = validTz(acc?.tz);
+  const p = periodDates(period, todayIn(tz), q.from, q.to);
+  const d0 = p.d0; const d1 = p.d1;
+  const days: string[] = [];
+  for (let d = d0; d <= d1 && days.length < 400; d = addDays(d, 1)) days.push(d);
+
+  const m = await loadManagerRows({ accountId, level, d0, d1, tz, fresh: q.fresh === '1', onlyAct, campaignId, adsetId, withDaily: true });
+  if (!m.accounts.some((a) => !onlyAct || a.actId === onlyAct)) {
+    res.json({ level, period, from: d0, to: d1, days, accounts: m.accounts, rows: [], total: 0, totals: {}, daily: {}, errors: [], updatedAt: null, unmatched: { leads: 0, sales: 0 }, profit: m.profit });
+    return;
+  }
+  const rows = m.rows;
   // campanha ligada a um fluxo (leads dos anúncios dela começam nele)
   const links = level === 'campaign' ? await db.select({ campaignId: schema.metaCampaignFlows.campaignId, flowId: schema.flows.id, flowName: schema.flows.name })
     .from(schema.metaCampaignFlows).innerJoin(schema.flows, eq(schema.flows.id, schema.metaCampaignFlows.flowId))
@@ -329,10 +352,10 @@ metaRouter.get('/manager', asyncHandler(async (req, res) => {
   const flowBy = new Map(links.map((l) => [l.campaignId, { id: l.flowId, name: l.flowName }]));
   const rowsOut = rows.slice(0, 500).map((r) => (r.level === 'campaign' ? { ...r, flow: flowBy.get(r.id) ?? null } : r));
   res.json({
-    level, period, from: d0, to: d1, days, accounts,
+    level, period, from: d0, to: d1, days, accounts: m.accounts,
     rows: rowsOut, total: rows.length,
-    totals: totalsByCurrency(rows), daily: dailySeries(daily, days),
-    errors, updatedAt: new Date(oldest).toISOString(), unmatched,
+    totals: totalsByCurrency(rows, m.feePct), daily: dailySeries(m.daily, days),
+    errors: m.errors, updatedAt: new Date(m.oldest).toISOString(), unmatched: m.unmatched, profit: m.profit,
   });
 }));
 

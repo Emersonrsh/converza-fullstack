@@ -14,6 +14,7 @@ import { CurrencyPicker, IconBtn } from '../dashboard/widgets';
 import { fmtNum, todayLocal } from '../dashboard/format';
 import type { AttendanceDash, DashFilters, PartnerInfo, Period, SalesDash } from '../dashboard/types';
 import type { Product, Subscription } from '../types';
+import { TodayView } from '../dashboard/TodayView';
 
 const DEFAULTS: DashFilters = { period: 'today', from: '', to: '', connectionId: '', productId: '', currency: 'BRL' };
 const PERIOD_OPTS: [Period, string][] = [
@@ -42,8 +43,12 @@ function greeting() {
 
 export function Dashboard() {
   const nav = useNavigate();
-  const { user, accountId } = useAuth();
-  const [tab, setTab] = useState<'vendas' | 'atendimento'>('vendas');
+  const { user, accountId, accounts } = useAuth();
+  const canEdit = accounts.find((a) => a.id === accountId)?.role !== 'agent';
+  const [tab, setTab] = useState<'hoje' | 'vendas' | 'atendimento'>(() => {
+    try { const v = localStorage.getItem('cw.dash.tab'); return v === 'hoje' || v === 'atendimento' ? v : 'vendas'; } catch { return 'vendas'; }
+  });
+  useEffect(() => { try { localStorage.setItem('cw.dash.tab', tab); } catch { /* sem storage */ } }, [tab]);
   const [filters, setFilters] = useState<DashFilters>(() => loadSaved(accountId) ?? DEFAULTS);
   const [saved, setSaved] = useState<DashFilters | null>(() => loadSaved(accountId));
   const [sales, setSales] = useState<SalesDash | null>(null);
@@ -75,7 +80,7 @@ export function Dashboard() {
 
   const reqId = useRef(0);
   const load = useCallback(async (quiet = false) => {
-    if (!customOk) return;
+    if (!customOk || tab === 'hoje') return;
     const id = ++reqId.current;
     if (!quiet) setLoading(true);
     try {
@@ -127,6 +132,8 @@ export function Dashboard() {
     setBannerOff(true);
   }
 
+  const [profitFallback, setProfitFallback] = useState({ gatewayFeePercent: 0, taxPercent: 0 });
+  useEffect(() => { if (modal === 'settings' && !sales) api.get<{ settings: { gatewayFeePercent: number; taxPercent: number } }>('/dashboard/settings').then((r) => setProfitFallback(r.settings)).catch(() => {}); }, [modal, sales]);
   const [hello, emoji] = greeting();
   const firstName = (user?.name ?? '').trim();
   const header = sales?.header;
@@ -175,27 +182,28 @@ export function Dashboard() {
 
       <section className="card dfil" data-testid="filters">
         <div className="seg dtabs">
+          <button type="button" className={cx(tab === 'hoje' && 'active')} onClick={() => setTab('hoje')} data-testid="tab-hoje"><span className="live-dot sm" />Hoje</button>
           <button type="button" className={cx(tab === 'vendas' && 'active')} onClick={() => setTab('vendas')} data-testid="tab-vendas">Vendas</button>
           <button type="button" className={cx(tab === 'atendimento' && 'active')} onClick={() => setTab('atendimento')} data-testid="tab-atendimento">Atendimento</button>
         </div>
-        <select className="select dsel" value={filters.period} data-testid="period"
+        {tab !== 'hoje' && <select className="select dsel" value={filters.period} data-testid="period"
           onChange={(e) => {
             const period = e.target.value as Period;
             set(period === 'custom' && !filters.from ? { period, from: range?.from ?? todayLocal(), to: range?.to ?? todayLocal() } : { period });
           }}>
           {PERIOD_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        {filters.period === 'custom' && (
+        </select>}
+        {tab !== 'hoje' && filters.period === 'custom' && (
           <span className="row" style={{ gap: 6 }}>
             <input className="input dsel" type="date" value={filters.from} max={filters.to || undefined} onChange={(e) => set({ from: e.target.value })} aria-label="De" data-testid="from" />
             <span className="faint">até</span>
             <input className="input dsel" type="date" value={filters.to} min={filters.from || undefined} onChange={(e) => set({ to: e.target.value })} aria-label="Até" data-testid="to" />
           </span>
         )}
-        <select className="select dsel" value={filters.connectionId} onChange={(e) => set({ connectionId: e.target.value })} data-testid="conn-filter">
+        {tab !== 'hoje' && <select className="select dsel" value={filters.connectionId} onChange={(e) => set({ connectionId: e.target.value })} data-testid="conn-filter">
           <option value="">Todas as conexões</option>
           {connections.map((c) => <option key={c.id} value={c.id}>{c.name}{c.displayPhone ? ` · ${c.displayPhone}` : ''}</option>)}
-        </select>
+        </select>}
         {tab === 'vendas' && (
           <select className="select dsel" value={filters.productId} onChange={(e) => set({ productId: e.target.value })} data-testid="product-filter">
             <option value="">Todos os produtos</option>
@@ -203,7 +211,7 @@ export function Dashboard() {
           </select>
         )}
         <span className="spacer" />
-        {tab === 'vendas' && <CurrencyPicker value={filters.currency} options={[...new Set([...currencies, filters.currency])]} onChange={(currency) => set({ currency })} />}
+        {tab !== 'atendimento' && <CurrencyPicker value={filters.currency} options={[...new Set([...currencies, filters.currency])]} onChange={(currency) => set({ currency })} />}
         <div className="dicons">
           <IconBtn icon="rotateCcw" title="Restaurar filtros padrão" onClick={resetFilters} testId="reset-filters" />
           <IconBtn icon={isSaved ? 'bookmarkCheck' : 'bookmark'} title={isSaved ? 'Estes filtros são o seu padrão' : 'Salvar filtros como padrão'} active={isSaved} onClick={saveFilters} testId="save-filters" />
@@ -215,7 +223,9 @@ export function Dashboard() {
       {err && <div className="note err"><Icon name="alert" size={15} /><span>Não foi possível carregar: {err}</span></div>}
       {!customOk && <div className="note warn"><Icon name="calendar" size={15} /><span>Escolha as duas datas do período personalizado.</span></div>}
 
-      {tab === 'vendas'
+      {tab === 'hoje'
+        ? <TodayView currency={filters.currency} products={products} canEdit={canEdit} refreshKey={refreshKey} />
+        : tab === 'vendas'
         ? (sales ? <div className={cx('dbody', loading && 'busy')}><SalesView data={sales} query={query} currency={filters.currency} refreshKey={refreshKey}
             products={products} connections={connections} onChanged={changed} onAdSpend={() => setModal('adspend')} /></div> : <div style={{ height: 300 }}><Spinner /></div>)
         : (att ? <div className={cx('dbody', loading && 'busy')}><AttendanceView data={att} /></div> : <div style={{ height: 300 }}><Spinner /></div>)}
@@ -223,7 +233,7 @@ export function Dashboard() {
       {modal === 'trail' && <TrailModal onClose={() => setModal(null)} />}
       {modal === 'partner' && partner && <PartnerModal info={partner} onClose={() => setModal(null)} />}
       {modal === 'settings' && (
-        <SettingsModal initial={sales?.profitSettings ?? { gatewayFeePercent: 0, taxPercent: 0 }} onClose={() => setModal(null)}
+        <SettingsModal initial={sales?.profitSettings ?? profitFallback} onClose={() => setModal(null)}
           onSaved={() => { setModal(null); changed(); }} />
       )}
       {modal === 'adspend' && range && (

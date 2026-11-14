@@ -132,11 +132,25 @@ export function accountStatusLabel(s: number | null | undefined): { ok: boolean;
 }
 
 /** Leads e vendas do Converza que vieram de um anúncio (por ID do anúncio). */
-export interface Attribution { leads: number; sales: number; revenue: Record<string, number> }
-export const noAttr = (): Attribution => ({ leads: 0, sales: 0, revenue: {} });
+export interface Attribution { leads: number; sales: number; revenue: Record<string, number>; cost?: Record<string, number> }
+export const noAttr = (): Attribution => ({ leads: 0, sales: 0, revenue: {}, cost: {} });
 function addAttr(a: Attribution, b: Attribution) {
   a.leads += b.leads; a.sales += b.sales;
   for (const [cur, v] of Object.entries(b.revenue)) a.revenue[cur] = (a.revenue[cur] ?? 0) + v;
+  a.cost ??= {};
+  for (const [cur, v] of Object.entries(b.cost ?? {})) a.cost[cur] = (a.cost[cur] ?? 0) + v;
+}
+
+/** Números do Converza de uma linha: faturamento das vendas atribuídas, custo dos produtos, taxas e lucro líquido. */
+export interface Converza { leads: number; sales: number; revenue: number; roas: number; cost: number; fees: number; profit: number; margin: number; cpa: number }
+/** feePct = taxa do gateway + imposto (% do faturamento), dos ajustes do lucro do Dashboard. */
+export function converzaOf(leads: number, sales: number, revenue: number, cost: number, spend: number, feePct: number): Converza {
+  const fees = r2(revenue * feePct / 100);
+  const profit = r2(revenue - cost - fees - spend);
+  return {
+    leads, sales, revenue: r2(revenue), roas: spend > 0 ? r2(revenue / spend) : 0, cost: r2(cost), fees, profit,
+    margin: revenue > 0 ? r2((profit / revenue) * 100) : 0, cpa: sales > 0 ? r2(spend / sales) : 0,
+  };
 }
 
 export interface EntityIn extends RemoteEntity { actId: string; accountName: string; currency: string }
@@ -148,7 +162,7 @@ export interface ManagerRow {
   /** status escolhido (ACTIVE/PAUSED): o que o botão liga/desliga muda; null = excluída na Meta */
   configured: string | null;
   metrics: Metrics; derived: ReturnType<typeof derive>;
-  converza: { leads: number; sales: number; revenue: number; roas: number };
+  converza: Converza;
   result: { key: keyof Metrics; label: string; value: number; cost: number } | null;
   bidStrategy: string | null; startTime: string | null; endTime: string | null;
   /** classificações do anúncio (qualidade, engajamento, conversão) */
@@ -160,7 +174,7 @@ export interface ManagerRow {
  * foram excluídas, com as métricas da Meta e a atribuição do Converza somada a partir dos anúncios.
  */
 export function buildRows(level: Level, entities: EntityIn[], insights: (InsightRow & { actId: string; accountName: string; currency: string })[],
-  ads: { id: string; campaign_id?: string; adset_id?: string }[], attrByAd: Map<string, Attribution>): ManagerRow[] {
+  ads: { id: string; campaign_id?: string; adset_id?: string }[], attrByAd: Map<string, Attribution>, feePct = 0): ManagerRow[] {
   const idOf = (r: InsightRow) => (level === 'campaign' ? r.campaign_id : level === 'adset' ? r.adset_id : r.ad_id) ?? '';
   const nameOf = (r: InsightRow) => (level === 'campaign' ? r.campaign_name : level === 'adset' ? r.adset_name : r.ad_name) ?? '';
 
@@ -196,7 +210,7 @@ export function buildRows(level: Level, entities: EntityIn[], insights: (Insight
     seen.add(id);
     const m = metrics.get(id) ?? zero();
     const at = attr.get(id) ?? noAttr();
-    const revenue = Math.round((at.revenue[base.currency] ?? 0) * 100) / 100;
+    const revenue = at.revenue[base.currency] ?? 0;
     rows.push({
       id, level, ...base,
       status: statusOf(e ? (e.effective_status ?? e.status) : null),
@@ -204,7 +218,7 @@ export function buildRows(level: Level, entities: EntityIn[], insights: (Insight
       budget: e ? budgetOf(e, base.currency) : null, thumbnail: e?.creative?.thumbnail_url ?? null,
       configured: e?.status ?? null,
       metrics: m, derived: derive(m),
-      converza: { leads: at.leads, sales: at.sales, revenue, roas: m.spend > 0 ? Math.round((revenue / m.spend) * 100) / 100 : 0 },
+      converza: converzaOf(at.leads, at.sales, revenue, at.cost?.[base.currency] ?? 0, m.spend, feePct),
       result: (() => { const x = resultOf(m, e?.optimization_goal ?? e?.adset?.optimization_goal ?? null, e?.objective ?? null); return x ? { ...x, cost: x.value ? r2(m.spend / x.value) : 0 } : null; })(),
       bidStrategy: e?.bid_strategy ?? null, startTime: e?.start_time ?? null, endTime: e?.end_time ?? e?.stop_time ?? null,
       rankings: ranks.get(id) ?? null,
@@ -225,18 +239,17 @@ export function buildRows(level: Level, entities: EntityIn[], insights: (Insight
 }
 
 /** Totais por moeda (contas em moedas diferentes não se somam). */
-export function totalsByCurrency(rows: ManagerRow[]) {
-  const out: Record<string, { metrics: Metrics; derived: ReturnType<typeof derive>; converza: { leads: number; sales: number; revenue: number; roas: number } }> = {};
+export function totalsByCurrency(rows: ManagerRow[], feePct = 0) {
+  const acc: Record<string, { metrics: Metrics; leads: number; sales: number; revenue: number; cost: number }> = {};
   for (const r of rows) {
-    const t = out[r.currency] ?? { metrics: zero(), derived: derive(zero()), converza: { leads: 0, sales: 0, revenue: 0, roas: 0 } };
+    const t = acc[r.currency] ?? { metrics: zero(), leads: 0, sales: 0, revenue: 0, cost: 0 };
     t.metrics = addMetrics(t.metrics, r.metrics);
-    t.converza.leads += r.converza.leads; t.converza.sales += r.converza.sales;
-    t.converza.revenue = Math.round((t.converza.revenue + r.converza.revenue) * 100) / 100;
-    out[r.currency] = t;
+    t.leads += r.converza.leads; t.sales += r.converza.sales; t.revenue += r.converza.revenue; t.cost += r.converza.cost;
+    acc[r.currency] = t;
   }
-  for (const t of Object.values(out)) {
-    t.derived = derive(t.metrics);
-    t.converza.roas = t.metrics.spend > 0 ? Math.round((t.converza.revenue / t.metrics.spend) * 100) / 100 : 0;
+  const out: Record<string, { metrics: Metrics; derived: ReturnType<typeof derive>; converza: Converza }> = {};
+  for (const [cur, t] of Object.entries(acc)) {
+    out[cur] = { metrics: t.metrics, derived: derive(t.metrics), converza: converzaOf(t.leads, t.sales, t.revenue, t.cost, t.metrics.spend, feePct) };
   }
   return out;
 }
