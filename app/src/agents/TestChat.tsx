@@ -26,7 +26,8 @@ export function TestChat({ agentId, draft, aiEnabled, voiceEnabled }: { agentId:
       const r = await api.post<TestResp>('/agents/test', { agentId, draft, messages: next.map((x) => ({ from: x.from, text: x.text })) });
       setTokens((n) => n + r.tokens);
       const note = r.action === 'flow' ? `Dispararia o fluxo “${r.flowName}”${r.flowActive ? '' : ' (que está pausado — ative em Fluxos)'}`
-        : r.action === 'handoff' ? 'Passaria a conversa para a equipe e pararia de responder' : undefined;
+        : r.action === 'handoff' ? 'Passaria a conversa para a equipe e pararia de responder'
+          : r.action === 'close' ? 'Encerraria o atendimento' : r.action === 'tag' ? (r.actionLabel ?? 'Marcaria uma etiqueta') : r.action === 'reply' ? 'Enviaria a mensagem pronta' : undefined;
       const replies: TestTurn[] = r.messages.map((m, i) => ({ from: 'agent', text: m, ...(i === r.messages.length - 1 ? { action: r.action, reason: r.reason, note } : {}) }));
       if (!replies.length && note) replies.push({ from: 'agent', text: '', action: r.action, reason: r.reason, note });
       setTurns([...next, ...replies]);
@@ -78,7 +79,7 @@ export function TestChat({ agentId, draft, aiEnabled, voiceEnabled }: { agentId:
                 )}
               </div>
             )}
-            {t.note && <div className={cx('ag-act', t.action === 'handoff' ? 'handoff' : 'flow')} data-testid="test-action"><Icon name={t.action === 'handoff' ? 'headset' : 'flow'} size={13} />{t.note}{t.reason ? <small>Motivo: {t.reason}</small> : null}</div>}
+            {t.note && <div className={cx('ag-act', t.action === 'handoff' ? 'handoff' : 'flow')} data-testid="test-action"><Icon name={t.action === 'handoff' ? 'headset' : t.action === 'close' ? 'check' : t.action === 'tag' ? 'tag' : 'flow'} size={13} />{t.note}{t.reason ? <small>Motivo: {t.reason}</small> : null}</div>}
           </div>
         ))}
         {busy && <div className="ag-bub-wrap agent"><div className="ag-bub agent typing"><i /><i /><i /></div></div>}

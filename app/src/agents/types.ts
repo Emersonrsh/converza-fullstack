@@ -32,6 +32,40 @@ export interface AgentDraft {
   transcribeAudio: boolean;
   waitSeconds: number;
   maxRepliesPerDay: number;
+  sector: string;
+  language: string;
+  signMessages: boolean;
+  identity: 'human' | 'ai';
+  pace: Pace;
+  formality: Formality;
+  emoji: EmojiUse;
+  knowledgeBaseIds: string[];
+  automations: Automation[];
+  stages: Stage[];
+}
+
+export type Pace = 'dynamic' | 'natural' | 'balanced' | 'detailed' | 'analytic';
+export type Formality = 'formal' | 'professional' | 'casual' | 'relaxed';
+export type EmojiUse = 'none' | 'discreet' | 'natural' | 'expressive';
+export type AutoTrigger = 'invalid_media' | 'reply_limit' | 'finish' | 'handoff' | 'intent';
+export type AutoAction = 'handoff' | 'flow' | 'close' | 'reply' | 'tag';
+export interface Automation {
+  key: string; trigger: AutoTrigger; when?: string; action: AutoAction;
+  flowId?: string | null; tag?: string | null; departmentId?: string | null; message?: string;
+}
+export interface Stage { name: string; goal: string; advanceWhen?: string }
+
+export interface SectorFunction {
+  id: string; name: string; description: string; idealFor: string; popular?: boolean; role: AgentRole;
+  systemPrompt: string; stages: Stage[]; automations: Automation[]; handoffWhen: string;
+}
+export interface Sector { id: string; name: string; functions: SectorFunction[] }
+
+export interface KbSummary { id: string; name: string; sites: number; documents: number; faq: number; chars: number; updatedAt: string; agents?: number }
+export interface KbFull extends KbSummary {
+  siteList: { url: string; title: string; chars: number; preview: string }[];
+  documentList: { name: string; chars: number; preview: string }[];
+  faqList: FaqItem[];
 }
 
 export interface AgentStats { conversations: number; replies: number; flows: number; handoffs: number; tokens: number; lastAt: string | null }
@@ -78,5 +112,5 @@ export interface Voice {
   hasPreview: boolean; createdAt: string; agents: string[];
 }
 
-export interface TestTurn { from: 'client' | 'agent'; text: string; action?: 'flow' | 'handoff' | null; reason?: string; note?: string }
-export interface TestResp { messages: string[]; action: 'flow' | 'handoff' | null; reason: string; flowName: string | null; flowActive: boolean; tokens: number }
+export interface TestTurn { from: 'client' | 'agent'; text: string; action?: string | null; reason?: string; note?: string }
+export interface TestResp { messages: string[]; action: string | null; actionLabel?: string | null; reason: string; flowName: string | null; flowActive: boolean; tokens: number }

@@ -317,6 +317,33 @@ export const voices = pgTable('voices', {
   byAccount: index('voices_account_idx').on(t.accountId),
 }));
 
+export interface AgentAutomation {
+  key: string;
+  trigger: 'invalid_media' | 'reply_limit' | 'finish' | 'handoff' | 'intent';
+  /** só nas personalizadas: quando o cliente demonstrar essa intenção */
+  when?: string;
+  action: 'handoff' | 'flow' | 'close' | 'reply' | 'tag';
+  flowId?: string | null;
+  tag?: string | null;
+  departmentId?: string | null;
+  message?: string;
+}
+export interface AgentStage { name: string; goal: string; advanceWhen?: string }
+
+/** Base de conhecimento: sites, documentos e perguntas e respostas que um ou mais agentes consultam. */
+export const knowledgeBases = pgTable('knowledge_bases', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  sites: jsonb('sites').$type<{ url: string; title: string; text: string; fetchedAt: string }[]>().notNull().default([]),
+  documents: jsonb('documents').$type<{ name: string; text: string; addedAt: string }[]>().notNull().default([]),
+  faq: jsonb('faq').$type<{ q: string; a: string }[]>().notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  byAccount: index('knowledge_bases_account_idx').on(t.accountId),
+}));
+
 export const agents = pgTable('agents', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
@@ -353,6 +380,20 @@ export const agents = pgTable('agents', {
   // espera o cliente terminar de mandar as mensagens antes de responder
   waitSeconds: integer('wait_seconds').notNull().default(5),
   maxRepliesPerDay: integer('max_replies_per_day').notNull().default(40),
+  // criação por etapas: setor, idioma, assinatura e estilo de escrita
+  sector: text('sector').notNull().default(''),
+  language: text('language').notNull().default('pt-BR'),
+  signMessages: boolean('sign_messages').notNull().default(false),
+  identity: text('identity').notNull().default('human'), // human | ai
+  pace: text('pace').notNull().default('natural'), // dynamic | natural | balanced | detailed | analytic
+  formality: text('formality').notNull().default('professional'), // formal | professional | casual | relaxed
+  emoji: text('emoji').notNull().default('natural'), // none | discreet | natural | expressive
+  /** bases de conhecimento ligadas (reaproveitáveis entre agentes) */
+  knowledgeBaseIds: uuid('knowledge_base_ids').array().notNull().default(sql`'{}'::uuid[]`),
+  /** gatilhos → ações (as obrigatórias e as personalizadas) */
+  automations: jsonb('automations').$type<AgentAutomation[]>().notNull().default([]),
+  /** etapas que a conversa segue, em ordem */
+  stages: jsonb('stages').$type<AgentStage[]>().notNull().default([]),
   shareCode: text('share_code').unique(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1262,7 +1303,7 @@ export const mcpCalls = pgTable('mcp_calls', {
 
 export const schema = {
   accounts, users, memberships, connections, contacts, conversations, messages, quickReplies,
-  tags, flowFolders, flows, flowRuns, flowNodeStats, voices, agents, agentRuns, campaigns, webhooks, products, sales, adSpend, subscriptions,
+  tags, flowFolders, flows, flowRuns, flowNodeStats, voices, knowledgeBases, agents, agentRuns, campaigns, webhooks, products, sales, adSpend, subscriptions,
   kanbanBoards, kanbanColumns, kanbanCards, contactFields, contactExports, webhookEvents, webhookUsage, flowPending,
   campaignRecipients, dispatchUsage, metaProfiles, metaAdAccounts, metaCampaignFlows, metaCampaignProducts, adRules, adRuleLogs, pushSubscriptions, pixels, pixelEvents, invoices, billingEvents,
   departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, platformAudit, storedFiles, storedFileChunks, storedFileMedia,

@@ -8,8 +8,12 @@ import { asyncHandler, AppError, isUuid } from '../utils/http';
 import { aiEnabled } from '../ai/provider';
 import { aiCallWithUsage } from '../ai/usage';
 import {
-  AGENT_TEMPLATES, BUILD_SYSTEM, buildAgentPrompt, htmlToText, parseAgentReply, parseBuiltAgent, speakable,
+  AGENT_TEMPLATES, BUILD_SYSTEM, LANGUAGES, MAX_CUSTOM_AUTOMATIONS, SYSTEM_TRIGGERS, automationFor, buildAgentPrompt, finalTexts, htmlToText,
+  parseAgentReply, parseBuiltAgent, resolveAutomations, speakable, type AgentAutomation,
 } from '../ai/agentBrain';
+import { SECTORS } from '../ai/agentSectors';
+import { loadPersona, signed } from '../ai/agentPersona';
+import { basesText, checkBaseIds } from './knowledge';
 import {
   asHttp, chargeTokens, cloneVoice, deleteVoice, requireVoiceBudget, speak, sttTokens, transcribe, ttsTokens, voiceEnabled,
   VOICE_OFF, VoiceError,
@@ -121,6 +125,29 @@ const fieldsSchema = z.object({
   transcribeAudio: z.boolean(),
   waitSeconds: z.number().int().min(0, 'A espera vai de 0 a 60 segundos').max(60, 'A espera vai de 0 a 60 segundos'),
   maxRepliesPerDay: z.number().int().min(1, 'Limite diário entre 1 e 500').max(500, 'Limite diário entre 1 e 500'),
+  sector: z.string().trim().max(40),
+  language: z.string().refine((v) => v in LANGUAGES, 'Idioma inválido'),
+  signMessages: z.boolean(),
+  identity: z.enum(['human', 'ai']),
+  pace: z.enum(['dynamic', 'natural', 'balanced', 'detailed', 'analytic']),
+  formality: z.enum(['formal', 'professional', 'casual', 'relaxed']),
+  emoji: z.enum(['none', 'discreet', 'natural', 'expressive']),
+  knowledgeBaseIds: z.array(z.string().uuid()).max(10, 'No máximo 10 bases por agente'),
+  automations: z.array(z.object({
+    key: z.string().trim().min(1).max(40),
+    trigger: z.enum(['invalid_media', 'reply_limit', 'finish', 'handoff', 'intent']),
+    when: z.string().trim().max(400, 'Gatilho muito longo (até 400 letras)').optional(),
+    action: z.enum(['handoff', 'flow', 'close', 'reply', 'tag']),
+    flowId: z.string().uuid().nullable().optional(),
+    tag: z.string().trim().max(40).nullable().optional(),
+    departmentId: z.string().uuid().nullable().optional(),
+    message: z.string().max(1000, 'Mensagem muito longa (até 1.000 letras)').optional(),
+  })).max(SYSTEM_TRIGGERS.length + MAX_CUSTOM_AUTOMATIONS, `No máximo ${MAX_CUSTOM_AUTOMATIONS} automações personalizadas`),
+  stages: z.array(z.object({
+    name: z.string().trim().min(1, 'Dê um nome para cada etapa').max(60, 'Nome da etapa muito longo (até 60 letras)'),
+    goal: z.string().trim().max(600, 'Objetivo da etapa muito longo (até 600 letras)'),
+    advanceWhen: z.string().trim().max(300).optional(),
+  })).max(12, 'No máximo 12 etapas'),
 }).partial();
 type Fields = z.infer<typeof fieldsSchema>;
 
@@ -146,6 +173,41 @@ async function checkRefs(accountId: string, f: Fields) {
       .where(and(eq(schema.connections.accountId, accountId), inArray(schema.connections.id, f.connectionIds)));
     if (ok.length !== f.connectionIds.length) throw new AppError(422, 'Conexão não encontrada');
   }
+  if (f.knowledgeBaseIds) f.knowledgeBaseIds = await checkBaseIds(accountId, f.knowledgeBaseIds);
+  if (f.automations) {
+    const list = f.automations as AgentAutomation[];
+    const intents = list.filter((x) => x.trigger === 'intent');
+    if (intents.length > MAX_CUSTOM_AUTOMATIONS) throw new AppError(422, `No máximo ${MAX_CUSTOM_AUTOMATIONS} automações personalizadas`);
+    for (const x of intents) if (!x.when?.trim()) throw new AppError(422, 'Diga quando cada automação personalizada deve acontecer');
+    for (const x of list) {
+      if (x.action === 'flow' && !x.flowId) throw new AppError(422, 'Escolha o fluxo de cada automação que dispara um fluxo');
+      if (x.action === 'tag' && !x.tag?.trim()) throw new AppError(422, 'Escolha a etiqueta de cada automação que marca etiqueta');
+      if (x.action === 'reply' && !x.message?.trim()) throw new AppError(422, 'Escreva a mensagem de cada automação que responde com mensagem pronta');
+    }
+    const flowIds = [...new Set(list.map((x) => (x.action === 'flow' ? x.flowId : null)).filter((x): x is string => !!x))];
+    if (flowIds.length) {
+      const ok = await db.select({ id: schema.flows.id }).from(schema.flows).where(and(eq(schema.flows.accountId, accountId), inArray(schema.flows.id, flowIds)));
+      if (ok.length !== flowIds.length) throw new AppError(422, 'Fluxo não encontrado');
+    }
+    const deptIds = [...new Set(list.map((x) => (x.action === 'handoff' ? x.departmentId : null)).filter((x): x is string => !!x))];
+    if (deptIds.length) {
+      const ok = await db.select({ id: schema.departments.id }).from(schema.departments).where(and(eq(schema.departments.accountId, accountId), inArray(schema.departments.id, deptIds)));
+      if (ok.length !== deptIds.length) throw new AppError(422, 'Setor não encontrado');
+    }
+    // campos antigos espelhados (lista de agentes e quem ainda lê o jeito antigo)
+    const flowAuto = intents.find((x) => x.action === 'flow');
+    f.flowId = flowAuto?.flowId ?? null;
+    f.flowWhen = flowAuto?.when ?? '';
+    f.flowTag = null;
+    const h = list.find((x) => x.trigger === 'handoff');
+    if (h) { f.handoffMessage = h.message ?? ''; f.handoffTag = h.tag?.trim() || null; f.handoffDepartmentId = h.action === 'handoff' ? h.departmentId ?? null : null; }
+    f.automations = list.map((x) => ({
+      key: x.key, trigger: x.trigger, action: x.action, ...(x.trigger === 'intent' ? { when: x.when?.trim() } : {}),
+      flowId: x.action === 'flow' ? x.flowId ?? null : null, tag: x.tag?.trim() || null,
+      departmentId: x.action === 'handoff' ? x.departmentId ?? null : null, message: x.message?.trim() ?? '',
+    }));
+  }
+  if (f.stages) f.stages = f.stages.map((x) => ({ name: x.name, goal: x.goal, ...(x.advanceWhen ? { advanceWhen: x.advanceWhen } : {}) }));
   if (f.audienceTags) f.audienceTags = [...new Map(f.audienceTags.map((t) => [t.toLowerCase(), t])).values()];
   if (f.faq) f.faq = f.faq.filter((x) => x.q && x.a);
   if (f.flowTag !== undefined) f.flowTag = f.flowTag?.trim() || null;
@@ -201,6 +263,7 @@ async function present(accountId: string, list: AgentRow[]) {
     const f = flows.find((x) => x.id === a.flowId);
     return {
       ...a,
+      automations: resolveAutomations(a as Parameters<typeof resolveAutomations>[0]),
       flowName: f?.name ?? null,
       flowActive: !!f && f.status === 'active' && !f.archivedAt,
       voiceName: voices.find((v) => v.id === a.voiceId)?.name ?? null,
@@ -259,7 +322,7 @@ agentsRouter.get('/options', asyncHandler(async (req, res) => {
   });
 }));
 
-agentsRouter.get('/templates', (_req, res) => { res.json({ templates: AGENT_TEMPLATES }); });
+agentsRouter.get('/templates', (_req, res) => { res.json({ templates: AGENT_TEMPLATES, sectors: SECTORS }); });
 
 agentsRouter.post('/', asyncHandler(async (req, res) => {
   managerOnly(req);
@@ -300,6 +363,9 @@ agentsRouter.post('/import', asyncHandler(async (req, res) => {
     if (!src) { notFound.push(code); continue; }
     if (room <= 0) { limited.push(code); continue; }
     const same = src.accountId === accountId;
+    // bases de outra conta não vêm junto: o texto delas entra no conhecimento do agente
+    const bases = same ? '' : await basesText(src.accountId, src.knowledgeBaseIds);
+    const autos = (src.automations ?? []).map((x) => (same ? x : { ...x, flowId: null, departmentId: null, action: x.action === 'flow' ? 'handoff' as const : x.action }));
     const [row] = await db.insert(schema.agents).values({
       accountId, name: await uniqueName(accountId, src.name), model: src.model, enabled: false, systemPrompt: src.systemPrompt,
       avatar: src.avatar, role: src.role, description: src.description, tone: src.tone, knowledge: src.knowledge, faq: src.faq, rules: src.rules,
@@ -309,6 +375,9 @@ agentsRouter.post('/import', asyncHandler(async (req, res) => {
       connectionIds: same ? src.connectionIds : [], audience: src.audience, audienceTags: src.audienceTags,
       replyAudio: src.replyAudio, voiceId: same ? src.voiceId : null, transcribeAudio: src.transcribeAudio,
       waitSeconds: src.waitSeconds, maxRepliesPerDay: src.maxRepliesPerDay,
+      sector: src.sector, language: src.language, signMessages: src.signMessages, identity: src.identity, pace: src.pace, formality: src.formality, emoji: src.emoji,
+      stages: src.stages, automations: autos, knowledgeBaseIds: same ? src.knowledgeBaseIds : [],
+      ...(bases ? { knowledge: `${src.knowledge}\n\n${bases}`.trim().slice(0, 30000) } : {}),
     }).returning();
     imported.push({ id: row.id, name: row.name });
     room -= 1;
@@ -436,13 +505,9 @@ agentsRouter.post('/test', asyncHandler(async (req, res) => {
   const saved = d.agentId ? await ownAgent(accountId, d.agentId) : null;
   const a = { ...(saved ?? {}), ...(d.draft ?? {}) } as Partial<AgentRow>;
   if (!a.name) a.name = 'Agente';
-  const [flow] = a.flowId ? await db.select({ name: schema.flows.name, status: schema.flows.status }).from(schema.flows)
-    .where(and(eq(schema.flows.id, a.flowId), eq(schema.flows.accountId, accountId))).limit(1) : [];
   const [account] = await db.select({ name: schema.accounts.name, timezone: schema.accounts.timezone }).from(schema.accounts).where(eq(schema.accounts.id, accountId)).limit(1);
-  const system = buildAgentPrompt({
-    name: a.name, role: a.role ?? 'custom', tone: a.tone ?? '', systemPrompt: a.systemPrompt ?? '', knowledge: a.knowledge ?? '',
-    faq: a.faq ?? [], rules: a.rules ?? '', flowName: flow?.name ?? null, flowWhen: a.flowWhen ?? '', handoffWhen: a.handoffWhen ?? '',
-  }, { name: 'Cliente teste', tags: [], fields: {} }, {
+  const { persona, automations, flows } = await loadPersona(accountId, a);
+  const system = buildAgentPrompt(persona, { name: 'Cliente teste', tags: [], fields: {} }, {
     company: account?.name ?? '', now: new Date(), timeZone: account?.timezone || 'America/Sao_Paulo', speakAsAudio: false, customerSentAudio: false,
   });
   const r = await aiCallWithUsage(accountId, [
@@ -450,9 +515,14 @@ agentsRouter.post('/test', asyncHandler(async (req, res) => {
     ...d.messages.map((m) => ({ role: m.from === 'client' ? 'user' as const : 'assistant' as const, content: m.text })),
   ], { model: a.model || config.ai.defaultModel, maxTokens: 700, temperature: 0.6, usage: { kind: 'agent_test', agentId: saved?.id ?? null, label: `Teste: ${a.name}` } });
   const p = parseAgentReply(r.text);
-  const action = p.action === 'flow' && !flow ? null : p.action;
-  const messages = p.messages.length ? p.messages : action === 'handoff' && a.handoffMessage?.trim() ? [a.handoffMessage.trim()] : [];
-  res.json({ messages, action, reason: p.reason, flowName: flow?.name ?? null, flowActive: flow?.status === 'active', tokens: r.tokens });
+  const auto = automationFor(automations, p.action);
+  const flow = auto?.action === 'flow' && auto.flowId ? flows[auto.flowId] ?? null : null;
+  const usable = auto && !(auto.action === 'flow' && !flow?.active) ? auto : null;
+  const kind = usable ? (usable.action === 'flow' ? 'flow' : usable.action === 'handoff' ? 'handoff' : usable.action) : null;
+  const messages = finalTexts(p.messages, usable).map((m) => signed(a.name ?? '', m, a.signMessages));
+  const label = !usable ? null : usable.action === 'flow' ? `Disparou o fluxo “${flow?.name ?? ''}”` : usable.action === 'handoff' ? 'Passou para a equipe'
+    : usable.action === 'close' ? 'Encerrou o atendimento' : usable.action === 'tag' ? `Marcou a etiqueta “${usable.tag}”` : 'Enviou a mensagem pronta';
+  res.json({ messages, action: kind, actionLabel: label, reason: p.reason, flowName: flow?.name ?? null, flowActive: !!flow?.active, tokens: r.tokens });
 }));
 
 /* ---------------------------------------------- microfone (transcrição) */

@@ -27,11 +27,13 @@
     "express": "^4.21.2",
     "ioredis": "^5.4.2",
     "jsonwebtoken": "^9.0.2",
+    "mammoth": "^1.13.0",
     "nodemailer": "^6.10.1",
     "pg": "^8.13.1",
     "qrcode": "^1.5.4",
     "sharp": "^0.34.5",
     "socket.io": "^4.8.1",
+    "unpdf": "^1.6.2",
     "web-push": "^3.6.7",
     "zod": "^3.24.1"
   },

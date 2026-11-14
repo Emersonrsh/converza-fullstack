@@ -3,8 +3,10 @@ import { db, schema } from '../db';
 import { aiEnabled, type ChatMsg } from './provider';
 import { aiCallWithUsage } from './usage';
 import {
-  buildAgentPrompt, eligibleAgents, parseAgentReply, shouldSpeak, speakable, type ParsedReply,
+  automationFor, buildAgentPrompt, eligibleAgents, finalTexts, parseAgentReply, shouldSpeak, speakable,
+  type AgentAutomation, type ParsedReply,
 } from './agentBrain';
+import { loadPersona, signed } from './agentPersona';
 import { chargeTokens, speak, sttTokens, transcribe, ttsTokens, voiceEnabled } from './voice';
 import { downloadMedia, sendMediaId, sendText, uploadMedia, type WaConnection } from '../whatsapp/cloud-api';
 import { emitToAccount } from '../realtime/io';
@@ -159,10 +161,24 @@ async function respond(d: AgentJobData): Promise<void> {
   // limite de respostas por dia nesta conversa → passa para a equipe
   const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(schema.messages)
     .where(and(eq(schema.messages.conversationId, conv.id), eq(schema.messages.agentId, agent.id), gte(schema.messages.createdAt, new Date(Date.now() - DAY_MS))));
+  const loaded = await loadPersona(accountId, agent);
   if (Number(n) >= agent.maxRepliesPerDay) {
-    await handoff(accountId, conv, `🤖 ${agent.name} chegou ao limite de ${agent.maxRepliesPerDay} respostas por dia nesta conversa e passou para a equipe.`, agent.handoffDepartmentId);
+    const auto = loaded.automations.find((x) => x.trigger === 'reply_limit') ?? { key: 'reply_limit', trigger: 'reply_limit' as const, action: 'handoff' as const };
+    const why = `chegou ao limite de ${agent.maxRepliesPerDay} respostas por dia nesta conversa`;
+    await runAutomation({ accountId, agent, conv, contact, flows: loaded.flows, lastText: '' }, auto, finalTexts([], auto), why, 0);
     await record(accountId, agent.id, conv.id, 'limit', `limite de ${agent.maxRepliesPerDay} respostas/dia`);
     return;
+  }
+
+  // vídeo, figurinha ou GIF: o agente não entende — segue a automação, sem gastar IA
+  const [lastMsg] = await db.select({ type: schema.messages.type }).from(schema.messages).where(eq(schema.messages.id, lastIn.id)).limit(1);
+  if (lastMsg && (lastMsg.type === 'video' || lastMsg.type === 'sticker')) {
+    const auto = loaded.automations.find((x) => x.trigger === 'invalid_media');
+    if (auto) {
+      await runAutomation({ accountId, agent, conv, contact, flows: loaded.flows, lastText: '' }, auto, finalTexts([], auto), `recebeu ${lastMsg.type === 'sticker' ? 'uma figurinha' : 'um vídeo/GIF'}`, 0);
+      await record(accountId, agent.id, conv.id, 'automation', lastMsg.type === 'sticker' ? 'figurinha recebida' : 'vídeo recebido');
+      return;
+    }
   }
 
   // sem saldo: avisa a equipe (uma vez por dia por conversa) e não responde
@@ -187,11 +203,6 @@ async function respond(d: AgentJobData): Promise<void> {
   const lastInbound = [...recent].reverse().find((m) => m.direction === 'in');
   const customerSentAudio = lastInbound?.type === 'audio';
 
-  // fluxo ligado (só se estiver ativo) e voz
-  const [flow] = agent.flowId
-    ? await db.select({ id: schema.flows.id, name: schema.flows.name }).from(schema.flows)
-      .where(and(eq(schema.flows.id, agent.flowId), eq(schema.flows.status, 'active'), isNull(schema.flows.archivedAt))).limit(1)
-    : [];
   const [voice] = agent.voiceId
     ? await db.select({ providerVoiceId: schema.voices.providerVoiceId }).from(schema.voices)
       .where(and(eq(schema.voices.id, agent.voiceId), eq(schema.voices.status, 'ready'))).limit(1)
@@ -207,10 +218,7 @@ async function respond(d: AgentJobData): Promise<void> {
     fields: Object.fromEntries(fields.filter((f) => custom[f.key] != null && String(custom[f.key]).trim()).map((f) => [f.label, String(custom[f.key])])),
     fromAd: !!contact.sourceId || contact.origin === 'ad',
   };
-  const system = buildAgentPrompt({
-    name: agent.name, role: agent.role, tone: agent.tone, systemPrompt: agent.systemPrompt, knowledge: agent.knowledge,
-    faq: agent.faq ?? [], rules: agent.rules, flowName: flow?.name ?? null, flowWhen: agent.flowWhen, handoffWhen: agent.handoffWhen,
-  }, facts, { company: account?.name ?? '', now: new Date(), timeZone: account?.timezone || 'America/Sao_Paulo', speakAsAudio: asAudio, customerSentAudio });
+  const system = buildAgentPrompt(loaded.persona, facts, { company: account?.name ?? '', now: new Date(), timeZone: account?.timezone || 'America/Sao_Paulo', speakAsAudio: asAudio, customerSentAudio });
 
   const chat: ChatMsg[] = [{ role: 'system', content: system }];
   for (const m of recent) {
@@ -234,47 +242,62 @@ async function respond(d: AgentJobData): Promise<void> {
     return;
   }
 
-  let action = parsed.action;
-  if (action === 'flow' && !flow) action = null; // sem fluxo ativo para disparar
-  const texts = parsed.messages.length ? parsed.messages
-    : action === 'handoff' && agent.handoffMessage.trim() ? [agent.handoffMessage.trim()] : [];
-  if (!texts.length && !action) {
+  const auto = automationFor(loaded.automations, parsed.action);
+  const usable = auto && !(auto.action === 'flow' && !(auto.flowId && loaded.flows[auto.flowId]?.active)) ? auto : null; // sem fluxo ativo: só conversa
+  const texts = finalTexts(parsed.messages, usable);
+  if (!texts.length && !usable) {
     await record(accountId, agent.id, conv.id, 'error', 'a IA devolveu uma resposta vazia', tokens);
     return;
   }
+  const ctx: Ctx = { accountId, agent, conv, contact, flows: loaded.flows, lastText: lastInbound?.transcript || lastInbound?.body || '' };
+  const out = await runAutomation(ctx, usable, texts, parsed.reason, tokens, { asAudio, voiceId: voice?.providerVoiceId ?? null });
+  await record(accountId, agent.id, conv.id, out.outcome, out.detail, tokens + out.tokens, out.audioChars);
+}
 
-  // envia (texto ou mensagem de voz), na ordem, com um respiro entre elas
+interface Ctx {
+  accountId: string; agent: Agent; conv: Conv; contact: Contact;
+  flows: Record<string, { name: string; active: boolean }>; lastText: string;
+}
+
+/** Envia as mensagens (texto ou voz), na ordem, com um respiro entre elas. */
+async function sendTexts(ctx: Ctx, texts: string[], audio?: { asAudio: boolean; voiceId: string | null }): Promise<{ tokens: number; audioChars: number }> {
+  const { accountId, agent, contact } = ctx;
+  let conv = ctx.conv;
+  const [conn] = await db.select().from(schema.connections).where(eq(schema.connections.id, conv.connectionId!)).limit(1);
+  if (!conn || !texts.length) return { tokens: 0, audioChars: 0 };
   const to = contact.waId ?? contact.phone.replace(/\D/g, '');
   const wa: WaConnection = { phoneNumberId: conn.phoneNumberId, accessToken: conn.accessToken };
+  let tokens = 0;
   let audioChars = 0;
   for (let i = 0; i < texts.length; i++) {
     if (i) await sleep(900);
     const text = texts[i];
-    let sent: { type: 'text' | 'audio'; waMessageId: string | null; waMediaId: string | null; status: 'sent' | 'failed'; error: string | null } | null = null;
-    if (asAudio && speakable(text)) {
+    let sent: { type: 'text' | 'audio'; body: string; waMessageId: string | null; waMediaId: string | null; status: 'sent' | 'failed'; error: string | null } | null = null;
+    if (audio?.asAudio && speakable(text)) {
       try {
         const spoken = speakable(text);
-        const ogg = await toOggOpus(await speak(spoken, voice?.providerVoiceId ?? null));
+        const ogg = await toOggOpus(await speak(spoken, audio.voiceId));
         const t = ttsTokens(spoken);
         tokens += t; audioChars += spoken.length;
         await chargeTokens(accountId, t, { kind: 'agent_voice', conversationId: conv.id, contactId: contact.id, agentId: agent.id, label: `Áudio de ${agent.name} (${spoken.length} letras)` });
         const mediaId = await uploadMedia(wa, ogg, 'audio/ogg', 'resposta.ogg');
         const r = await sendMediaId(wa, to, 'audio', mediaId, undefined, undefined, { voice: true });
-        sent = { type: 'audio', waMessageId: r.waMessageId, waMediaId: mediaId, status: 'sent', error: null };
+        sent = { type: 'audio', body: text, waMessageId: r.waMessageId, waMediaId: mediaId, status: 'sent', error: null };
       } catch (err) {
         console.error('[agent] áudio falhou, indo em texto:', (err as Error).message);
       }
     }
     if (!sent) {
+      const body = signed(agent.name, text, agent.signMessages);
       try {
-        const r = await sendText(wa, to, text);
-        sent = { type: 'text', waMessageId: r.waMessageId, waMediaId: null, status: 'sent', error: null };
+        const r = await sendText(wa, to, body);
+        sent = { type: 'text', body, waMessageId: r.waMessageId, waMediaId: null, status: 'sent', error: null };
       } catch (err) {
-        sent = { type: 'text', waMessageId: null, waMediaId: null, status: 'failed', error: (err as Error).message };
+        sent = { type: 'text', body, waMessageId: null, waMediaId: null, status: 'failed', error: (err as Error).message };
       }
     }
     const [msg] = await db.insert(schema.messages).values({
-      accountId, conversationId: conv.id, direction: 'out', type: sent.type, body: text, status: sent.status,
+      accountId, conversationId: conv.id, direction: 'out', type: sent.type, body: sent.body, status: sent.status,
       waMessageId: sent.waMessageId, waMediaId: sent.waMediaId, mimeType: sent.type === 'audio' ? 'audio/ogg' : null,
       error: sent.error, agentId: agent.id,
     }).returning();
@@ -283,23 +306,45 @@ async function respond(d: AgentJobData): Promise<void> {
       message: { ...msg, agentName: agent.name, mediaUrl: msg.waMediaId ? signedMediaPath(msg.id) : null },
     });
   }
-  if (texts.length) {
-    const [upd] = await db.update(schema.conversations).set({ lastMessageAt: new Date() }).where(eq(schema.conversations.id, conv.id)).returning();
-    if (upd) conv = upd;
-  }
+  const [upd] = await db.update(schema.conversations).set({ lastMessageAt: new Date() }).where(eq(schema.conversations.id, conv.id)).returning();
+  if (upd) { conv = upd; ctx.conv = upd; }
+  return { tokens, audioChars };
+}
 
-  const why = parsed.reason ? ` Motivo: ${parsed.reason}` : '';
-  if (action === 'flow' && flow) {
-    const r = await startFlowForContact(accountId, flow.id, contact.id, { lastMessage: lastInbound?.transcript || lastInbound?.body || '', connectionId: conv.connectionId });
-    await addTag(accountId, contact, agent.flowTag);
-    const status = r === 'started' ? `disparou o fluxo “${flow.name}”.` : r === 'running' ? `pediu o fluxo “${flow.name}”, que já está em andamento para este contato.` : `tentou disparar o fluxo “${flow.name}”, mas ele não está ativo.`;
+/** Manda as mensagens e faz o que a automação pede (fluxo, equipe, encerrar, etiqueta). */
+async function runAutomation(ctx: Ctx, auto: AgentAutomation | null, texts: string[], reason: string, _tokens: number,
+  audio?: { asAudio: boolean; voiceId: string | null }): Promise<{ outcome: string; detail: string | null; tokens: number; audioChars: number }> {
+  const { accountId, agent, contact } = ctx;
+  const sent = await sendTexts(ctx, texts, audio);
+  const conv = ctx.conv;
+  const why = reason ? ` Motivo: ${reason}` : '';
+  const base = { tokens: sent.tokens, audioChars: sent.audioChars };
+  if (!auto) return { outcome: 'replied', detail: null, ...base };
+  if (auto.action === 'flow' && auto.flowId && ctx.flows[auto.flowId]) {
+    const f = ctx.flows[auto.flowId];
+    const r = await startFlowForContact(accountId, auto.flowId, contact.id, { lastMessage: ctx.lastText, connectionId: conv.connectionId });
+    await addTag(accountId, contact, auto.tag);
+    const status = r === 'started' ? `disparou o fluxo “${f.name}”.` : r === 'running' ? `pediu o fluxo “${f.name}”, que já está em andamento para este contato.` : `tentou disparar o fluxo “${f.name}”, mas ele não está ativo.`;
     await systemNote(accountId, conv.id, `🤖 ${agent.name} ${status}${why}`);
-    await record(accountId, agent.id, conv.id, 'flow', parsed.reason || flow.name, tokens, audioChars);
-  } else if (action === 'handoff') {
-    await addTag(accountId, contact, agent.handoffTag);
-    await handoff(accountId, conv, `🤖 ${agent.name} passou a conversa para a equipe.${why}`, agent.handoffDepartmentId);
-    await record(accountId, agent.id, conv.id, 'handoff', parsed.reason || null, tokens, audioChars);
-  } else {
-    await record(accountId, agent.id, conv.id, 'replied', null, tokens, audioChars);
+    return { outcome: 'flow', detail: reason || f.name, ...base };
   }
+  if (auto.action === 'handoff') {
+    await addTag(accountId, contact, auto.tag);
+    await handoff(accountId, conv, `🤖 ${agent.name} passou a conversa para a equipe.${why}`, auto.departmentId ?? agent.handoffDepartmentId);
+    return { outcome: 'handoff', detail: reason || null, ...base };
+  }
+  if (auto.action === 'close') {
+    await addTag(accountId, contact, auto.tag);
+    const [row] = await db.update(schema.conversations).set({ status: 'resolved', botPaused: false, unreadCount: 0, assignedUserId: null })
+      .where(eq(schema.conversations.id, conv.id)).returning();
+    if (row) emitToAccount(accountId, 'conversation:updated', { conversation: row });
+    await systemNote(accountId, conv.id, `✅ ${agent.name} encerrou o atendimento.${why}`);
+    return { outcome: 'closed', detail: reason || null, ...base };
+  }
+  if (auto.action === 'tag') {
+    await addTag(accountId, contact, auto.tag);
+    await systemNote(accountId, conv.id, `🏷️ ${agent.name} marcou a etiqueta “${auto.tag}”.${why}`);
+    return { outcome: 'replied', detail: `etiqueta ${auto.tag}`, ...base };
+  }
+  return { outcome: 'automation', detail: reason || 'mensagem pronta', ...base };
 }

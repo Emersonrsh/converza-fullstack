@@ -1,4 +1,4 @@
-import type { Agent, AgentDraft, AgentRole, Audience, ReplyAudio } from './types';
+import type { Agent, AgentDraft, AgentRole, Audience, Automation, ReplyAudio } from './types';
 
 export const ROLE_LABEL: Record<AgentRole, string> = { sales: 'Vendas', support: 'Suporte', recovery: 'Recuperação', custom: 'Personalizado' };
 export const ROLES: [AgentRole, string][] = Object.entries(ROLE_LABEL) as [AgentRole, string][];
@@ -12,8 +12,18 @@ export const REPLY_AUDIO_LABEL: Record<ReplyAudio, string> = {
 
 export const OUTCOME_LABEL: Record<string, string> = {
   replied: 'Respondeu', flow: 'Disparou o fluxo', handoff: 'Passou para a equipe', limit: 'Atingiu o limite do dia',
-  error: 'Erro', no_tokens: 'Sem saldo de tokens',
+  error: 'Erro', no_tokens: 'Sem saldo de tokens', closed: 'Encerrou o atendimento', automation: 'Automação',
 };
+
+/** As 4 automações obrigatórias, como vêm por padrão. */
+export function defaultAutomations(): Automation[] {
+  return [
+    { key: 'invalid_media', trigger: 'invalid_media', action: 'reply', message: 'Por aqui eu ainda não consigo ver vídeos, figurinhas ou GIFs. Pode me contar por escrito? 🙂' },
+    { key: 'reply_limit', trigger: 'reply_limit', action: 'handoff', departmentId: null, message: '' },
+    { key: 'finish', trigger: 'finish', action: 'close', message: '' },
+    { key: 'handoff', trigger: 'handoff', action: 'handoff', message: 'Vou chamar alguém da equipe para te ajudar, só um instante! 🙂', tag: null, departmentId: null },
+  ];
+}
 
 export function emptyDraft(defaultModel: string): AgentDraft {
   return {
@@ -22,6 +32,8 @@ export function emptyDraft(defaultModel: string): AgentDraft {
     flowId: null, flowWhen: '', flowTag: null, handoffWhen: '', handoffMessage: '', handoffTag: null, handoffDepartmentId: null,
     connectionIds: [], audience: 'all', audienceTags: [], replyAudio: 'never', voiceId: null, transcribeAudio: true,
     waitSeconds: 5, maxRepliesPerDay: 40,
+    sector: '', language: 'pt-BR', signMessages: false, identity: 'human', pace: 'natural', formality: 'professional', emoji: 'natural',
+    knowledgeBaseIds: [], automations: defaultAutomations(), stages: [],
   };
 }
 
