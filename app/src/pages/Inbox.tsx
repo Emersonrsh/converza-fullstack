@@ -447,10 +447,16 @@ export function Inbox() {
     scheduleRefresh(); // uma recarga que já estava a caminho pode trazer o nome antigo
   }
 
-  const togglePanel = () => setPanelOpen((v) => { lsSet(LS_PANEL, v ? '0' : '1'); return !v; });
+  // celular: uma coisa por vez (lista → conversa → dados do contato), com voltar
+  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width:760px)').matches);
+  useEffect(() => { const m = window.matchMedia('(max-width:760px)'); const on = () => setNarrow(m.matches); m.addEventListener('change', on); return () => m.removeEventListener('change', on); }, []);
+  const [mPanel, setMPanel] = useState(false);
+  useEffect(() => { setMPanel(false); }, [selectedId]);
+  const togglePanel = () => (narrow ? setMPanel((v) => !v) : setPanelOpen((v) => { lsSet(LS_PANEL, v ? '0' : '1'); return !v; }));
+  const showPanel = narrow ? mPanel : panelOpen;
 
   return (
-    <div className={cx('chats', collapsed && 'collapsed', !!detail && panelOpen && !detailErr && 'with-panel')} data-testid="chats">
+    <div className={cx('chats', collapsed && 'collapsed', !!detail && showPanel && !detailErr && 'with-panel', !!selectedId && 'has-chat')} data-testid="chats">
       {!collapsed && (
         <ChatList
           accountName={accountName} tab={tab} onTab={changeTab} counts={counts}
@@ -480,15 +486,15 @@ export function Inbox() {
       ) : (
         <ChatView
           detail={detail} messages={messages} hasMore={hasMore} loadingOlder={loadingOlder} onLoadOlder={loadOlder} meId={meId}
-          quickReplies={quickReplies} panelOpen={panelOpen} onTogglePanel={togglePanel}
+          quickReplies={quickReplies} panelOpen={showPanel} onTogglePanel={togglePanel}
           onAccept={accept} onRelease={release} onResolve={resolve} onReopen={reopen} onTransfer={() => setModal('transfer')}
           onSend={sendText} onNote={sendNote} onUpload={upload} onTemplate={() => setModal('template')}
           onRetry={(m) => { if (m.body) void sendText(m.body); }} onManageQuick={() => setModal('quick')}
-          listCollapsed={collapsed} onExpandList={() => setCollapsed(false)} onQuickSend={sendQuick}
+          listCollapsed={collapsed || narrow} onExpandList={() => (narrow ? select(null) : setCollapsed(false))} back={narrow} onQuickSend={sendQuick}
         />
       )}
 
-      {detail && panelOpen && !detailErr && (
+      {detail && showPanel && !detailErr && (
         <ContactPanel
           detail={detail} tags={tags} refreshKey={panelKey}
           onContact={onContact} onAutomation={setAutomation} onTagCreated={(t) => setTags((l) => [...l, t])} onClose={togglePanel}

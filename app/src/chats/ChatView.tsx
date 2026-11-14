@@ -120,14 +120,14 @@ export interface UploadOpts { voice?: boolean; replyToId?: string | null }
 
 export function ChatView({
   detail, messages, hasMore, loadingOlder, onLoadOlder, meId, quickReplies, panelOpen, onTogglePanel,
-  onAccept, onRelease, onResolve, onReopen, onTransfer, onSend, onNote, onUpload, onTemplate, onRetry, onManageQuick, listCollapsed, onExpandList, onQuickSend,
+  onAccept, onRelease, onResolve, onReopen, onTransfer, onSend, onNote, onUpload, onTemplate, onRetry, onManageQuick, listCollapsed, onExpandList, back, onQuickSend,
 }: {
   detail: ChatDetail; messages: ChatMessage[]; hasMore: boolean; loadingOlder: boolean; onLoadOlder: () => void; meId: string;
   quickReplies: QuickReply[]; panelOpen: boolean; onTogglePanel: () => void;
   onAccept: () => void; onRelease: () => void; onResolve: () => void; onReopen: () => void; onTransfer: () => void;
   onSend: (text: string, replyToId?: string | null) => Promise<boolean>; onNote: (text: string) => Promise<boolean>;
   onUpload: (file: File, caption: string, opts?: UploadOpts) => Promise<boolean>;
-  onTemplate: () => void; onRetry: (m: ChatMessage) => void; onManageQuick: () => void; listCollapsed: boolean; onExpandList: () => void;
+  onTemplate: () => void; onRetry: (m: ChatMessage) => void; onManageQuick: () => void; listCollapsed: boolean; onExpandList: () => void; back?: boolean;
   /** resposta rápida com anexos: envia tudo (o servidor preenche as variáveis) */
   onQuickSend: (q: QuickReply) => Promise<boolean>;
 }) {
@@ -198,7 +198,7 @@ export function ChatView({
   return (
     <section className="cv" data-testid="chat-view">
       <header className="cv-hd">
-        {listCollapsed && <button type="button" className="btn icon sm ghost" onClick={onExpandList} title="Mostrar lista" aria-label="Mostrar lista"><Icon name="chevronRight" size={16} /></button>}
+        {listCollapsed && <button type="button" className={cx('btn icon sm ghost', back && 'cv-back')} onClick={onExpandList} title={back ? 'Voltar para a lista' : 'Mostrar lista'} aria-label={back ? 'Voltar para a lista' : 'Mostrar lista'} data-testid="cv-back"><Icon name={back ? 'chevronLeft' : 'chevronRight'} size={back ? 20 : 16} /></button>}
         <Avatar name={detail.contact.name || detail.contact.phone} size={40} />
         <div className="cv-who">
           <b>{detail.contact.name || fmtPhone(detail.contact.phone)}</b>

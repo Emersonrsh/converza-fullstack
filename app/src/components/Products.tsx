@@ -120,7 +120,7 @@ export function ProductsManager({ onChange }: { onChange?: (list: Product[]) => 
         {list.length === 0 && <div className="empty" style={{ padding: 24 }}>Nenhum produto ainda. Cadastre abaixo com o link de checkout.</div>}
       </div>
 
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+      <div className="row prod-form" style={{ gap: 8, flexWrap: 'wrap' }}>
         <input className="input" style={{ flex: '1 1 160px' }} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Nome do produto" />
         <input className="input" style={{ flex: '0 0 110px' }} value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} placeholder="Preço 97,00" inputMode="decimal" />
         <input className="input" style={{ flex: '0 0 110px' }} value={draft.cost} onChange={(e) => setDraft({ ...draft, cost: e.target.value })} placeholder="Custo 0,00" inputMode="decimal" title="Custo por venda (lucro do dashboard)" />

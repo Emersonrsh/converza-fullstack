@@ -2764,3 +2764,67 @@ html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:10
   input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea,[contenteditable=true]{font-size:16px !important}
 }
 @media (max-width:760px){.dfil > select.dsel{padding:0 26px 0 10px;background-position:right 8px center;letter-spacing:-.01em;text-overflow:ellipsis}}
+
+/* ================================================================ celular: todas as telas */
+@media (max-width:760px){
+  /* topo: título numa linha, ações numa faixa embaixo (antes espremiam o título) */
+  .topbar{height:auto;min-height:60px;flex-wrap:wrap;row-gap:8px;padding:10px 12px 10px 60px}
+  .topbar > div:first-child{flex:1 1 0;min-width:0}
+  .topbar h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:40px}
+  .topbar .sub{display:none}
+  .topbar > .spacer{display:none}
+  .topbar > .row{display:none}
+  .topbar-actions{order:3;flex:0 0 calc(100% + 48px);max-width:calc(100% + 48px);margin-left:-48px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+  .topbar-actions::-webkit-scrollbar{display:none}
+  .topbar-actions > *{flex:none}
+  .topbar-actions .btn{white-space:nowrap}
+  /* abas em faixa rolável, sem quebrar o texto */
+  .seg,.pf-tabs{max-width:100%;overflow-x:auto;scrollbar-width:none;flex-wrap:nowrap}
+  .seg::-webkit-scrollbar,.pf-tabs::-webkit-scrollbar{display:none}
+  .seg button,.pf-tabs button{white-space:nowrap;flex:none}
+  .fbm-tabs{display:flex;width:100%}
+  .fbm-tabs button{flex:1 0 auto}
+  /* Chats ao vivo: lista → conversa → dados do contato */
+  .chats,.chats.with-panel,.chats.collapsed,.chats.collapsed.with-panel{grid-template-columns:minmax(0,1fr)}
+  .chats.has-chat > .cl{display:none}
+  .chats:not(.has-chat) > .cv-empty{display:none}
+  .cl-hd{padding-left:60px}
+  .cl-collapse{display:none}
+  .shell:has(.chats.has-chat) .m-menu{display:none}
+  .cv-hd{padding:0 8px 0 4px;gap:6px}
+  .cv-hd .pill{display:none}
+  .cv-hd .btn.sm:not(.primary):not(.icon){font-size:0;gap:0;width:34px;padding:0;justify-content:center}
+  .cv-hd .btn.sm.primary{padding:0 10px}
+  .cv-back{width:38px;height:38px}
+  .chats > .cp{position:fixed;inset:0;z-index:80;border-left:0}
+  /* Disparos: botões de compra quebram em vez de sair do card */
+  .ds-pack-btns{flex-wrap:wrap}
+  .ds-pack-btns .btn{flex:1 1 140px}
+  /* Produtos: campos do cadastro em duas colunas */
+  .prod-form > .input{flex:1 1 calc(50% - 8px) !important;min-width:0}
+  .prod-form > .input:first-child,.prod-form > .input:last-of-type{flex-basis:100% !important}
+  /* Regras automáticas: modelos em uma coluna */
+  .rules-tpl{grid-template-columns:1fr}
+  .rules-head{flex-direction:column}
+  .rules-row{flex-wrap:wrap}
+  .rules-row-a{width:100%;justify-content:flex-end}
+  /* Configurações: a faixa do menu começa depois do botão ☰ */
+  .st-nav{padding-left:10px;margin-left:56px}
+}
+@media (max-width:760px){
+  /* quadro do Kanban: título e ações em linhas próprias */
+  .kb-hd{height:auto;flex-wrap:wrap;padding:10px 12px 10px 60px;row-gap:8px}
+  .kb-title{flex:1 1 0;max-width:none}
+  .kb-hd > .spacer{display:none}
+  .kb-hd .kb-csearch{order:3;flex:1 1 calc(100% + 48px);margin-left:-48px}
+  .kb-hd .kb-who{order:4;flex:1 1 auto}
+  .kb-hd .kb-hstats{display:none}
+  /* cabeçalhos de seção com botão (Facebook → Perfis e contas, etc.) */
+  .fbm-section-h{flex-wrap:wrap;gap:12px}
+  .fbm-section-h > div{flex:1 1 220px}
+  /* dados do contato no Chats ocupam a tela toda */
+  .chats > .cp{width:auto;max-width:none;box-shadow:none}
+  /* editor de fluxo: barra do topo rola de lado */
+  .fbx-top{overflow-x:auto;scrollbar-width:none;padding-left:56px}
+  .fbx-top > *{flex:none}
+}
