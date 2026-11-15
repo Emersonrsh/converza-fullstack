@@ -181,7 +181,7 @@ h2{font-size:clamp(36px,5.2vw,64px);line-height:1.08;font-weight:800;letter-spac
 .fan .fc{position:absolute;top:60px;width:420px;padding:26px;border-radius:22px;background:#0a2126;border:1px solid var(--hair-2);transition:transform .7s cubic-bezier(.22,1,.36,1),opacity .7s;box-shadow:0 40px 80px -30px rgba(0,0,0,.7)}
 .fan .fc.l{left:2%;transform:rotate(-7deg) translateY(40px);opacity:.55}
 .fan .fc.r{right:2%;transform:rotate(7deg) translateY(40px);opacity:.55}
-.fan .fc.c{left:50%;top:0;width:460px;transform:translateX(-50%);z-index:2;background:#0b252a;border-color:rgba(45,212,191,.35);box-shadow:0 0 0 1px rgba(45,212,191,.12),0 50px 100px -30px rgba(0,0,0,.8),0 -20px 80px -40px rgba(45,212,191,.4)}
+.fan .fc.c{left:50%;top:0;transform:translateX(-50%);z-index:2;background:#0b252a;border-color:rgba(45,212,191,.35);box-shadow:0 0 0 1px rgba(45,212,191,.12),0 50px 100px -30px rgba(0,0,0,.8),0 -20px 80px -40px rgba(45,212,191,.4)}
 .fan:hover .fc.l{transform:rotate(-9deg) translate(-16px,40px);opacity:.75}
 .fan:hover .fc.r{transform:rotate(9deg) translate(16px,40px);opacity:.75}
 .fc .fh{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
@@ -319,6 +319,13 @@ footer{border-top:1px solid var(--hair);padding:64px 0 34px}
 .fbot{margin-top:46px;padding-top:22px;border-top:1px solid var(--hair);display:flex;justify-content:space-between;gap:16px;color:#5f8580;font:400 12px var(--mono)}
 
 /* ---------- celular */
+
+/* textos equilibrados e fatos do herói */
+h1,h2,h3{text-wrap:balance}
+p{text-wrap:pretty}
+.hero .facts{display:flex;justify-content:center;flex-wrap:wrap;gap:4px 0}
+.hero .facts em{font-style:normal}
+.hero .facts em+em::before{content:"·";margin:0 10px;color:#4e7671}
 /* =============== movimento (entrada ao rolar e interação) =============== */
 :root{--ease:cubic-bezier(.22,1,.36,1);--pop:cubic-bezier(.34,1.56,.64,1);
   --spring:linear(0,.0758,.2209,.3736,.5116,.6243,.714,.7846,.8378,.8783,.9092,.9321,.9492,.9622,.9718,.9789,.9843,.9883,.9913,.9935,.9952,.9964,.9973,.998,1);
@@ -406,14 +413,17 @@ footer{border-top:1px solid var(--hair);padding:64px 0 34px}
 /* leque de recursos: começa empilhado e abre; clique troca o do meio */
 .fan .fc{transition:transform .8s var(--ease),opacity .6s,box-shadow .4s,border-color .4s;transform-origin:50% 120%;cursor:pointer}
 .fan .fc .fb{transition:opacity .5s}
-.fan .fc{left:50%;top:40px;width:420px;right:auto}
+.fan{--off:clamp(250px,27vw,380px);--cw:clamp(340px,30vw,420px);height:600px}
+.fan .dots{bottom:0}
+.result .row b{white-space:nowrap}
+.fan .fc{left:50%;top:40px;width:var(--cw);right:auto}
 .fan .fc.p-c{transform:translateX(-50%) translateY(-40px);z-index:3;opacity:1;cursor:default;background:#0b252a;border-color:rgba(45,212,191,.35);box-shadow:0 0 0 1px rgba(45,212,191,.12),0 50px 100px -30px rgba(0,0,0,.8),0 -20px 80px -40px rgba(45,212,191,.4)}
-.fan .fc.p-l{transform:translateX(calc(-50% - 380px)) translateY(20px) rotate(-8deg) scale(.92);z-index:2;opacity:.9;background:#0a2126;border-color:var(--hair-2)}
-.fan .fc.p-r{transform:translateX(calc(-50% + 380px)) translateY(20px) rotate(8deg) scale(.92);z-index:2;opacity:.9;background:#0a2126;border-color:var(--hair-2)}
+.fan .fc.p-l{transform:translateX(calc(-50% - var(--off))) translateY(20px) rotate(-8deg) scale(.92);z-index:2;opacity:.9;background:#0a2126;border-color:var(--hair-2)}
+.fan .fc.p-r{transform:translateX(calc(-50% + var(--off))) translateY(20px) rotate(8deg) scale(.92);z-index:2;opacity:.9;background:#0a2126;border-color:var(--hair-2)}
 .fan .fc.p-l .fb,.fan .fc.p-r .fb{opacity:.22}
 .fan .fc.p-l:hover,.fan .fc.p-r:hover{border-color:rgba(45,212,191,.3)}
-.fan .fc.p-l:hover{transform:translateX(calc(-50% - 395px)) translateY(14px) rotate(-9deg) scale(.93)}
-.fan .fc.p-r:hover{transform:translateX(calc(-50% + 395px)) translateY(14px) rotate(9deg) scale(.93)}
+.fan .fc.p-l:hover{transform:translateX(calc(-50% - var(--off) - 15px)) translateY(14px) rotate(-9deg) scale(.93)}
+.fan .fc.p-r:hover{transform:translateX(calc(-50% + var(--off) + 15px)) translateY(14px) rotate(9deg) scale(.93)}
 .js .fan:not(.in) .fc{transform:translateX(-50%) translateY(40px) rotate(0) scale(.9);opacity:0}
 .js .fan:not(.in) .fc.p-c{transform:translateX(-50%) translateY(40px) scale(1)}
 .fan:hover .fc.l,.fan:hover .fc.r{transform:none}
@@ -436,12 +446,7 @@ footer{border-top:1px solid var(--hair);padding:64px 0 34px}
 /* perguntas abrem com altura animada */
 .faq details .fa{overflow:hidden}
 .faq details p{animation:none}
-@media (prefers-reduced-motion:reduce){
-  .js [data-a],.js .h-in,.js .h-win,.js .fan .fc{opacity:1!important;transform:none!important}
-  .hl::before{width:calc(100% + .12em)!important}.hl{color:#032421}
-  .js .under path,.js .ring path{stroke-dashoffset:0}
-  .beam,.shimmer{display:none}
-}
+
 
 @media (max-width:960px){
   .demo{grid-template-columns:1fr}
@@ -494,10 +499,39 @@ footer{border-top:1px solid var(--hair);padding:64px 0 34px}
   .btn-wide{font-size:14px}
   .fgrid{grid-template-columns:1fr}
   .fbot{flex-direction:column}
+
+  /* alinhamento no celular */
+  .seg button{white-space:nowrap}
+  .sx{display:none}
+  .result .row.big{flex-direction:column;align-items:flex-start;gap:4px}
+  .hero h1{font-size:clamp(34px,10.4vw,44px);letter-spacing:-.05em;margin-top:22px}
+  .hero .lead{margin-top:20px;padding:0 2px}
+  .kicker{font-size:12px;padding:6px 13px}
+  .k-x{display:none}
+  .hero .cta{margin-top:30px}
+  .hero .facts{margin-top:20px;font-size:11.5px;gap:8px;max-width:330px;margin-left:auto;margin-right:auto}
+  .hero .facts em{padding:4px 10px;border-radius:999px;border:1px solid var(--hair);background:rgba(228,242,239,.03)}
+  .hero .facts em+em::before{content:none}
+  h2{font-size:clamp(30px,8.6vw,38px);letter-spacing:-.045em}
+  .final h2{font-size:clamp(34px,10vw,44px)}
+  .sec-hd .pill{margin-bottom:16px}
+  .leak .top{flex-direction:column;align-items:flex-start;gap:10px}
+  .leak h3{font-size:19px}
+  .msgs{max-height:none}
+  .demo{min-height:0}
+  .flowpane{padding:18px 16px}
+  .tile{padding:18px}
+  .step-panel{text-align:left}
+  .step-vis{min-height:0;padding:14px}
+  .amount b{font-size:56px}
+  .fgrid{grid-template-columns:1fr 1fr;gap:26px 18px}
+  .fgrid > div:first-child{grid-column:1/-1}
+  .r1{width:100%;max-width:340px;justify-content:flex-start}
+  .r1-label{flex:1;text-align:center;margin-left:52px}
+  .faq summary{font-size:15px;padding:18px 2px}
   .ring svg{display:none}
   .ring{border-bottom:2px solid var(--teal)}
 }
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}.rv{opacity:1;transform:none}.ring path,.under path{stroke-dashoffset:0}}
 </style>
 </head>
 <body>
@@ -525,13 +559,13 @@ footer{border-top:1px solid var(--hair);padding:64px 0 34px}
     <div class="grid-bg" aria-hidden="true"></div>
     <div class="glow-top" aria-hidden="true"></div>
     <div class="wrap">
-      <div class="kicker h-in"><span class="shimmer" aria-hidden="true"></span><i>✦</i>Vendas e atendimento no WhatsApp — Fluxos + Agentes de IA</div>
+      <div class="kicker h-in"><span class="shimmer" aria-hidden="true"></span><i>✦</i>Vendas e atendimento no WhatsApp<span class="k-x"> — Fluxos + Agentes de IA</span></div>
       <h1 class="h-in">Do “oi” ao Pix pago.<span class="l2">Sem perder <span class="under">ninguém<svg viewBox="0 0 300 20" preserveAspectRatio="none" aria-hidden="true"><path class="s1" pathLength="1" d="M3 14 C 60 4, 140 4, 200 10 S 270 16, 297 8"/><path class="s2" pathLength="1" d="M40 19 C 110 12, 190 13, 280 15"/></svg></span>.</span></h1>
       <p class="lead h-in">Você monta. <u>O Converza conversa.</u> Fluxos que respondem na hora, <b>agentes de IA que entendem áudio e comprovante</b> e a equipe atendendo junto no mesmo número — com cada venda aparecendo no seu painel.</p>
       <div class="cta h-in">
         <a class="r1" href="/criar-conta"><span class="r1-accent" aria-hidden="true"><span class="r1-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg></span><span class="r1-trail"><span style="--d:0.04s"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span><span style="--d:0.08s"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span><span style="--d:0.12s"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span><span style="--d:0.16s"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span><span style="--d:0.20s"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></span></span><span class="r1-label">Criar minha conta</span></a>
       </div>
-      <div class="facts h-in">API oficial da Meta ou QR Code · <span>21 blocos</span> de fluxo · Pix e cartão pela Asaas · cancele quando quiser</div>
+      <div class="facts h-in"><em>API oficial da Meta ou QR Code</em><em><span>21 blocos</span> de fluxo</em><em>Pix e cartão pela Asaas</em><em>cancele quando quiser</em></div>
 
       <div class="window h-win" aria-label="Exemplo: uma conversa no WhatsApp e o fluxo que respondeu">
         <div class="win-bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span class="url">app.converza — Fluxo “Guia de orações”</span><span class="live">AO VIVO</span></div>
@@ -651,7 +685,7 @@ footer{border-top:1px solid var(--hair);padding:64px 0 34px}
       </div>
       <div class="seg rv" role="tablist" aria-label="Passos">
         <button type="button" role="tab" class="on" data-i="0">1 · Conecte<span class="bar"></span></button>
-        <button type="button" role="tab" data-i="1">2 · Monte o fluxo<span class="bar"></span></button>
+        <button type="button" role="tab" data-i="1">2 · Monte<span class="sx"> o fluxo</span><span class="bar"></span></button>
         <button type="button" role="tab" data-i="2">3 · Acompanhe<span class="bar"></span></button>
       </div>
       <div class="step-panel card rv" id="step-panel" aria-live="polite"></div>
@@ -776,7 +810,8 @@ footer{border-top:1px solid var(--hair);padding:64px 0 34px}
 
 <script>
 (() => {
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /* a referência anima mesmo com "reduzir movimento" do sistema (vem ligado no Windows Server / acesso remoto) */
+  const reduce = false;
   /* menu do celular */
   const nav = document.querySelector('.nav'); const mb = nav.querySelector('.menu');
   mb.addEventListener('click', () => { const o = nav.classList.toggle('open'); mb.setAttribute('aria-expanded', String(o)); });
@@ -875,7 +910,9 @@ footer{border-top:1px solid var(--hair);padding:64px 0 34px}
     targets.forEach((el) => io.observe(el));
   }
   /* herói entra ao carregar */
-  requestAnimationFrame(() => requestAnimationFrame(() => document.querySelector('.hero').classList.add('ready')));
+  const heroEl = document.querySelector('.hero');
+  heroEl.querySelectorAll('.h-in, .h-win').forEach((el) => void getComputedStyle(el).opacity); // fixa o estado inicial antes de animar
+  setTimeout(() => heroEl.classList.add('ready'), 80);
   setTimeout(() => document.querySelector('.hero .under')?.classList.add('in'), 250);
 
   const brl = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: v >= 1000 ? 0 : 2 });
