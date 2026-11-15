@@ -83,6 +83,8 @@ export interface FlowExecutor {
   http(req: HttpRequestSpec): Promise<HttpResult>;
   ai(req: AiRequest): Promise<string>;
   getProduct(productId: string): Promise<ProductInfo | null>;
+  /** gera um link de checkout (InfinitePay) para o contato, com a venda "aguardando" */
+  checkoutLink?(p: { provider: 'infinitepay'; amount: number; description: string; productId: string | null; productName: string | null }): Promise<string>;
   onEnter(nodeId: string): Promise<void> | void;
   onAdvance(nodeId: string): Promise<void> | void;
   /** Anotação visível só na simulação (no ar é ignorada). */
@@ -891,6 +893,7 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
       return go(res.ok ? 'success' : 'error');
     }
 
+    case 'card':
     case 'payment': {
       const s = await scope();
       let link = render(d.url, s).trim();
@@ -904,10 +907,23 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
           if (!link) link = p.checkoutUrl ?? '';
         }
       }
+      const provider = node.type === 'card' ? 'infinitepay' : d.provider;
+      if (provider === 'infinitepay') {
+        const p = d.productId ? await exec.getProduct(String(d.productId)) : null;
+        const amount = p ? p.price : parseMoney(render(String(d.amount ?? ''), s));
+        if (p) { produto = p.name; preco = formatBRL(p.price); } else if (Number.isFinite(amount)) preco = formatBRL(amount);
+        const description = render(String(d.description ?? ''), s).trim() || produto || 'Pedido';
+        if (!exec.checkoutLink) link = '';
+        else if (!Number.isFinite(amount) || amount < 1) exec.note('⚠️ Pagamento InfinitePay: escolha um produto com preço ou informe um valor de pelo menos R$ 1,00.');
+        else {
+          try { link = await exec.checkoutLink({ provider: 'infinitepay', amount, description, productId: p?.id ?? null, productName: p?.name ?? null }); }
+          catch (err) { exec.note(`⚠️ InfinitePay: ${(err as Error).message}`); link = ''; }
+        }
+      }
       const sc = { ...s, link, produto, preco, product: produto, price: preco };
       let text = render(d.text || 'Segue o link para pagamento: {{link}}', sc);
       if (link && !text.includes(link)) text = `${text}\n${link}`;
-      if (!link) exec.note('⚠️ Pagamento sem link: cadastre o link de checkout do produto em Pagamentos.');
+      if (!link && provider !== 'infinitepay') exec.note('⚠️ Pagamento sem link: cadastre o link de checkout do produto em Pagamentos.');
       if (text.trim()) await exec.sendText(text);
       state.vars.link_pagamento = link;
       if (d.wait) {

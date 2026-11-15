@@ -290,3 +290,12 @@ O app e a landing ficam em `https://converza.pro` e a API em `https://api.conver
 
 ### 4. Redirecionar o endereço antigo
 Quando `https://converza.pro` estiver abrindo e o login funcionando, no **frontend** adicione `VITE_CANONICAL_ORIGIN` = `https://converza.pro` e faça **Clear build cache & deploy**. A partir daí, quem abrir o endereço `....onrender.com` (app ou landing) é levado para o mesmo caminho em `converza.pro`. Como o login fica salvo por endereço, cada pessoa entra de novo uma vez no domínio novo; notificações no celular precisam ser ativadas de novo no app instalado pelo novo endereço.
+
+## Parte 14 — Checkout InfinitePay (cartão em até 12x)
+
+Cada cliente do Converza conecta a própria conta InfinitePay em **Configurações › Produtos › Checkout InfinitePay**, só com a InfiniteTag (a chave de API é opcional e serve para desligar o Pix). Nos fluxos, o bloco **Cartão (InfinitePay)** gera o link com o valor do produto e espera o pagamento.
+
+- Não há nada para configurar no painel da InfinitePay: o endereço do aviso de pagamento vai em cada link (`PUBLIC_API_URL` + `/api/v1/pay-hooks/infinitepay/<id da conta>`). Por isso o `PUBLIC_API_URL` precisa estar certo.
+- O aviso da InfinitePay não tem assinatura: o Converza confirma cada pagamento na consulta oficial (`/payment_check`) antes de aprovar a venda.
+- Venda aprovada dispara o Pixel (evento Purchase, conforme as regras do pixel em Facebook › Pixel) e o aviso no celular.
+- O checkout da InfinitePay aceita cartão de crédito (até 12x) e Pix; débito não é oferecido por ele.

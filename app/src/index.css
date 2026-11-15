@@ -3012,3 +3012,24 @@ html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:10
   .wz{padding-bottom:0}
   .shell:has(.wz) .dc-fab-wrap{display:none}
 }
+
+/* InfinitePay (Configurações › Produtos) */
+.ip-card{display:flex;flex-direction:column;gap:14px;margin-bottom:16px}
+.ip-hd{display:flex;align-items:center;gap:12px}
+.ip-hd > div > b{display:block;font-size:15px}
+.ip-hd small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.ip-hd .pill{margin-left:auto}
+.ip-logo{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:color-mix(in srgb,#0ea5e9 14%,transparent);color:#0ea5e9;flex:none}
+.ip-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.ip-grid small.faint{display:block;font-size:12px;margin-top:5px}
+.ip-tag{display:flex;align-items:center;gap:6px}
+.ip-tag span{font-weight:800;color:var(--muted)}
+.ip-toggle{display:flex;gap:12px;align-items:flex-start;padding:11px 12px;border:1px solid var(--border);border-radius:12px;cursor:pointer}
+.ip-toggle b{display:block;font-size:13.5px}
+.ip-toggle small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.ip-info{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;line-height:1.5;color:var(--muted);padding:11px 12px;border-radius:12px;background:var(--surface-2)}
+.ip-info svg{flex:none;margin-top:2px}
+.ip-test{font-size:12.5px;word-break:break-all}
+.ip-test a{color:var(--primary)}
+.ip-acts{display:flex;gap:8px;justify-content:flex-end}
+@media (max-width:760px){.ip-grid{grid-template-columns:1fr}.ip-hd{flex-wrap:wrap}.ip-hd .pill{margin-left:50px}}

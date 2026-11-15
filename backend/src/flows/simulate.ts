@@ -194,6 +194,7 @@ function memoryExecutor(state: SimState, outputs: SimOutput[], visited: string[]
     },
     ai: (req) => deps.ai(req, state.history),
     getProduct: (id) => deps.product(id),
+    checkoutLink: async (r) => `https://checkout.infinitepay.io/exemplo?valor=${r.amount.toFixed(2)}`,
     onEnter(nodeId) { visited.push(nodeId); },
     onAdvance() {},
     note,

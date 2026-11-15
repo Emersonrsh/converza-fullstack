@@ -391,6 +391,16 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
         .where(and(eq(schema.products.id, id), eq(schema.products.accountId, p.accountId))).limit(1);
       return r ? { id: r.id, name: r.name, price: Number(r.price), checkoutUrl: r.checkoutUrl } : null;
     },
+    async checkoutLink(req) {
+      const { createInfinitePayLink } = await import('../modules/infinitepay');
+      const [c] = await db.select({ name: schema.contacts.name, phone: schema.contacts.phone, email: schema.contacts.email }).from(schema.contacts)
+        .where(and(eq(schema.contacts.id, p.contactId), eq(schema.contacts.accountId, p.accountId))).limit(1);
+      const r = await createInfinitePayLink({
+        accountId: p.accountId, contactId: p.contactId, amount: req.amount, description: req.description,
+        productId: req.productId, productName: req.productName, customer: { name: c?.name, phone: c?.phone, email: c?.email },
+      });
+      return r.url;
+    },
     onEnter: (nodeId) => bump(nodeId, 'entries'),
     onAdvance: (nodeId) => bump(nodeId, 'advances'),
     note: () => {},

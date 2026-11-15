@@ -293,6 +293,13 @@ export function validateFlow(nodes: N[], edges: E[], lk: Lookups): Issue[] {
         else if (!d.productId && !String(d.url ?? '').trim()) add(n.id, 'error', `${nm}: escolha um produto ou informe o link de pagamento.`);
         break;
       }
+      case 'card': {
+        const p = lk.products.find((x) => x.id === d.productId);
+        if (d.productId && !p) add(n.id, 'error', `${nm}: o produto escolhido não existe mais.`);
+        else if (p && Number(p.price) < 1) add(n.id, 'error', `${nm}: o produto “${p.name}” precisa ter preço de pelo menos R$ 1,00.`);
+        else if (!d.productId && !String(d.amount ?? '').trim()) add(n.id, 'error', `${nm}: escolha um produto ou informe o valor.`);
+        break;
+      }
       case 'ai_reply':
         if (!String(d.prompt ?? '').trim()) add(n.id, 'error', `${nm}: escreva as instruções para a IA.`);
         break;
@@ -313,7 +320,7 @@ export function validateFlow(nodes: N[], edges: E[], lk: Lookups): Issue[] {
 
     // saídas obrigatórias que não fazem sentido soltas
     const outs = outputsFor(t, d);
-    if (t === 'payment' && d.wait && !outKey.has(`${n.id}|paid`)) add(n.id, 'warn', `${nm}: a saída “Pago” não leva a nenhum bloco.`);
+    if ((t === 'payment' || t === 'card') && d.wait && !outKey.has(`${n.id}|paid`)) add(n.id, 'warn', `${nm}: a saída “Pago” não leva a nenhum bloco.`);
     if (t === 'condition' && !outs.some((o) => outKey.has(`${n.id}|${o.id ?? ''}`))) add(n.id, 'warn', `${nm}: nenhuma das saídas (Sim/Não) está conectada.`);
     if (t === 'distributor' && outs.length >= 2) {
       const loose = outs.filter((o) => !outKey.has(`${n.id}|${o.id ?? ''}`)).length;

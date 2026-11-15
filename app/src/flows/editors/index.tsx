@@ -9,6 +9,7 @@ import { ConditionEditor, DelayEditor, DistributorEditor, GotoFlowEditor, SetVar
 import { AiAgentEditor, ChatStatusEditor, DepartmentEditor, KanbanEditor, PixelEditor, SaleEditor, TagsEditor } from './crm';
 import { AiEditor, HttpEditor } from './integrations';
 import { ActionEditor, AiClassifyEditor, AiReplyEditor, HandoffEditor, MediaEditor, PaymentEditor, RandomEditor } from './legacy';
+import { CardEditor } from './card';
 import type { D, EditorCtx, EditorProps } from './types';
 
 export type { EditorCtx } from './types';
@@ -18,7 +19,7 @@ const EDITORS: Record<BlockType, ComponentType<EditorProps>> = {
   message: MessageEditor, template: TemplateEditor, tags: TagsEditor, pix: PixEditor, menu: MenuEditor, carousel: CarouselEditor,
   ask: AskEditor, chat_status: ChatStatusEditor, notify: NotifyEditor, condition: ConditionEditor, distributor: DistributorEditor,
   goto_flow: GotoFlowEditor, pixel: PixelEditor, delay: DelayEditor, department: DepartmentEditor, http: HttpEditor, ai: AiEditor,
-  ai_agent: AiAgentEditor, kanban: KanbanEditor, set_var: SetVarEditor, sale: SaleEditor,
+  ai_agent: AiAgentEditor, kanban: KanbanEditor, set_var: SetVarEditor, sale: SaleEditor, card: CardEditor,
   media: MediaEditor, random: RandomEditor, action: ActionEditor, handoff: HandoffEditor, payment: PaymentEditor,
   ai_reply: AiReplyEditor, ai_classify: AiClassifyEditor,
 };

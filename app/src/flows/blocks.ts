@@ -4,7 +4,7 @@ export type BlockType =
   | 'trigger'
   // barra "Ferramentas"
   | 'message' | 'template' | 'tags' | 'pix' | 'menu' | 'carousel' | 'ask' | 'chat_status' | 'notify'
-  | 'condition' | 'distributor' | 'goto_flow' | 'pixel' | 'delay' | 'department' | 'http' | 'ai' | 'ai_agent'
+  | 'condition' | 'distributor' | 'goto_flow' | 'pixel' | 'delay' | 'department' | 'http' | 'ai' | 'ai_agent' | 'card'
   | 'kanban' | 'set_var' | 'sale'
   // blocos antigos: continuam nos fluxos que já os usam
   | 'media' | 'random' | 'action' | 'handoff' | 'payment' | 'ai_reply' | 'ai_classify';
@@ -17,6 +17,7 @@ export const BLOCKS: Record<BlockType, BlockMeta> = {
   template: { label: 'Template WhatsApp', desc: 'Modelo aprovado pela Meta (fala fora das 24 h)', icon: 'file', color: '#2563eb' },
   tags: { label: 'Etiquetas', desc: 'Adiciona ou remove etiquetas do contato', icon: 'tag', color: '#8b5cf6' },
   pix: { label: 'Botão PIX', desc: 'Cartão com o Pix copia e cola', icon: 'card', color: '#10b981' },
+  card: { label: 'Cartão (InfinitePay)', desc: 'Link de cartão em até 12x e aguarda o pagamento', icon: 'card', color: '#0ea5e9' },
   menu: { label: 'Menu', desc: 'Lista ou botões, uma saída por opção', icon: 'list', color: '#a855f7' },
   carousel: { label: 'Carrossel', desc: 'Cartões com imagem e botões', icon: 'grid', color: '#0ea5e9' },
   ask: { label: 'Aguarda Resposta', desc: 'Espera o cliente responder e salva', icon: 'save', color: '#f97316' },
@@ -45,7 +46,7 @@ export const BLOCKS: Record<BlockType, BlockMeta> = {
 
 /** Ordem da barra "Ferramentas". */
 export const TOOLS: BlockType[] = [
-  'message', 'template', 'tags', 'pix', 'menu', 'carousel', 'ask', 'chat_status', 'notify', 'condition', 'distributor',
+  'message', 'template', 'tags', 'pix', 'card', 'menu', 'carousel', 'ask', 'chat_status', 'notify', 'condition', 'distributor',
   'goto_flow', 'pixel', 'delay', 'department', 'http', 'ai', 'ai_agent', 'kanban', 'set_var', 'sale',
 ];
 
@@ -100,6 +101,7 @@ export function defaultData(type: BlockType): Record<string, any> {
     case 'action': return { setStage: '', addTags: [], removeTags: [], setName: '', kanbanBoardId: '', kanbanColumnId: '', setFields: [] };
     case 'handoff': return { message: 'Vou te transferir para um atendente, só um instante! 🙋', assignUserId: '' };
     case 'payment': return { productId: '', url: '', text: 'Aqui está o seu link de pagamento 👇\n{{link}}', wait: true, timeoutMinutes: 60 };
+    case 'card': return { productId: '', amount: '', description: '', text: 'Aqui está o link para pagar no cartão em até 12x (ou Pix) 👇\n{{link}}', wait: true, timeoutMinutes: 60 };
     case 'ai_reply': return { prompt: 'Você é um vendedor simpático. Tire as dúvidas do cliente e conduza para a compra, sem inventar preços.', model: '', useHistory: true, send: true, saveAs: '', fallbackText: '' };
     case 'ai_classify': return { categories: [{ id: rid('cat'), label: 'Quer comprar', description: 'pergunta preço, formas de pagamento' }, { id: rid('cat'), label: 'Dúvida', description: 'quer saber como funciona' }], instructions: '' };
   }
@@ -194,7 +196,7 @@ export function outputsFor(type: string, d: Record<string, any>): Output[] {
       ...(Array.isArray(d.categories) ? d.categories : []).map((c: any) => ({ id: String(c.id), label: c.label || '(sem nome)' })),
       { id: 'none', label: 'Nenhuma', tone: 'muted' as const },
     ];
-    case 'payment': return d.wait
+    case 'payment': case 'card': return d.wait
       ? [{ id: 'paid', label: 'Pago', tone: 'green' }, { id: 'unpaid', label: 'Não pago', tone: 'red' }]
       : [{ id: null, label: '' }];
     case 'ask': {
@@ -369,6 +371,11 @@ export function summary(type: string, d: Record<string, any>, lk: Lookups): stri
       const what = p ? `${p.name} (${money(Number(p.price))})` : d.url ? 'Link personalizado' : 'Sem produto/link';
       return `${what}${d.wait ? ` · aguarda até ${Number(d.timeoutMinutes ?? 60)} min` : ''}`;
     }
+    case 'card': {
+      const p = lk.products.find((x) => x.id === d.productId);
+      const what = p ? `${p.name} (${money(Number(p.price))})` : String(d.amount ?? '').trim() ? `Valor ${d.amount}` : 'Sem valor';
+      return `InfinitePay · ${what}${d.wait ? ` · aguarda até ${Number(d.timeoutMinutes ?? 60)} min` : ''}`;
+    }
     case 'ai_reply': return String(d.prompt ?? '');
     case 'ai_classify': return `Classifica em ${(d.categories ?? []).length} categorias`;
     default: return '';
@@ -401,7 +408,7 @@ export function variablesOf(nodes: { type?: string; data: Record<string, any> }[
       case 'sale': ['venda.cliente', 'venda.valor', 'venda.valor_numero', 'venda.moeda', 'venda.produto'].forEach((v) => vars.add(v)); break;
       case 'ai_reply': vars.add(d.saveAs || 'ia'); break;
       case 'ai_classify': vars.add('categoria'); break;
-      case 'payment': vars.add('link_pagamento'); break;
+      case 'payment': case 'card': vars.add('link_pagamento'); vars.add('pagamento'); break;
       case 'trigger': if (d.type === 'webhook') { vars.add('produto'); vars.add('valor'); vars.add('evento'); } break;
       default: break;
     }

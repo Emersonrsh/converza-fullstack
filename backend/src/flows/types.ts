@@ -23,6 +23,8 @@ export const BLOCK_TYPES = [
   // blocos da barra "Ferramentas" (2026-11)
   'template', 'tags', 'pix', 'carousel', 'chat_status', 'notify', 'distributor', 'pixel',
   'department', 'ai', 'ai_agent', 'kanban', 'set_var', 'sale',
+  // checkout de cartão (InfinitePay)
+  'card',
 ] as const;
 export type BlockType = typeof BLOCK_TYPES[number];
 
@@ -171,7 +173,7 @@ export function outputsOf(node: { type: string; data?: Dict }): (string | null)[
       ];
     case 'ai_classify':
       return [...(Array.isArray(d.categories) ? d.categories.filter((c: Dict) => c?.id).map((c: Dict) => String(c.id)) : []), 'none'];
-    case 'payment': return d.wait ? ['paid', 'unpaid'] : [null];
+    case 'payment': case 'card': return d.wait ? ['paid', 'unpaid'] : [null];
     case 'ask': return [null, 'invalid', 'timeout'];
     case 'goto_flow': return [];
     default: return [null];
