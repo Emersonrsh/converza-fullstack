@@ -387,25 +387,26 @@ p{text-wrap:pretty}
 .toast .tp{height:2px;background:var(--teal);transform-origin:right center;transform:scaleX(1);transition:transform 5000ms linear}
 .toast .tp.run{transform:scaleX(0)}
 @keyframes drop{0%{opacity:0;transform:translateX(26px) scale(.96)}60%{opacity:1;transform:translateX(0) scale(1.01)}100%{opacity:1;transform:none}}
-/* botão principal: o quadrado cresce com mola e vira uma trilha de setas */
-.r1{position:relative;display:inline-flex;align-items:center;height:64px;min-width:300px;overflow:hidden;border-radius:22px;background:#081b1f;padding:6px;color:var(--text);user-select:none;-webkit-tap-highlight-color:transparent;box-shadow:inset 0 0 0 1px rgba(228,242,239,.14),0 20px 50px -20px rgba(45,212,191,.35);transition:transform .286s var(--tap);outline:none}
-.r1:active{transform:scale(.97)}
+/* botão principal: o verde-água preenche o botão e o texto muda de cor exatamente onde ele passa */
+.r1{position:relative;display:inline-flex;align-items:center;height:64px;min-width:300px;overflow:hidden;border-radius:22px;background:#081b1f;padding:6px;color:var(--text);user-select:none;-webkit-tap-highlight-color:transparent;isolation:isolate;
+  box-shadow:inset 0 0 0 1px rgba(228,242,239,.14),0 20px 50px -20px rgba(45,212,191,.35);
+  transition:transform .5s cubic-bezier(.22,1,.36,1),box-shadow .5s cubic-bezier(.22,1,.36,1);outline:none}
+.r1-label{position:relative;z-index:0;margin-left:76px;margin-right:40px;white-space:nowrap;font:700 17px var(--sans);letter-spacing:.04em;text-transform:uppercase}
+.r1-accent{position:absolute;top:6px;bottom:6px;left:6px;z-index:1;width:52px;overflow:hidden;border-radius:16px;background:linear-gradient(180deg,#5eead4,#2dd4bf);color:#032421;
+  transition:width .55s cubic-bezier(.65,0,.35,1),box-shadow .55s cubic-bezier(.22,1,.36,1)}
+.r1-icon{position:absolute;left:0;top:0;width:52px;height:100%;display:grid;place-items:center}
+/* a cópia escura fica na mesma posição do texto claro (76px do botão = 70px do preenchimento) */
+.r1-ink{position:absolute;left:70px;top:0;height:100%;display:flex;align-items:center;gap:10px;white-space:nowrap;font:700 17px var(--sans);letter-spacing:.04em;text-transform:uppercase;color:#032421}
+.r1-arrow{opacity:0;transform:translateX(-10px);transition:opacity .3s ease,transform .5s cubic-bezier(.22,1,.36,1)}
 .r1:focus-visible{box-shadow:inset 0 0 0 1px rgba(228,242,239,.14),0 0 0 2px var(--ink),0 0 0 4px var(--teal)}
-.r1-accent{position:absolute;top:6px;bottom:6px;left:6px;z-index:2;width:52px;overflow:hidden;border-radius:16px;background:var(--teal);color:#032421;transition:width .44s var(--spring)}
-.r1-icon{position:absolute;inset:0;display:grid;place-items:center;transition:opacity .1s var(--ease)}
-.r1-trail{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-around;padding:0 12px}
-.r1-trail>span{display:inline-grid;place-items:center;opacity:0;transform:translateX(-6px);transition:opacity .22s var(--ease),transform .3s var(--ease)}
-.r1-label{position:relative;z-index:1;margin-left:76px;margin-right:24px;white-space:nowrap;font:700 17px var(--sans);letter-spacing:.04em;text-transform:uppercase;transition:opacity .12s var(--ease),transform .12s var(--ease)}
 @media (hover:hover) and (pointer:fine){
-  .r1:hover .r1-accent{width:calc(100% - 12px)}
-  .r1:hover .r1-icon{opacity:0}
-  .r1:hover .r1-trail>span{opacity:1;transform:none;transition-delay:var(--d)}
-  .r1:hover .r1-label{opacity:0;transform:translateX(6px)}
+  .r1:hover{transform:translateY(-2px);box-shadow:inset 0 0 0 1px rgba(94,234,212,.45),0 26px 60px -18px rgba(45,212,191,.55)}
+  .r1:hover .r1-accent{width:calc(100% - 12px);box-shadow:0 0 30px -6px rgba(45,212,191,.7)}
+  .r1:hover .r1-arrow{opacity:1;transform:none;transition-delay:.25s}
 }
 .r1:focus-visible .r1-accent{width:calc(100% - 12px)}
-.r1:focus-visible .r1-icon{opacity:0}
-.r1:focus-visible .r1-trail>span{opacity:1;transform:none;transition-delay:var(--d)}
-.r1:focus-visible .r1-label{opacity:0}
+.r1:focus-visible .r1-arrow{opacity:1;transform:none}
+.r1:active{transform:translateY(0) scale(.98);transition-duration:.15s}
 /* listas com linha que cresce: vazamentos */
 .leak .pain,.leak .fix{border-left:0;position:relative}
 .leak .pain::before,.leak .fix::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;border-radius:2px;transform:scaleY(var(--ln,1));transform-origin:50% 0;transition:transform .6s var(--ease) var(--ld,0s)}
@@ -530,7 +531,9 @@ p{text-wrap:pretty}
   .fgrid{grid-template-columns:1fr 1fr;gap:26px 18px}
   .fgrid > div:first-child{grid-column:1/-1}
   .r1{width:100%;max-width:340px;justify-content:flex-start}
-  .r1-label{flex:1;text-align:center;margin-left:52px}
+  .r1-label{flex:1;text-align:center;margin-left:52px;margin-right:12px}
+  .r1-icon{width:46px}
+  .r1-ink{display:none}
   .faq summary{font-size:15px;padding:18px 2px}
   .ring svg{display:none}
   .ring{border-bottom:2px solid var(--teal)}
@@ -566,7 +569,7 @@ p{text-wrap:pretty}
       <h1 class="h-in">Do “oi” ao Pix pago.<span class="l2">Sem perder <span class="under">ninguém<svg viewBox="0 0 300 20" preserveAspectRatio="none" aria-hidden="true"><path class="s1" pathLength="1" d="M3 14 C 60 4, 140 4, 200 10 S 270 16, 297 8"/><path class="s2" pathLength="1" d="M40 19 C 110 12, 190 13, 280 15"/></svg></span>.</span></h1>
       <p class="lead h-in">Você monta. <u>O Converza conversa.</u> Fluxos que respondem na hora, <b>agentes de IA que entendem áudio e comprovante</b> e a equipe atendendo junto no mesmo número — com cada venda aparecendo no seu painel.</p>
       <div class="cta h-in">
-        <a class="r1" href="/criar-conta"><span class="r1-accent" aria-hidden="true"><span class="r1-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg></span><span class="r1-trail"><span style="--d:0.04s"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span><span style="--d:0.08s"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span><span style="--d:0.12s"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span><span style="--d:0.16s"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span><span style="--d:0.20s"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></span></span><span class="r1-label">Criar minha conta</span></a>
+        <a class="r1" href="/criar-conta"><span class="r1-accent" aria-hidden="true"><span class="r1-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg></span><span class="r1-ink" aria-hidden="true">Criar minha conta<svg class="r1-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></span><span class="r1-label">Criar minha conta</span></a>
       </div>
       <div class="facts h-in"><em>API oficial da Meta ou QR Code</em><em><span>21 blocos</span> de fluxo</em><em>Pix e cartão pela Asaas</em><em>cancele quando quiser</em></div>
 
