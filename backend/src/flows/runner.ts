@@ -1032,6 +1032,19 @@ export async function onPaymentApproved(accountId: string, contactId: string) {
   for (const r of runs) await resumePaymentRun(r.id, r.currentNodeId ?? '', true);
 }
 
+/** Antes do "Não pago": confere uma última vez na InfinitePay os pedidos pendentes do contato. */
+async function lastPaymentCheck(runId: string) {
+  try {
+    const [r] = await db.select({ accountId: schema.flowRuns.accountId, contactId: schema.flowRuns.contactId, status: schema.flowRuns.status })
+      .from(schema.flowRuns).where(eq(schema.flowRuns.id, runId)).limit(1);
+    if (!r || r.status !== 'waiting_payment' || !r.contactId) return;
+    const { checkPendingForContact } = await import('../modules/infinitepay');
+    await checkPendingForContact(r.accountId, r.contactId);
+  } catch (err) {
+    console.error('[flows] última conferência do pagamento:', (err as Error).message);
+  }
+}
+
 async function resumePaymentRun(runId: string, nodeId: string, paid: boolean) {
   const run = await claim(runId, 'waiting_payment', nodeId || null);
   if (!run) return;
@@ -1065,7 +1078,10 @@ async function resumeWaitJob(data: FlowJobData) {
 
 /** Processa os jobs da fila de fluxos (fim de espera, tempo limite, buffer, tempo do pagamento). */
 export async function handleFlowJob(data: FlowJobData) {
-  if (data.kind === 'payment_timeout') return resumePaymentRun(data.runId, data.nodeId, false);
+  if (data.kind === 'payment_timeout') {
+    await lastPaymentCheck(data.runId);
+    return resumePaymentRun(data.runId, data.nodeId, false); // se já foi pago, a execução não está mais esperando e nada acontece
+  }
   if (data.kind === 'input_timeout' || data.kind === 'buffer_flush') return resumeWaitJob(data);
 
   if (data.kind === 'delay') {

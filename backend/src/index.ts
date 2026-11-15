@@ -22,7 +22,7 @@ import { kanbanRouter } from './modules/kanban';
 import { cleanupOrphanRuns, sweepFlowFiles } from './flows/runner';
 import { agentsRouter } from './modules/agents';
 import { knowledgeRouter } from './modules/knowledge';
-import { infinitepayRouter, infinitepayHookRouter } from './modules/infinitepay';
+import { infinitepayRouter, infinitepayHookRouter, startInfinitePaySweep } from './modules/infinitepay';
 import { startConnectionHealthSweep } from './modules/connections';
 import { webhooksRouter, hooksInRouter } from './modules/webhooks';
 import { teamRouter } from './modules/team';
@@ -164,6 +164,7 @@ if (process.env.START_WORKER !== 'false') {
   startAdRules();
   startBillingJobs();
   startTranslationSweep();
+  startInfinitePaySweep();
   // registros de acesso (Marco Civil): apaga os que passaram de 6 meses, uma vez por dia
   const purgeAccess = () => purgeAccessLogs().then((n) => { if (n) console.log(`[acessos] ${n} registros com mais de 6 meses apagados`); })
     .catch((err) => console.error('[acessos] limpeza:', (err as Error).message));

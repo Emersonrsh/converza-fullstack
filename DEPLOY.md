@@ -297,5 +297,6 @@ Cada cliente do Converza conecta a própria conta InfinitePay em **Configuraçõ
 
 - Não há nada para configurar no painel da InfinitePay: o endereço do aviso de pagamento vai em cada link (`PUBLIC_API_URL` + `/api/v1/pay-hooks/infinitepay/<id da conta>`). Por isso o `PUBLIC_API_URL` precisa estar certo.
 - O aviso da InfinitePay não tem assinatura: o Converza confirma cada pagamento na consulta oficial (`/payment_check`) antes de aprovar a venda.
+- Se o aviso não chegar, a API confere sozinha os pedidos pendentes: a cada minuto na primeira meia hora, a cada 5 minutos até 3 horas e a cada 30 minutos até 48 horas. E, no fim do tempo limite do bloco, confere uma última vez antes de o fluxo seguir por “Não pago”.
 - Venda aprovada dispara o Pixel (evento Purchase, conforme as regras do pixel em Facebook › Pixel) e o aviso no celular.
 - O checkout da InfinitePay aceita cartão de crédito (até 12x) e Pix; débito não é oferecido por ele.

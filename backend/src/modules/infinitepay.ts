@@ -138,6 +138,97 @@ export async function checkPayment(cfg: InfinitePaySettings, q: { orderNsu: stri
 
 const METHOD: Record<string, string> = { credit_card: 'cartão de crédito', pix: 'Pix', debit_card: 'cartão de débito' };
 
+/* ============================================================ confirmação */
+
+export type ConfirmResult = 'paid' | 'unpaid' | 'already' | 'unknown_order' | 'not_configured';
+interface Hint { transactionNsu?: string; slug?: string; receiptUrl?: string; installments?: number; captureMethod?: string }
+
+/**
+ * Confere um pedido na InfinitePay e, se estiver pago, aprova a venda (Pixel, aviso no celular)
+ * e retoma o fluxo que esperava o pagamento. Usado pelo webhook, pela verificação periódica
+ * e pela última conferência antes do "Não pago". Lança erro só se a InfinitePay não responder.
+ */
+export async function confirmInfinitePayOrder(accountId: string, orderNsu: string, hint: Hint = {}): Promise<ConfirmResult> {
+  const cfg = await getInfinitePay(accountId);
+  if (!cfg) return 'not_configured';
+  const [sale] = await db.select().from(schema.sales)
+    .where(and(eq(schema.sales.accountId, accountId), eq(schema.sales.externalId, `${PREFIX}${orderNsu}`))).limit(1);
+  if (!sale) return 'unknown_order';
+  if (sale.status === 'approved') return 'already';
+  const check = await checkPayment(cfg, { orderNsu, transactionNsu: hint.transactionNsu, slug: hint.slug });
+  if (!check.success || !check.paid) return 'unpaid';
+
+  const raw = String(check.capture_method ?? hint.captureMethod ?? '');
+  const method = METHOD[raw] ?? raw;
+  const parcelas = Number(check.installments ?? hint.installments ?? 1);
+  const row = await recordSale({
+    accountId, contactId: sale.contactId, amount: Number(sale.amount), status: 'approved',
+    productId: sale.productId, productName: sale.productName, externalId: sale.externalId, origin: 'flow',
+    connectionId: sale.connectionId,
+  });
+  // a venda já existia (aguardando): grava como foi paga e o comprovante
+  const notes = `InfinitePay · ${method || 'pago'}${parcelas > 1 ? ` em ${parcelas}x` : ''}${hint.transactionNsu ? ` · NSU ${hint.transactionNsu.slice(0, 40)}` : ''}${hint.receiptUrl ? ` · comprovante: ${hint.receiptUrl.slice(0, 300)}` : ''}`;
+  await db.update(schema.sales).set({ notes }).where(eq(schema.sales.id, row.id));
+  if (row.contactId) await onPaymentApproved(accountId, row.contactId).catch((err) => console.error('[infinitepay] fluxo não retomou:', (err as Error).message));
+  return 'paid';
+}
+
+/** Última conferência: os pedidos pendentes do contato (usada antes de o fluxo ir para "Não pago"). */
+export async function checkPendingForContact(accountId: string, contactId: string): Promise<boolean> {
+  const rows = await db.select({ externalId: schema.sales.externalId }).from(schema.sales).where(and(
+    eq(schema.sales.accountId, accountId), eq(schema.sales.contactId, contactId), eq(schema.sales.status, 'pending'),
+    sql`${schema.sales.externalId} like ${`${PREFIX}%`}`, sql`${schema.sales.createdAt} >= now() - interval '48 hours'`,
+  ));
+  let paid = false;
+  for (const r of rows) {
+    try { if ((await confirmInfinitePayOrder(accountId, String(r.externalId).slice(PREFIX.length))) === 'paid') paid = true; }
+    catch (err) { console.error('[infinitepay] última conferência falhou:', (err as Error).message); }
+  }
+  return paid;
+}
+
+/* ============================================================ verificação periódica */
+
+const lastCheck = new Map<string, number>();
+/** de quanto em quanto tempo conferir, pela idade do pedido */
+export function checkEveryMs(ageMs: number): number {
+  if (ageMs < 30 * 60_000) return 60_000;        // primeira meia hora: a cada minuto
+  if (ageMs < 3 * 3600_000) return 5 * 60_000;   // até 3 horas: a cada 5 minutos
+  return 30 * 60_000;                             // até 48 horas: a cada 30 minutos
+}
+
+/** Confere os pedidos pendentes na InfinitePay, mesmo que o aviso dela nunca chegue. */
+export async function sweepInfinitePay(now = Date.now()): Promise<number> {
+  const rows = await db.select({ id: schema.sales.id, accountId: schema.sales.accountId, externalId: schema.sales.externalId, createdAt: schema.sales.createdAt })
+    .from(schema.sales).where(and(
+      eq(schema.sales.status, 'pending'), sql`${schema.sales.externalId} like ${`${PREFIX}%`}`,
+      sql`${schema.sales.createdAt} >= now() - interval '48 hours'`,
+    )).orderBy(sql`${schema.sales.createdAt} desc`).limit(200);
+  const alive = new Set(rows.map((r) => r.id));
+  for (const id of lastCheck.keys()) if (!alive.has(id)) lastCheck.delete(id);
+  let approved = 0;
+  let calls = 0;
+  for (const r of rows) {
+    if (calls >= 60) break; // no máximo 60 consultas por rodada
+    const age = now - new Date(r.createdAt).getTime();
+    if (age < 45_000) continue; // o cliente acabou de receber o link
+    if (now - (lastCheck.get(r.id) ?? 0) < checkEveryMs(age)) continue;
+    lastCheck.set(r.id, now);
+    calls++;
+    try {
+      if ((await confirmInfinitePayOrder(r.accountId, String(r.externalId).slice(PREFIX.length))) === 'paid') approved++;
+    } catch (err) { console.error('[infinitepay] verificação:', (err as Error).message); }
+  }
+  return approved;
+}
+
+export function startInfinitePaySweep() {
+  const tick = () => sweepInfinitePay().then((n) => { if (n) console.log(`[infinitepay] ${n} pagamento(s) confirmado(s) pela verificação`); })
+    .catch((err) => console.error('[infinitepay] verificação:', (err as Error).message));
+  setTimeout(tick, 30_000).unref();
+  setInterval(tick, 60_000).unref();
+}
+
 /* ============================================================ webhook */
 
 infinitepayHookRouter.post('/:accountId', asyncHandler(async (req, res) => {
@@ -146,36 +237,25 @@ infinitepayHookRouter.post('/:accountId', asyncHandler(async (req, res) => {
   const b = (req.body ?? {}) as Record<string, any>;
   const orderNsu = String(b.order_nsu ?? '').trim();
   if (!orderNsu) { res.status(200).json({ ok: true, ignored: 'sem order_nsu' }); return; }
-  const cfg = await getInfinitePay(accountId);
-  if (!cfg) { res.status(200).json({ ok: true, ignored: 'InfinitePay não configurada' }); return; }
-  const [sale] = await db.select().from(schema.sales)
-    .where(and(eq(schema.sales.accountId, accountId), eq(schema.sales.externalId, `${PREFIX}${orderNsu}`))).limit(1);
-  if (!sale) { res.status(200).json({ ok: true, ignored: 'pedido desconhecido' }); return; }
-  if (sale.status === 'approved') { res.status(200).json({ ok: true, already: true }); return; }
-
-  let check;
+  let r: ConfirmResult;
   try {
-    check = await checkPayment(cfg, { orderNsu, transactionNsu: b.transaction_nsu ? String(b.transaction_nsu) : undefined, slug: b.invoice_slug ? String(b.invoice_slug) : undefined });
+    r = await confirmInfinitePayOrder(accountId, orderNsu, {
+      transactionNsu: b.transaction_nsu ? String(b.transaction_nsu) : undefined,
+      slug: b.invoice_slug ? String(b.invoice_slug) : undefined,
+      receiptUrl: b.receipt_url ? String(b.receipt_url) : undefined,
+      installments: b.installments ? Number(b.installments) : undefined,
+      captureMethod: b.capture_method ? String(b.capture_method) : undefined,
+    });
   } catch (err) {
-    // InfinitePay fora: responde erro para ela tentar de novo
+    // InfinitePay fora: responde erro para ela tentar de novo (e a verificação periódica também confere)
     console.error('[infinitepay] não deu para confirmar o pagamento:', (err as Error).message);
     res.status(400).json({ ok: false });
     return;
   }
-  if (!check.success || !check.paid) { res.status(200).json({ ok: true, paid: false }); return; }
-
-  const method = METHOD[String(check.capture_method ?? b.capture_method ?? '')] ?? String(check.capture_method ?? b.capture_method ?? '');
-  const parcelas = Number(check.installments ?? b.installments ?? 1);
-  const row = await recordSale({
-    accountId, contactId: sale.contactId, amount: Number(sale.amount), status: 'approved',
-    productId: sale.productId, productName: sale.productName, externalId: sale.externalId, origin: 'flow',
-    connectionId: sale.connectionId,
-  });
-  // a venda já existia (aguardando): grava como foi paga e o comprovante
-  const notes = `InfinitePay · ${method}${parcelas > 1 ? ` em ${parcelas}x` : ''}${b.transaction_nsu ? ` · NSU ${String(b.transaction_nsu).slice(0, 40)}` : ''}${b.receipt_url ? ` · comprovante: ${String(b.receipt_url).slice(0, 300)}` : ''}`;
-  await db.update(schema.sales).set({ notes }).where(eq(schema.sales.id, row.id));
-  if (row.contactId) await onPaymentApproved(accountId, row.contactId).catch((err) => console.error('[infinitepay] fluxo não retomou:', (err as Error).message));
-  res.status(200).json({ ok: true, paid: true });
+  if (r === 'not_configured') { res.status(200).json({ ok: true, ignored: 'InfinitePay não configurada' }); return; }
+  if (r === 'unknown_order') { res.status(200).json({ ok: true, ignored: 'pedido desconhecido' }); return; }
+  if (r === 'already') { res.status(200).json({ ok: true, already: true }); return; }
+  res.status(200).json({ ok: true, paid: r === 'paid' });
 }));
 
 /* ============================================================ configuração */
