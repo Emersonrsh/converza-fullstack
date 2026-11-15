@@ -28,10 +28,18 @@ const num = (raw: string | undefined, def: number, min: number, max: number) => 
   return Number.isFinite(n) && raw !== undefined && raw !== '' ? Math.min(max, Math.max(min, n)) : def;
 };
 
+function appOrigins(): string[] {
+  const list = (process.env.APP_ORIGIN ?? 'http://localhost:5173').split(',').map((x) => x.trim().replace(/\/+$/, '')).filter(Boolean);
+  return list.length ? list : ['http://localhost:5173'];
+}
+
 export const config = {
   port: Number(process.env.PORT ?? 4000),
   env: process.env.NODE_ENV ?? 'development',
-  appOrigin: process.env.APP_ORIGIN ?? 'http://localhost:5173',
+  /** endereço do frontend usado nos links (o primeiro de APP_ORIGIN) */
+  appOrigin: appOrigins()[0],
+  /** todos os endereços aceitos (APP_ORIGIN separado por vírgula: o novo domínio primeiro, o antigo depois, durante a migração) */
+  appOrigins: appOrigins(),
   databaseUrl: required('DATABASE_URL', 'postgres://converza:converza@localhost:5432/converza'),
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
   jwtSecret: jwtSecret(),

@@ -18,7 +18,7 @@ export function pushConfigured() {
   const { publicKey, privateKey } = config.push;
   if (!publicKey || !privateKey) return (ready = false);
   try {
-    const subject = config.push.subject || (config.appOrigin.startsWith('https://') ? config.appOrigin : 'https://converza.app');
+    const subject = config.push.subject || (config.appOrigin.startsWith('https://') ? config.appOrigin : 'https://converza.pro');
     webpush.setVapidDetails(subject, publicKey, privateKey);
     ready = true;
   } catch (err) {

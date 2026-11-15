@@ -10,7 +10,7 @@ let io: IOServer | null = null;
 
 /** Inicializa o Socket.IO. Cada socket entra na "sala" da sua conta. */
 export function initIO(server: HttpServer): IOServer {
-  io = new IOServer(server, { cors: { origin: config.appOrigin, credentials: true } });
+  io = new IOServer(server, { cors: { origin: config.appOrigins, credentials: true } });
 
   io.use(async (socket: Socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;

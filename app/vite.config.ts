@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -18,6 +18,9 @@ function spaFallback(): Plugin {
     closeBundle() {
       const index = resolve(outDir, 'index.html');
       if (existsSync(index)) copyFileSync(index, resolve(outDir, '404.html'));
+      // a landing (arquivo estático) recebe o mesmo endereço oficial para o redirecionamento
+      const site = resolve(outDir, 'site', 'index.html');
+      if (existsSync(site)) writeFileSync(site, readFileSync(site, 'utf8').replace('__CANONICAL_ORIGIN__', process.env.VITE_CANONICAL_ORIGIN ?? ''));
     },
   };
 }

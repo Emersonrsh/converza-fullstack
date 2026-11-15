@@ -275,7 +275,7 @@ pixelsRouter.post('/:id/test', asyncHandler(async (req, res) => {
   const key = `test:${Date.now()}`;
   const built = buildEvent({
     platform, pixelId: px.pixelId, wabaId, event, key, time: new Date(), testCode: d.testEventCode,
-    person: { id: `converza-teste-${accountId}`, name: 'Cliente Teste', phone: '5511999999999', email: 'teste@converza.app' },
+    person: { id: `converza-teste-${accountId}`, name: 'Cliente Teste', phone: '5511999999999', email: 'teste@converza.pro' },
     money: event === 'Purchase' ? { value: 1, currency: 'BRL', product: 'Teste do Converza' } : null,
   });
   if (!built.ok) throw new AppError(422, built.skip);

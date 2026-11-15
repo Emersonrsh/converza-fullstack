@@ -123,7 +123,7 @@ export async function safeFetchPage(urlStr: string): Promise<{ ok: boolean; stat
   let current = urlStr;
   for (let hop = 0; hop <= 3; hop++) {
     const r = await rawRequest(current, { method: 'GET', headers: { Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5', 'Accept-Language': 'pt-BR,pt;q=0.9' } },
-      { maxBytes: 2_000_000, truncate: true, userAgent: 'Mozilla/5.0 (compatible; ConverzaBot/1.0; +https://converza.app)' });
+      { maxBytes: 2_000_000, truncate: true, userAgent: 'Mozilla/5.0 (compatible; ConverzaBot/1.0; +https://converza.pro)' });
     if (r.error) return { ok: false, status: r.status, url: current, contentType: '', text: '', error: r.error };
     const loc = r.headers.location;
     if (r.status >= 300 && r.status < 400 && loc) {

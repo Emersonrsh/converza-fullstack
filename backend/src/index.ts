@@ -57,7 +57,7 @@ import { initIO } from './realtime/io';
 import { startAgentWorker, startDispatchWorker, startFlowWorker, startPixelWorker, startWebhookWorker } from './queue/worker';
 
 const app = express();
-app.use(cors({ origin: config.appOrigin, credentials: true, exposedHeaders: ['Content-Disposition'] }));
+app.use(cors({ origin: config.appOrigins, credentials: true, exposedHeaders: ['Content-Disposition'] }));
 // gerar fluxo a partir de imagens: até 4 imagens (já reduzidas no navegador)
 app.use('/api/v1/flows/generate', express.json({ limit: '10mb' }));
 // criar campanha da Meta: vem com a imagem do anúncio (já reduzida no navegador)

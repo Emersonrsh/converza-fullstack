@@ -248,3 +248,45 @@ O que tem nele:
 
 > O painel **não** mostra conversas, contatos nem configurações das empresas: isso só com o **acesso de suporte**, que a própria empresa libera (Parte 9) — é o que os Termos de Uso garantem a ela.
 
+
+## Parte 13 — Domínio próprio (converza.pro)
+
+O app e a landing ficam em `https://converza.pro` e a API em `https://api.converza.pro`. A troca é feita em fases, sem derrubar ninguém: os dois endereços funcionam juntos até tudo estar conferido.
+
+### 1. Ligar o domínio no Render
+1. No serviço do **frontend**: **Settings › Custom Domains › Add Custom Domain** → `converza.pro` (o Render adiciona o `www.converza.pro` e redireciona para o principal).
+2. No serviço da **API**: **Settings › Custom Domains** → `api.converza.pro`.
+3. O Render mostra os registros de DNS de cada um. No painel de onde comprou o domínio, crie:
+
+   | Tipo | Nome | Valor |
+   |---|---|---|
+   | `A` (ou `ALIAS`/`ANAME`) | `@` | o IP que o Render mostrar para `converza.pro` |
+   | `CNAME` | `www` | o endereço `....onrender.com` do frontend |
+   | `CNAME` | `api` | o endereço `....onrender.com` da API |
+
+4. Espere o Render marcar os dois como **Verified** e emitir o certificado (de minutos a algumas horas).
+
+### 2. Variáveis de ambiente
+**API** (Environment):
+
+| Variável | Valor |
+|---|---|
+| `APP_ORIGIN` | `https://converza.pro,https://converza-fullstack.onrender.com` (o novo primeiro; o antigo continua aceito durante a migração) |
+| `PUBLIC_API_URL` | `https://api.converza.pro` |
+| `VAPID_SUBJECT` (opcional) | `https://converza.pro` |
+
+**Frontend** (Environment) — depois, **Manual Deploy › Clear build cache & deploy**:
+
+| Variável | Valor |
+|---|---|
+| `VITE_API_URL` | `https://api.converza.pro/api/v1` |
+| `VITE_SOCKET_URL` | `https://api.converza.pro` |
+
+### 3. Integrações (troque o endereço antigo pelo novo)
+- **Meta (app do WhatsApp/Facebook):** em **Configurações › Básico**, `Domínios do app` = `converza.pro`; URLs de Termos/Privacidade/Exclusão = `https://converza.pro/termos`, `/privacidade`, `/exclusao-de-dados`. Em **Facebook Login › Configurações**, adicione `converza.pro` aos domínios permitidos do SDK. Em **WhatsApp › Configuração › Webhook**, a URL de retorno passa a ser `https://api.converza.pro/api/v1/webhooks/whatsapp` (mesmo token de verificação).
+- **Asaas:** webhook → `https://api.converza.pro/api/v1/billing-hooks/asaas`.
+- **Paddle (se usar):** link padrão → `https://converza.pro/pagamento`; notificações → `https://api.converza.pro/api/v1/billing-hooks/paddle`.
+- **Webhooks de entrada dos clientes (Hotmart, Kiwify…)** e **links rastreáveis**: os novos passam a usar `api.converza.pro`. Os antigos continuam funcionando enquanto o endereço `....onrender.com` da API existir — não apague o serviço.
+
+### 4. Redirecionar o endereço antigo
+Quando `https://converza.pro` estiver abrindo e o login funcionando, no **frontend** adicione `VITE_CANONICAL_ORIGIN` = `https://converza.pro` e faça **Clear build cache & deploy**. A partir daí, quem abrir o endereço `....onrender.com` (app ou landing) é levado para o mesmo caminho em `converza.pro`. Como o login fica salvo por endereço, cada pessoa entra de novo uma vez no domínio novo; notificações no celular precisam ser ativadas de novo no app instalado pelo novo endereço.
