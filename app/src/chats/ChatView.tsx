@@ -6,6 +6,9 @@ import { EMOJIS, dayLabel, fillVars, fmtPhone, msgTime, quoteText } from './util
 import { isTextOnly, quickPreview } from '../settings/QuickReplies';
 import { toast } from '../components/ui';
 import type { ChatDetail, ChatMessage, QuickReply, ReplyPreview } from './types';
+
+/** Reações rápidas (as mesmas do WhatsApp); o servidor aceita só estas. */
+export const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 import { FlowLauncher, FlowPauseButton, RESUME_OPEN_EVENT, openResume, useFlowRuns } from './FlowControls';
 const ResumeFlowModal = lazy(() => import('./ResumeFlowModal').then((m) => ({ default: m.ResumeFlowModal })));
 
@@ -66,9 +69,31 @@ function Quote({ q, contactName, meId, onJump }: { q: Quoted | null; contactName
   );
 }
 
-function Bubble({ m, quoted, contactName, meId, onRetry, onReply, onJump, heldAt, onResume }: {
+/** Escolha da reação: abre ao lado da mensagem, fecha ao escolher, ao clicar fora ou com Esc. */
+function ReactPicker({ current, onPick, onClose }: { current: string | undefined; onPick: (emoji: string) => void; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const down = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
+    const key = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('pointerdown', down);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('pointerdown', down); document.removeEventListener('keydown', key); };
+  }, [onClose]);
+  return (
+    <div className="bub-react-pick" ref={ref} role="menu" aria-label="Reagir" data-testid="react-picker">
+      {REACTIONS.map((e) => (
+        <button key={e} type="button" role="menuitem" className={cx(current === e && 'on')} onClick={() => onPick(current === e ? '' : e)}
+          title={current === e ? 'Tirar reação' : `Reagir com ${e}`} aria-label={current === e ? 'Tirar reação' : `Reagir com ${e}`} data-testid="react-emoji">{e}</button>
+      ))}
+    </div>
+  );
+}
+
+function Bubble({ m, quoted, contactName, meId, onRetry, onReply, onJump, heldAt, onResume, onReact }: {
   m: ChatMessage; quoted: Quoted | null; contactName: string; meId: string;
   onRetry: (m: ChatMessage) => void; onReply: (m: ChatMessage) => void; onJump: (id: string) => void;
+  /** reagir à mensagem do cliente ('' tira a reação) */
+  onReact?: (m: ChatMessage, emoji: string) => void;
   /** o fluxo parou nesta mensagem (ela não saiu): Retomar fluxo reenvia e segue */
   heldAt?: boolean; onResume?: (m: ChatMessage) => void;
 }) {
@@ -84,11 +109,20 @@ function Bubble({ m, quoted, contactName, meId, onRetry, onReply, onJump, heldAt
     );
   }
   const out = m.direction === 'out';
+  const [picking, setPicking] = useState(false);
+  const canReact = !out && !!m.waMessageId && !!onReact;
+  const r = m.reactions ?? {};
   const hasMedia = ['image', 'video', 'audio', 'document', 'sticker'].includes(m.type) || (m.type === 'template' && !!m.mediaUrl);
   const [tick, tickLabel] = TICKS[m.status] ?? ['', ''];
   return (
-    <div id={`m-${m.id}`} className={cx('bub', out ? 'out' : 'in', m.status === 'failed' && 'failed')} data-testid={out ? 'msg-out' : 'msg-in'}>
-      <button type="button" className="bub-act" onClick={() => onReply(m)} title="Responder" aria-label="Responder" data-testid="reply"><Icon name="reply" size={14} /></button>
+    <div id={`m-${m.id}`} className={cx('bub', out ? 'out' : 'in', m.status === 'failed' && 'failed', picking && 'picking')} data-testid={out ? 'msg-out' : 'msg-in'}>
+      <div className={cx('bub-acts', picking && 'open')}>
+        <button type="button" className="bub-act" onClick={() => onReply(m)} title="Responder" aria-label="Responder" data-testid="reply"><Icon name="reply" size={14} /></button>
+        {canReact && (
+          <button type="button" className="bub-act" onClick={() => setPicking((v) => !v)} title="Reagir" aria-label="Reagir" aria-expanded={picking} data-testid="react"><Icon name="smile" size={14} /></button>
+        )}
+        {picking && onReact && <ReactPicker current={r.team} onPick={(e) => { setPicking(false); onReact(m, e); }} onClose={() => setPicking(false)} />}
+      </div>
       <div className="bub-b">
         {m.replyToId && <Quote q={quoted} contactName={contactName} meId={meId} onJump={() => m.replyToId && onJump(m.replyToId)} />}
         {out && m.type === 'template' && <span className="bub-tpl">Modelo</span>}
@@ -101,6 +135,14 @@ function Bubble({ m, quoted, contactName, meId, onRetry, onReply, onJump, heldAt
           <span>{msgTime(m.createdAt)}</span>
           {out && <span className={cx('tk', m.status)} title={tickLabel}>{tick}</span>}
         </div>
+        {(r.contact || r.team) && (
+          <div className="bub-reacts" data-testid="reactions">
+            {r.contact && <span title={`${contactName || 'Cliente'} reagiu`} data-testid="reaction-contact">{r.contact}</span>}
+            {r.team && (canReact
+              ? <button type="button" className="mine" onClick={() => onReact?.(m, '')} title="Sua equipe reagiu · clique para tirar" aria-label={`Tirar a reação ${r.team}`} data-testid="reaction-team">{r.team}</button>
+              : <span className="mine" title="Sua equipe reagiu" data-testid="reaction-team">{r.team}</span>)}
+          </div>
+        )}
       </div>
       {m.status === 'failed' && (
         <div className="bub-err">
@@ -120,7 +162,7 @@ export interface UploadOpts { voice?: boolean; replyToId?: string | null }
 
 export function ChatView({
   detail, messages, hasMore, loadingOlder, onLoadOlder, meId, quickReplies, panelOpen, onTogglePanel,
-  onAccept, onRelease, onResolve, onReopen, onTransfer, onSend, onNote, onUpload, onTemplate, onRetry, onManageQuick, listCollapsed, onExpandList, back, onQuickSend,
+  onAccept, onRelease, onResolve, onReopen, onTransfer, onSend, onNote, onUpload, onTemplate, onRetry, onManageQuick, listCollapsed, onExpandList, back, onQuickSend, onReact,
 }: {
   detail: ChatDetail; messages: ChatMessage[]; hasMore: boolean; loadingOlder: boolean; onLoadOlder: () => void; meId: string;
   quickReplies: QuickReply[]; panelOpen: boolean; onTogglePanel: () => void;
@@ -130,6 +172,8 @@ export function ChatView({
   onTemplate: () => void; onRetry: (m: ChatMessage) => void; onManageQuick: () => void; listCollapsed: boolean; onExpandList: () => void; back?: boolean;
   /** resposta rápida com anexos: envia tudo (o servidor preenche as variáveis) */
   onQuickSend: (q: QuickReply) => Promise<boolean>;
+  /** reagir a uma mensagem do cliente ('' tira a reação) */
+  onReact?: (m: ChatMessage, emoji: string) => void;
 }) {
   const c = detail.conversation;
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
@@ -252,7 +296,7 @@ export function ChatView({
             <div className="cv-day"><span>{g.label}</span></div>
             {g.msgs.map((m) => (
               <Bubble key={m.id} m={m} quoted={m.replyToId ? byId.get(m.replyToId) ?? m.reply ?? null : null} contactName={contactName} meId={meId}
-                onRetry={onRetry} onReply={(x) => setReplyTo(x)} onJump={jump}
+                onRetry={onRetry} onReply={(x) => setReplyTo(x)} onJump={jump} onReact={detail.windowOpen ? onReact : undefined}
                 heldAt={m.status === 'failed' && failedIds.has(m.id)} onResume={(x) => { const r = runs.find((y) => y.failedMessageId === x.id); if (r) openResume(r.id); }} />
             ))}
           </div>

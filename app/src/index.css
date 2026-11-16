@@ -742,11 +742,28 @@ html.dark{--bub-out:#124a44;--bub-out-text:#e9f1f0;--chat-bg:#0c191b;--tick-read
 .tpl-media-ph{display:flex;align-items:center;justify-content:center;height:90px;border-radius:8px;background:color-mix(in srgb, var(--text) 7%, transparent);font-size:12.5px;font-weight:700;opacity:.8}
 /* responder / citar e gravação de áudio */
 .bub{position:relative}
-.bub-act{position:absolute;top:4px;width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:var(--surface);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .12s;box-shadow:var(--shadow);z-index:1}
-.bub.in .bub-act{right:-34px}
-.bub.out .bub-act{left:-34px}
-.bub:hover .bub-act,.bub-act:focus-visible{opacity:1}
-.bub-act:hover{color:var(--primary);border-color:var(--primary)}
+.bub-acts{position:absolute;top:4px;display:flex;flex-direction:column;gap:4px;z-index:4}
+.bub.picking{z-index:6}
+.bub.in .bub-acts{right:-34px}
+.bub.out .bub-acts{left:-34px}
+.bub-act{-webkit-tap-highlight-color:transparent;width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:var(--surface);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .12s;box-shadow:var(--shadow)}
+.bub:hover .bub-act,.bub-act:focus-visible,.bub-acts.open .bub-act{opacity:1}
+.bub-act:hover,.bub-act[aria-expanded="true"]{color:var(--primary);border-color:var(--primary)}
+@media (hover:none){.bub-act{opacity:.75}}
+.bub-react-pick{position:absolute;top:-2px;left:32px;display:flex;gap:2px;padding:4px;border-radius:999px;border:1px solid var(--border);background:var(--surface);box-shadow:var(--shadow-lg, var(--shadow));animation:reactpop .14s ease-out}
+.bub-react-pick button{width:32px;height:32px;border:0;border-radius:50%;background:transparent;font-size:19px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .12s, background .12s}
+.bub-react-pick button:hover,.bub-react-pick button:focus-visible{transform:scale(1.18);background:var(--surface-2)}
+.bub-react-pick button.on{background:color-mix(in srgb, var(--primary) 16%, transparent)}
+@keyframes reactpop{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
+.bub-b{position:relative}
+.bub-b:has(.bub-reacts){margin-bottom:13px}
+.bub-reacts{position:absolute;bottom:-14px;display:flex;gap:3px}
+.bub.in .bub-reacts{right:8px}
+.bub.out .bub-reacts{left:8px}
+.bub-reacts>span,.bub-reacts>button{display:flex;align-items:center;justify-content:center;min-width:24px;height:22px;padding:0 5px;border-radius:999px;border:1px solid var(--border);background:var(--surface);font-size:13px;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.08);font-family:inherit}
+.bub-reacts .mine{border-color:color-mix(in srgb, var(--primary) 45%, var(--border))}
+.bub-reacts>button{cursor:pointer}
+.bub-reacts>button:hover{border-color:var(--danger)}
 .bub-quote{display:flex;flex-direction:column;gap:1px;width:100%;min-width:160px;text-align:left;border:0;border-left:3px solid var(--info);background:color-mix(in srgb, var(--text) 6%, transparent);border-radius:7px;padding:5px 9px;margin:0 0 5px;font:inherit;color:inherit;cursor:pointer}
 .bub-quote.in{border-left-color:var(--accent)}
 .bub-quote b{font-size:11.5px;color:var(--info)}
@@ -3033,3 +3050,4 @@ html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:10
 .ip-test a{color:var(--primary)}
 .ip-acts{display:flex;gap:8px;justify-content:flex-end}
 @media (max-width:760px){.ip-grid{grid-template-columns:1fr}.ip-hd{flex-wrap:wrap}.ip-hd .pill{margin-left:50px}}
+@media (max-width:700px){.bub.in .bub-react-pick{left:auto;right:0;top:62px}}

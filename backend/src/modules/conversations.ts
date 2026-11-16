@@ -8,7 +8,7 @@ import { config } from '../config';
 import { asyncHandler, AppError, isUuid, publicBase } from '../utils/http';
 import { signedMediaPath } from '../utils/mediaSign';
 import {
-  markRead, mediaKind, sendMediaId, sendSticker, sendTemplate, sendText, uploadMedia, WhatsAppError, type MediaKind, type TemplateSend,
+  markRead, mediaKind, sendMediaId, sendReaction, sendSticker, sendTemplate, sendText, uploadMedia, WhatsAppError, type MediaKind, type TemplateSend,
 } from '../whatsapp/cloud-api';
 import { emitToAccount } from '../realtime/io';
 import { ACTIVE_RUN_STATUSES, HELD_RUN_STATUSES, pauseRunsForContact, resumeHeldRun, startFlowManually, stopRunsForContact } from '../flows/runner';
@@ -380,6 +380,40 @@ conversationsRouter.post('/:id/messages', asyncHandler(async (req, res) => {
   const message = await deliver(req, conv, { type: 'text', body, replyToId: quoted?.id },
     (c, to) => sendText(c, to, body, quoted?.waMessageId));
   res.status(201).json({ message });
+}));
+
+/** Emojis que a equipe pode usar para reagir (os mesmos do atalho do WhatsApp). */
+export const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'] as const;
+
+/**
+ * Reage a uma mensagem do cliente (como no WhatsApp). `emoji` vazio tira a reação.
+ * A reação substitui a anterior da equipe nessa mensagem.
+ */
+conversationsRouter.post('/:id/messages/:messageId/reaction', asyncHandler(async (req, res) => {
+  const { emoji } = z.object({ emoji: z.string().max(16) }).parse(req.body);
+  const accountId = req.accountId!;
+  if (emoji && !(REACTION_EMOJIS as readonly string[]).includes(emoji)) throw new AppError(400, 'Reação não suportada');
+  if (!isUuid(req.params.messageId)) throw new AppError(404, 'Mensagem não encontrada');
+  const conv = await ownConversation(accountId, req.params.id);
+  const [msg] = await db.select().from(schema.messages)
+    .where(and(eq(schema.messages.id, req.params.messageId), eq(schema.messages.conversationId, conv.id))).limit(1);
+  if (!msg) throw new AppError(404, 'Mensagem não encontrada');
+  if (msg.direction !== 'in') throw new AppError(422, 'Só dá para reagir às mensagens do cliente.');
+  if (!msg.waMessageId) throw new AppError(422, 'Esta mensagem não veio pelo WhatsApp e não aceita reação.');
+  if (!(await windowOpen(conv))) throw new AppError(422, OUTSIDE_WINDOW);
+  const conn = await connectionOf(conv);
+  if (!conn) throw new AppError(422, 'Esta conversa não tem um número de WhatsApp conectado.');
+  try {
+    await sendReaction(conn, await recipientOf(conv), msg.waMessageId, emoji);
+  } catch (err) {
+    throw new AppError(422, (err as Error).message || 'O WhatsApp não aceitou a reação. Tente de novo.');
+  }
+  const prev = (msg.reactions ?? {}) as { contact?: string; team?: string; teamUserId?: string };
+  const { team: _t, teamUserId: _u, ...rest } = prev;
+  const reactions = emoji ? { ...rest, team: emoji, teamUserId: req.user!.id } : rest;
+  await db.update(schema.messages).set({ reactions }).where(eq(schema.messages.id, msg.id));
+  emitToAccount(accountId, 'message:reaction', { conversationId: conv.id, id: msg.id, reactions });
+  res.json({ reactions });
 }));
 
 /** Texto da resposta rápida já com as variáveis do contato (para o rascunho no Chats ao vivo). */

@@ -221,6 +221,20 @@ async function handleInbound(accountId: string, connectionId: string, m: any, pr
     if (dup) return;
   }
 
+  // reação do cliente a uma mensagem da conversa: aparece em cima da mensagem, sem virar mensagem nova
+  if (m.type === 'reaction' && m.reaction?.message_id) {
+    const [target] = await db.select({ id: schema.messages.id, reactions: schema.messages.reactions }).from(schema.messages)
+      .where(and(eq(schema.messages.waMessageId, String(m.reaction.message_id)), eq(schema.messages.conversationId, conv.id))).limit(1);
+    if (target) {
+      const { contact: _c, ...rest } = (target.reactions ?? {}) as { contact?: string; team?: string; teamUserId?: string };
+      const emoji = String(m.reaction.emoji ?? '');
+      const reactions = emoji ? { ...rest, contact: emoji } : rest;
+      await db.update(schema.messages).set({ reactions }).where(eq(schema.messages.id, target.id));
+      emitToAccount(accountId, 'message:reaction', { conversationId: conv.id, id: target.id, reactions });
+      return;
+    }
+  }
+
   // cliente respondeu citando uma mensagem (ou reagiu a ela): liga as duas
   const quotedWa = m.context?.id ?? (m.type === 'reaction' ? m.reaction?.message_id : null);
   let replyToId: string | null = null;

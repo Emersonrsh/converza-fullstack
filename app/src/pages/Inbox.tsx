@@ -12,6 +12,7 @@ import { NewChatModal, QuickRepliesModal, TemplateModal, TransferModal, type Con
 import { mergeStatus, upsertMessage } from '../chats/util';
 import type {
   AccountTag, ChatConnection, ChatContact, ChatCounts, ChatDepartment, ChatDetail, ChatFilters, ChatItem, ChatMessage, ChatTab, QuickReply, TeamMember, TemplatePayload,
+  MessageReactions,
 } from '../chats/types';
 
 const EMPTY: ChatFilters = { q: '', chip: 'all', connectionId: '', tag: '', stage: '', assignee: '', from: '', to: '', department: '' };
@@ -245,6 +246,10 @@ export function Inbox() {
     const onTranscript = (p: { conversationId: string; id: string; transcript: string }) => {
       if (p.conversationId === selRef.current) setMessages((list) => list.map((m) => (m.id === p.id ? { ...m, transcript: p.transcript } : m)));
     };
+    // reação nova (do cliente ou de alguém da equipe): atualiza a mensagem aberta
+    const onReaction = (p: { conversationId: string; id: string; reactions: MessageReactions }) => {
+      if (p.conversationId === selRef.current) setMessages((list) => list.map((m) => (m.id === p.id ? { ...m, reactions: p.reactions } : m)));
+    };
     const onConv = (p: { conversation: Partial<Conv> & { id: string } }) => {
       const row = p.conversation;
       const d = detailRef.current;
@@ -280,13 +285,14 @@ export function Inbox() {
     sock.on('message:new', onNew);
     sock.on('message:status', onStatus);
     sock.on('message:transcript', onTranscript);
+    sock.on('message:reaction', onReaction);
     sock.on('conversation:updated', onConv);
     sock.on('conversations:changed', onBulk);
     sock.on('sale:changed', onSale);
     sock.on('kanban:changed', onKanban);
     sock.io.on('reconnect', onReconnect);
     return () => {
-      sock.off('message:new', onNew); sock.off('message:status', onStatus); sock.off('message:transcript', onTranscript); sock.off('conversation:updated', onConv); sock.off('conversations:changed', onBulk); sock.off('sale:changed', onSale); sock.off('kanban:changed', onKanban);
+      sock.off('message:new', onNew); sock.off('message:status', onStatus); sock.off('message:transcript', onTranscript); sock.off('message:reaction', onReaction); sock.off('conversation:updated', onConv); sock.off('conversations:changed', onBulk); sock.off('sale:changed', onSale); sock.off('kanban:changed', onKanban);
       sock.io.off('reconnect', onReconnect);
     };
   }, [accountId, meId, user?.name, markRead, loadDetail, scheduleRefresh, bumpPanel]);
@@ -343,6 +349,24 @@ export function Inbox() {
       toast(errMsg(e, 'Não foi possível enviar a resposta rápida'));
       if (e instanceof ApiError && e.status === 422) void loadDetail(convId, true);
       return false;
+    }
+  }
+
+  /** Reação a uma mensagem do cliente: aparece na hora e volta atrás se o WhatsApp recusar. */
+  async function react(m: ChatMessage, emoji: string) {
+    if (!convId) return;
+    const before = m.reactions ?? {};
+    const { team: _t, teamUserId: _u, ...rest } = before;
+    const next: MessageReactions = emoji ? { ...rest, team: emoji, teamUserId: meId } : rest;
+    const put = (r: MessageReactions) => setMessages((list) => list.map((x) => (x.id === m.id ? { ...x, reactions: r } : x)));
+    put(next);
+    try {
+      const r = await api.post<{ reactions: MessageReactions }>(`/conversations/${convId}/messages/${m.id}/reaction`, { emoji });
+      put(r.reactions);
+    } catch (e) {
+      put(before);
+      toast(errMsg(e, 'Não foi possível reagir'));
+      if (e instanceof ApiError && e.status === 422) void loadDetail(convId, true);
     }
   }
 
@@ -490,7 +514,7 @@ export function Inbox() {
           onAccept={accept} onRelease={release} onResolve={resolve} onReopen={reopen} onTransfer={() => setModal('transfer')}
           onSend={sendText} onNote={sendNote} onUpload={upload} onTemplate={() => setModal('template')}
           onRetry={(m) => { if (m.body) void sendText(m.body); }} onManageQuick={() => setModal('quick')}
-          listCollapsed={collapsed || narrow} onExpandList={() => (narrow ? select(null) : setCollapsed(false))} back={narrow} onQuickSend={sendQuick}
+          listCollapsed={collapsed || narrow} onExpandList={() => (narrow ? select(null) : setCollapsed(false))} back={narrow} onQuickSend={sendQuick} onReact={react}
         />
       )}
 

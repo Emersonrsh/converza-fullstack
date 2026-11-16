@@ -199,6 +199,8 @@ export const messages = pgTable('messages', {
   transcript: text('transcript'),
   // de onde veio a mensagem de saída: 'phone' = enviada pelo WhatsApp Business do celular; 'history' = importada do histórico
   via: text('via'),
+  // reações no WhatsApp: contact = do cliente; team = da equipe (teamUserId = quem reagiu)
+  reactions: jsonb('reactions').$type<{ contact?: string; team?: string; teamUserId?: string }>().notNull().default({}),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   byConversation: index('messages_conversation_idx').on(t.conversationId),

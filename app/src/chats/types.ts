@@ -30,7 +30,10 @@ export interface ChatMessage {
   replyToId?: string | null; reply?: ReplyPreview | null;
   /** WhatsApp Business do celular: 'phone' = respondida pelo app; 'history' = importada do histórico */
   via?: 'phone' | 'history' | null;
+  /** reações no WhatsApp: contact = do cliente; team = da equipe */
+  reactions?: MessageReactions | null;
 }
+export interface MessageReactions { contact?: string; team?: string; teamUserId?: string }
 
 export interface ChatContact {
   id: string; name: string; phone: string; stage: string; tags: string[]; value: string | number; notes: string | null;

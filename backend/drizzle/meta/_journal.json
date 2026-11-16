@@ -218,6 +218,13 @@
       "when": 1794650000000,
       "tag": "0030_agent_wizard",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794660000000,
+      "tag": "0031_message_reactions",
+      "breakpoints": true
     }
   ]
 }
