@@ -207,7 +207,7 @@ export function ContactPanel({ detail, tags, refreshKey, onContact, onAutomation
             <div className="cp-runs">
               {runs.map((r) => (
                 <div key={r.id} className={cx('cp-run', r.status === 'paused' && 'held', r.status === 'failed' && 'failed')} data-testid="flow-run">
-                  <Icon name="flow" size={14} /><span><b>{r.flowName}</b><small title={r.error ?? undefined}>{RUN_LABEL[r.status] ?? r.status}</small></span>
+                  <Icon name="flow" size={14} /><span><b>{r.flowName}</b><small title={r.error ?? (r.pausedByFlow ? `Pausou quando o fluxo “${r.pausedByFlow}” começou nesta conversa` : undefined)}>{r.pausedByFlow ? `⏸️ pausado: “${r.pausedByFlow}” começou` : RUN_LABEL[r.status] ?? r.status}</small></span>
                   {ACTIVE.includes(r.status)
                     ? <button type="button" className="btn sm ghost" onClick={() => void pauseRuns(conv.id, r.id)} data-testid="run-pause">Pausar</button>
                     : <button type="button" className="btn sm ghost" onClick={() => openResume(r.id)} data-testid="run-resume">Retomar</button>}

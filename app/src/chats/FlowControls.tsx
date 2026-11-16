@@ -141,7 +141,7 @@ export function FlowPauseButton({ convId, runs }: { convId: string; runs: ChatRu
     const r = held[0];
     return (
       <button type="button" className={cx('btn icon sm cv-resume', r.status === 'failed' && 'failed')} onClick={() => openResume(r.id)} data-testid="flow-resume"
-        title={r.status === 'failed' ? `Retomar fluxo: “${r.flowName}” parou porque uma mensagem não saiu` : `Retomar fluxo: “${r.flowName}” está pausado`}
+        title={r.status === 'failed' ? `Retomar fluxo: “${r.flowName}” parou porque uma mensagem não saiu` : r.pausedByFlow ? `Retomar fluxo: “${r.flowName}” pausou quando o fluxo “${r.pausedByFlow}” começou` : `Retomar fluxo: “${r.flowName}” está pausado`}
         aria-label="Retomar fluxo">
         <Icon name="play" size={16} />
       </button>

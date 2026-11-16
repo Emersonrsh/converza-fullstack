@@ -670,7 +670,11 @@ conversationsRouter.get('/:id/flow-runs', asyncHandler(async (req, res) => {
     .orderBy(desc(schema.flowRuns.startedAt));
   const runs = rows.map(({ context, ...r }) => {
     const held = ((context as Record<string, any>)?.held ?? null) as Record<string, any> | null;
-    return { ...r, failedMessageId: r.status === 'failed' ? held?.messageId ?? null : null, error: r.status === 'failed' ? held?.error ?? null : null };
+    return {
+      ...r, failedMessageId: r.status === 'failed' ? held?.messageId ?? null : null, error: r.status === 'failed' ? held?.error ?? null : null,
+      // pausado automaticamente porque outro fluxo começou na conversa
+      pausedByFlow: r.status === 'paused' && held?.by === 'flow' ? String(held.byFlowName ?? '') || 'outro fluxo' : null,
+    };
   });
   res.json({ runs });
 }));

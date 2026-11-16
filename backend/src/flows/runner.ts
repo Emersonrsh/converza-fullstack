@@ -732,10 +732,14 @@ async function persist(runId: string, halt: Halt, state: RunState) {
   const set = (patch: Partial<RunRow>) =>
     db.update(schema.flowRuns).set({ context: state as any, ...patch }).where(eq(schema.flowRuns.id, runId));
   // pediram para pausar enquanto o fluxo enviava: guarda o ponto e não agenda nada
-  if (halt.kind !== 'end' && (await redis.get(pauseKey(runId)).catch(() => null))) {
+  const pauseFlag = halt.kind !== 'end' ? await redis.get(pauseKey(runId)).catch(() => null) : null;
+  if (pauseFlag && halt.kind !== 'end') {
     await redis.del(pauseKey(runId)).catch(() => undefined);
     const from = halt.kind === 'delay' ? 'waiting' : halt.kind === 'payment' ? 'waiting_payment' : 'waiting_input';
-    state.held = { from, at: new Date().toISOString(), ...(halt.kind === 'buffer' ? { buffer: true } : {}) };
+    // "1" = pausa pela equipe; JSON = pausado porque outro fluxo começou na conversa
+    let reason: Dict = {};
+    try { const v = JSON.parse(pauseFlag); if (v && typeof v === 'object') reason = v as Dict; } catch { /* "1" */ }
+    state.held = { from, at: new Date().toISOString(), ...reason, ...(halt.kind === 'buffer' ? { buffer: true } : {}) };
     await set({ status: 'paused', currentNodeId: halt.nodeId });
     return;
   }
@@ -829,10 +833,13 @@ async function startRun(flow: FlowRow, contactId: string, state: RunState, opts:
       eq(schema.flowRuns.flowId, flow.id), eq(schema.flowRuns.contactId, contactId),
       inArray(schema.flowRuns.status, [...ACTIVE_RUN_STATUSES, ...HELD_RUN_STATUSES])));
   } else {
-    // parado (pausado ou com falha) para esse contato: não começa outro por cima
+    // parado (pausado pela equipe ou com falha) para esse contato: não começa outro por cima
     const [held] = await db.select({ id: schema.flowRuns.id }).from(schema.flowRuns)
-      .where(and(eq(schema.flowRuns.flowId, flow.id), eq(schema.flowRuns.contactId, contactId), inArray(schema.flowRuns.status, HELD_RUN_STATUSES))).limit(1);
+      .where(and(eq(schema.flowRuns.flowId, flow.id), eq(schema.flowRuns.contactId, contactId), inArray(schema.flowRuns.status, HELD_RUN_STATUSES), notSuperseded)).limit(1);
     if (held) return false;
+    // pausado só porque outro fluxo começou: o gatilho disparou de novo, então recomeça do início
+    await db.update(schema.flowRuns).set({ status: 'canceled', finishedAt: new Date() }).where(and(
+      eq(schema.flowRuns.flowId, flow.id), eq(schema.flowRuns.contactId, contactId), eq(schema.flowRuns.status, 'paused'), superseded));
   }
 
   // índice único parcial: no máximo uma execução em andamento por fluxo + contato
@@ -841,8 +848,49 @@ async function startRun(flow: FlowRow, contactId: string, state: RunState, opts:
     .onConflictDoNothing().returning();
   if (!run) return false;
 
+  // um fluxo por vez na conversa: o que estava ativo pausa (e pode ser retomado depois)
+  await pauseOthersFor(flow, contactId, run.id).catch((err) => console.error('[flow] pausar os outros fluxos:', (err as Error).message));
   await execute(run, flow, state, (exec) => runFrom(graph, trigger.id, state, exec));
   return true;
+}
+
+/** Pausa automática porque outro fluxo começou (não segura as outras automações da conversa). */
+const superseded = sql`${schema.flowRuns.context}->'held'->>'by' = 'flow'`;
+const notSuperseded = sql`coalesce(${schema.flowRuns.context}->'held'->>'by', '') <> 'flow'`;
+
+/**
+ * Um fluxo por vez na conversa: quando `flow` começa (ou é retomado), os outros fluxos ativos do contato
+ * pausam guardando o ponto, como na pausa da equipe. Quem está enviando agora pausa ao terminar o passo atual.
+ */
+async function pauseOthersFor(flow: { id: string; name: string; accountId: string }, contactId: string, keepRunId: string) {
+  const others = await db.select({ r: schema.flowRuns, name: schema.flows.name }).from(schema.flowRuns)
+    .innerJoin(schema.flows, eq(schema.flows.id, schema.flowRuns.flowId))
+    .where(and(eq(schema.flowRuns.accountId, flow.accountId), eq(schema.flowRuns.contactId, contactId),
+      inArray(schema.flowRuns.status, ACTIVE_RUN_STATUSES), ne(schema.flowRuns.id, keepRunId)));
+  if (!others.length) return;
+  const reason = { by: 'flow', byFlowId: flow.id, byFlowName: flow.name };
+  const paused: string[] = [];
+  for (const { r, name } of others) {
+    if (r.status === 'running') {
+      await redis.set(pauseKey(r.id), JSON.stringify(reason), 'EX', 600).catch(() => undefined);
+      paused.push(name);
+      continue;
+    }
+    const state = normalizeState(r.context);
+    state.held = { from: r.status, at: new Date().toISOString(), ...reason };
+    const [row] = await db.update(schema.flowRuns).set({ status: 'paused', context: state as any })
+      .where(and(eq(schema.flowRuns.id, r.id), eq(schema.flowRuns.status, r.status))).returning({ id: schema.flowRuns.id });
+    if (row) paused.push(name);
+  }
+  if (!paused.length) return;
+  const [conv] = await db.select({ id: schema.conversations.id }).from(schema.conversations)
+    .where(and(eq(schema.conversations.accountId, flow.accountId), eq(schema.conversations.contactId, contactId)))
+    .orderBy(desc(schema.conversations.lastMessageAt)).limit(1);
+  if (conv) {
+    const names = paused.map((n) => `“${n}”`).join(', ');
+    await systemNote(flow.accountId, conv.id, `⏸️ ${paused.length === 1 ? `O fluxo ${names} foi pausado` : `Os fluxos ${names} foram pausados`}: o fluxo “${flow.name}” começou nesta conversa`)
+      .catch(() => undefined);
+  }
 }
 
 /** Estado novo para um fluxo que começa a partir de outro (Conexão de Fluxo, agente, webhook…). */
@@ -930,6 +978,7 @@ export async function triggerFlowsForInbound(ev: InboundEvent): Promise<boolean>
   if (ev.source === 'inbound_message') {
     const [held] = await db.select({ id: schema.flowRuns.id }).from(schema.flowRuns).where(and(
       eq(schema.flowRuns.accountId, ev.accountId), eq(schema.flowRuns.contactId, ev.contactId), inArray(schema.flowRuns.status, HELD_RUN_STATUSES),
+      notSuperseded, // pausado porque outro fluxo começou: não segura as automações
     )).limit(1);
     if (held) return true;
   }
@@ -1189,6 +1238,8 @@ export async function resumeHeldRun(accountId: string, contactId: string, runId:
       .where(and(eq(schema.flowRuns.id, cur.id), eq(schema.flowRuns.status, cur.status))).returning();
   } catch { return 'conflict'; } // outra execução do mesmo fluxo já está em andamento
   if (!run) return 'not_found';
+  // um fluxo por vez: o retomado passa a ser o ativo e os outros pausam
+  await pauseOthersFor(flow, contactId, run.id).catch((err) => console.error('[flow] pausar os outros fluxos:', (err as Error).message));
   if (back !== 'running') {
     // estava esperando o cliente: volta a esperar (o tempo limite recomeça)
     if (back === 'waiting_input' && nodeId) {
