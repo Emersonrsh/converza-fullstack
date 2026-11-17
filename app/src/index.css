@@ -3068,3 +3068,22 @@ html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:10
 .ip-acts{display:flex;gap:8px;justify-content:flex-end}
 @media (max-width:760px){.ip-grid{grid-template-columns:1fr}.ip-hd{flex-wrap:wrap}.ip-hd .pill{margin-left:50px}}
 @media (max-width:700px){.bub.in .bub-react-pick{left:auto;right:0;top:62px}}
+
+/* contador de faturamento no topo (rumo à próxima meta da trilha de conquistas) */
+.rev-goal{display:flex;align-items:center;gap:10px;height:42px;padding:0 14px 0 6px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font:inherit;transition:border-color .15s, box-shadow .15s, transform .15s}
+.rev-goal:hover{border-color:color-mix(in srgb, var(--money, #f6c453) 55%, var(--border));box-shadow:0 0 0 3px color-mix(in srgb, var(--money, #f6c453) 12%, transparent)}
+.rev-goal:active{transform:scale(.98)}
+.rev-goal-ic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex:none;color:#f6c453;background:color-mix(in srgb, #f6c453 14%, transparent)}
+.rev-goal-body{display:flex;flex-direction:column;gap:5px;min-width:150px}
+.rev-goal-txt{display:flex;align-items:baseline;gap:4px;white-space:nowrap;font-size:13px;line-height:1}
+.rev-goal-txt b{font-weight:800;font-variant-numeric:tabular-nums}
+.rev-goal-target{color:var(--muted);font-weight:600;font-size:12px}
+.rev-goal-bar{display:block;height:5px;border-radius:99px;background:color-mix(in srgb, var(--text) 9%, transparent);overflow:hidden}
+.rev-goal-bar i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg, var(--primary), #f6c453);transition:width .6s cubic-bezier(.2,.8,.2,1)}
+@media (max-width:700px){
+  .rev-goal{height:36px;padding:0 10px 0 4px;gap:7px}
+  .rev-goal-ic{width:26px;height:26px}
+  .rev-goal-body{min-width:96px;gap:4px}
+  .rev-goal-target{display:none}
+  .rev-goal-txt{font-size:12px}
+}

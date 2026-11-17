@@ -459,6 +459,24 @@ export const LEVELS = [
   { key: 'lenda', label: 'Lenda', target: 10_000_000 },
 ];
 
+/** Contador do topo: faturamento aprovado (BRL) e a próxima meta da trilha de conquistas. */
+dashboardRouter.get('/revenue-goal', asyncHandler(async (req, res) => {
+  const [sale] = await rows(sql`select coalesce(sum(amount), 0) as revenue, count(*) as sales from sales where account_id = ${req.accountId!} and status = 'approved' and currency = 'BRL'`);
+  const revenue = n(sale?.revenue);
+  const salesCount = n(sale?.sales);
+  const reached = (l: (typeof LEVELS)[number]) => (l.minSales ? salesCount >= l.minSales : revenue >= l.target);
+  // a meta é sempre um valor em reais: a "primeira venda" não entra no contador
+  const money = LEVELS.filter((l) => !l.minSales);
+  const next = money.find((l) => !reached(l)) ?? null;
+  const prev = [...money].reverse().find(reached);
+  res.json({
+    revenue,
+    level: prev ? { key: prev.key, label: prev.label } : null,
+    // barra = faturamento / meta, como o texto "R$ 7,5 mil / R$ 10 mil"
+    next: next ? { key: next.key, label: next.label, target: next.target, progress: Math.min(100, Math.max(0, (revenue / next.target) * 100)) } : null,
+  });
+}));
+
 dashboardRouter.get('/achievements', asyncHandler(async (req, res) => {
   const accountId = req.accountId!;
   const [[sale], [conn], [flow], [agent], [hook], [prod], [team]] = await Promise.all([

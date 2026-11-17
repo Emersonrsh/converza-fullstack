@@ -5,6 +5,7 @@ import { Icon } from '../icons';
 import { useAuth } from '../auth';
 import { api, num } from '../api';
 import { getSocket } from '../socket';
+import { RevenueGoal } from './RevenueGoal';
 import { Avatar, Toaster, cx } from './ui';
 import { AppNotices } from './AppNotices';
 import { DiscordInvite, DiscordMark, setDiscordHidden, useDiscordHidden } from '../dashboard/DiscordInvite';
@@ -194,6 +195,7 @@ export function Layout() {
             <div><h1>{t}</h1><div className="sub"><span id="topbar-sub" /><span className="sub-default">{s}</span></div></div>
             <div className="spacer" />
             <div className="topbar-actions" id="topbar-actions" />
+            {user && !account?.suspended && <RevenueGoal accountId={accountId} />}
             {user && <div className="row" style={{ gap: 9 }}><Avatar name={user.name} size={34} /></div>}
           </header>
         )}
