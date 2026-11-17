@@ -287,32 +287,70 @@ function Captions({ actId, m }: { actId: string; m: Media }) {
 
 /* ---------------------------------------------------------------- pixel, publicação existente e parâmetros de URL */
 
-export type PixelOpt = { id: string; name: string; active?: boolean; lastFired?: string | null };
+export type PixelOpt = { id: string; name: string; active?: boolean; lastFired?: string | null; linked?: boolean; businessId?: string | null };
 
 /** Escolher o conjunto de dados (pixel) com o ID e a situação, como na Meta. */
 export function PixelSelect({ actId, value, onChange, testId }: { actId: string; value: string; onChange: (id: string) => void; testId: string }) {
   const pixels = useLookup<PixelOpt>(actId, 'pixels');
   const [open, setOpen] = useState(false);
-  const cur = pixels.list?.find((p) => p.id === value);
+  const [linking, setLinking] = useState<string | null>(null);
+  const all = pixels.list ?? [];
+  const linked = all.filter((p) => p.linked !== false);
+  const unlinked = all.filter((p) => p.linked === false);
+  const cur = linked.find((p) => p.id === value);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h);
   }, []);
+  async function link(p: PixelOpt) {
+    if (!p.businessId) return;
+    setLinking(p.id);
+    try {
+      await api.post('/meta/editor/pixels/share', { actId, pixelId: p.id, businessId: p.businessId });
+      toast(`Pixel “${p.name}” ligado à conta de anúncios`);
+      onChange(p.id); setOpen(false); pixels.reload();
+    } catch (e) {
+      toast(errMsg(e) || 'Não foi possível ligar o pixel à conta');
+    } finally { setLinking(null); }
+  }
+  const placeholder = pixels.list === null ? 'Carregando…' : linked.length ? 'Escolha o conjunto de dados'
+    : unlinked.length ? 'Escolha um pixel do negócio' : 'Nenhum pixel nesta conta';
+  const row = (p: PixelOpt) => (
+    <><span className="px-radio" /><i className={cx('px-dot', p.active && 'on')} title={p.active ? 'Recebendo eventos' : 'Sem eventos nos últimos 7 dias'} />
+      <span><b>{p.name}</b><small>Pixel ID: {p.id}{p.lastFired ? ` · último evento ${new Date(p.lastFired).toLocaleDateString('pt-BR')}` : ''}</small></span></>
+  );
   return (
     <div className="px-sel" ref={ref}>
       <button type="button" className="input px-sel-btn" onClick={() => setOpen(!open)} data-testid={testId}>
-        {cur ? <><i className={cx('px-dot', cur.active && 'on')} />{cur.name}</> : <span className="faint">{pixels.list === null ? 'Carregando…' : pixels.list.length ? 'Escolha o conjunto de dados' : 'Nenhum pixel nesta conta'}</span>}
+        {cur ? <><i className={cx('px-dot', cur.active && 'on')} />{cur.name}</> : <span className="faint">{placeholder}</span>}
         <Icon name="chevron" size={13} />
       </button>
       {open && (
         <div className="px-sel-list" data-testid={`${testId}-list`}>
-          {(pixels.list ?? []).map((p) => (
-            <button type="button" key={p.id} className={cx(p.id === value && 'on')} onClick={() => { onChange(p.id); setOpen(false); }} data-testid={`${testId}-opt`}>
-              <span className="px-radio" /><i className={cx('px-dot', p.active && 'on')} title={p.active ? 'Recebendo eventos' : 'Sem eventos nos últimos 7 dias'} />
-              <span><b>{p.name}</b><small>Pixel ID: {p.id}{p.lastFired ? ` · último evento ${new Date(p.lastFired).toLocaleDateString('pt-BR')}` : ''}</small></span>
-            </button>
+          {linked.map((p) => (
+            <button type="button" key={p.id} className={cx(p.id === value && 'on')} onClick={() => { onChange(p.id); setOpen(false); }} data-testid={`${testId}-opt`}>{row(p)}</button>
           ))}
+          {unlinked.length > 0 && (
+            <>
+              <div className="px-sel-group">Do seu Gerenciador de Negócios · ainda não ligados a esta conta</div>
+              {unlinked.map((p) => (
+                <div key={p.id} className="px-sel-unlinked" data-testid={`${testId}-unlinked`}>
+                  {row(p)}
+                  <button type="button" className="btn sm" disabled={!!linking} onClick={() => void link(p)} data-testid={`${testId}-link`}>
+                    {linking === p.id ? 'Ligando…' : 'Ligar à conta'}
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+          {pixels.list !== null && !all.length && !pixels.error && (
+            <div className="px-sel-empty" data-testid={`${testId}-empty`}>
+              <b>Nenhum pixel nesta conta de anúncios</b>
+              <span>Crie um pixel no Gerenciador de Eventos da Meta ou ligue um pixel existente a esta conta em Configurações do negócio › Fontes de dados › Conjuntos de dados. Depois, abra esta lista de novo.</span>
+              <button type="button" className="btn sm" onClick={() => pixels.reload()} data-testid={`${testId}-reload`}>Atualizar lista</button>
+            </div>
+          )}
           {pixels.error && <small className="err">{pixels.error}</small>}
         </div>
       )}

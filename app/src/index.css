@@ -2498,12 +2498,21 @@ html.dark .fbm-plat.tiktok{background:#333;outline:1px solid #555}
 .px-dot{width:9px;height:9px;border-radius:50%;background:var(--danger);flex:none}
 .px-dot.on{background:var(--success)}
 .px-sel-list{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:20;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-lg);padding:4px}
-.px-sel-list button{display:flex;gap:9px;align-items:center;width:100%;border:0;background:transparent;font:inherit;text-align:left;padding:8px;border-radius:8px;cursor:pointer;color:var(--text)}
-.px-sel-list button:hover,.px-sel-list button.on{background:var(--primary-50)}
-.px-sel-list button span:last-child{display:flex;flex-direction:column;font-size:13px}
+.px-sel-list > button{display:flex;gap:9px;align-items:center;width:100%;border:0;background:transparent;font:inherit;text-align:left;padding:8px;border-radius:8px;cursor:pointer;color:var(--text)}
+.px-sel-list > button:hover,.px-sel-list > button.on{background:var(--primary-50)}
+.px-sel-list > button span:last-child{display:flex;flex-direction:column;font-size:13px}
 .px-sel-list small{font-size:11.5px;color:var(--faint)}
+.px-sel-list{max-height:min(380px,60vh);overflow-y:auto}
+.px-sel-group{padding:10px 8px 4px;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);border-top:1px solid var(--border);margin-top:4px}
+.px-sel-unlinked{display:flex;gap:9px;align-items:center;padding:8px;border-radius:8px}
+.px-sel-unlinked > span:nth-of-type(2){display:flex;flex-direction:column;font-size:13px;flex:1;min-width:0}
+.px-sel-unlinked .px-radio{opacity:.35}
+.px-sel-unlinked .btn{flex:none;white-space:nowrap}
+.px-sel-empty{display:flex;flex-direction:column;gap:6px;padding:10px 8px;font-size:13px}
+.px-sel-empty span{color:var(--muted);font-size:12.5px;line-height:1.45}
+.px-sel-empty .btn{align-self:flex-start}
 .px-radio{width:14px;height:14px;border-radius:50%;border:2px solid var(--border-strong);flex:none}
-.px-sel-list button.on .px-radio{border:4px solid var(--primary)}
+.px-sel-list > button.on .px-radio{border:4px solid var(--primary)}
 .pp{display:flex;flex-direction:column;gap:8px}
 .pp-tabs{padding:0}
 .pp-list{display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto}

@@ -20,7 +20,7 @@ import {
   StepError, uploadAdImage, type CampaignSpec,
 } from '../meta/adsWrite';
 import { linkCampaignFlow, rememberAdCampaign } from '../meta/adFlows';
-import { PREVIEW_FORMATS, copyObject, deliveryEstimate, downloadAdVideo, lookup, previews, publishTree, readTree, trimVideo, uploadAdVideo, uploadCaptions, videoState, type PubTree } from '../meta/editor';
+import { PREVIEW_FORMATS, copyObject, deliveryEstimate, downloadAdVideo, lookup, previews, publishTree, readTree, sharePixel, trimVideo, uploadAdVideo, uploadCaptions, videoState, type PubTree } from '../meta/editor';
 
 /**
  * Facebook: perfis da Meta (um login por perfil), contas de anúncios que entram no painel e o
@@ -620,6 +620,13 @@ metaRouter.get('/editor/lookup/:what', asyncHandler(async (req, res) => {
     if (req.params.what === 'pages') { res.json({ results: await listAdPages(w.act, w.token) }); return; }
     res.json({ results: await lookup(req.params.what, w.act, w.token, q, pageId) });
   } catch (err) { metaFail(err); }
+}));
+
+/** Liga um pixel do negócio à conta de anúncios (aparece no editor como "não ligado a esta conta"). */
+metaRouter.post('/editor/pixels/share', asyncHandler(async (req, res) => {
+  const d = z.object({ actId: z.string(), pixelId: z.string().regex(/^\d{5,30}$/), businessId: z.string().regex(/^\d{5,30}$/) }).parse(req.body);
+  const w = await writable(req, d.actId);
+  try { await sharePixel(d.pixelId, w.act, d.businessId, w.token); res.json({ ok: true }); } catch (err) { metaFail(err); }
 }));
 
 /** Tamanho estimado do público. */

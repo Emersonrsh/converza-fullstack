@@ -199,6 +199,11 @@ export async function publishTree(actId: string, t: PubTree, token: string, curr
   return res;
 }
 
+/** Liga um pixel do Gerenciador de Negócios à conta de anúncios, para poder usar no conjunto e no anúncio. */
+export async function sharePixel(pixelId: string, actId: string, businessId: string, token: string): Promise<void> {
+  await graphAds(`${pixelId}/shared_accounts`, { token, method: 'POST', body: { account_id: actId.replace(/^act_/, ''), business: businessId } });
+}
+
 /** Duplica campanha, conjunto ou anúncio (a cópia sai pausada). */
 export async function copyObject(id: string, level: 'campaign' | 'adset' | 'ad', token: string, deep: boolean): Promise<string> {
   const body: Record<string, unknown> = { status_option: 'PAUSED', rename_options: { rename_strategy: 'DEEP_RENAME', rename_suffix: ' - Cópia' } };
@@ -216,12 +221,28 @@ const list = (r: { data?: Any[] }) => r.data ?? [];
 
 export async function lookup(what: string, actId: string, token: string, q: string, pageId: string | null): Promise<Any[]> {
   switch (what) {
-    case 'pixels':
-      return list(await graphAds(`${actId}/adspixels`, { token, params: { fields: 'id,name,last_fired_time,is_unavailable', limit: 100 } }))
-        .map((p) => {
-          const last = p.last_fired_time ? Date.parse(String(p.last_fired_time)) : 0;
-          return { id: String(p.id), name: p.name ?? p.id, lastFired: p.last_fired_time ?? null, active: !p.is_unavailable && last > Date.now() - 7 * 86400_000 };
-        });
+    case 'pixels': {
+      const fields = 'id,name,last_fired_time,is_unavailable';
+      const shape = (p: Any, linked: boolean, businessId: string | null) => {
+        const last = p.last_fired_time ? Date.parse(String(p.last_fired_time)) : 0;
+        return { id: String(p.id), name: p.name ?? p.id, lastFired: p.last_fired_time ?? null, active: !p.is_unavailable && last > Date.now() - 7 * 86400_000, linked, businessId };
+      };
+      const linked = list(await graphAds(`${actId}/adspixels`, { token, params: { fields, limit: 100 } })).map((p) => shape(p, true, null));
+      // pixels do Gerenciador de Negócios dono da conta que ainda não estão ligados a ela (dá para ligar pelo editor)
+      const extra: ReturnType<typeof shape>[] = [];
+      try {
+        const acc = await graphAds<Any>(actId, { token, params: { fields: 'business{id}' } });
+        const biz = (acc.business as Any | undefined)?.id ? String((acc.business as Any).id) : null;
+        if (biz) {
+          const seen = new Set(linked.map((p) => p.id));
+          for (const edge of ['owned_pixels', 'client_pixels']) {
+            const r = await graphAds<{ data?: Any[] }>(`${biz}/${edge}`, { token, params: { fields, limit: 100 } }).catch(() => ({ data: [] }));
+            for (const p of list(r)) if (!seen.has(String(p.id))) { seen.add(String(p.id)); extra.push(shape(p, false, biz)); }
+          }
+        }
+      } catch { /* sem acesso ao negócio: mostra só os da conta */ }
+      return [...linked, ...extra];
+    }
     case 'custom-conversions':
       return list(await graphAds(`${actId}/customconversions`, { token, params: { fields: 'id,name,custom_event_type,pixel{id},is_archived', limit: 200 } }))
         .filter((c) => !c.is_archived)
