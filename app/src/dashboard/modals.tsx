@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ALL_CURRENCIES, currencyName } from '../lib/currencies';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { Icon } from '../icons';
@@ -10,7 +11,6 @@ import type { Contact, Product } from '../types';
 
 const errMsg = (e: unknown) => (e as Error)?.message ?? 'Algo deu errado';
 const UFS = ['AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT', 'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO'];
-const CURRENCIES = ['BRL', 'USD', 'EUR'];
 export interface ConnOpt { id: string; name: string; displayPhone: string | null; }
 
 const toLocalInput = (d: Date) => {
@@ -138,7 +138,7 @@ export function SaleModal({ sale, products, connections, currency, onClose, onSa
             <div>
               <label className="label">Moeda</label>
               <select className="select" value={cur} onChange={(e) => setCur(e.target.value)}>
-                {[...new Set([...CURRENCIES, cur])].map((c) => <option key={c}>{c}</option>)}
+                {[...new Set(['BRL', 'USD', 'EUR', cur, ...ALL_CURRENCIES])].map((c) => <option key={c} value={c}>{c} · {currencyName(c)}</option>)}
               </select>
             </div>
           </div>

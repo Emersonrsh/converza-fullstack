@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { ALL_CURRENCIES, currencyName, matchCurrency } from '../lib/currencies';
 import { Icon } from '../icons';
 import { cx } from '../components/ui';
 
@@ -87,8 +88,11 @@ export function Flag({ currency }: { currency: string }) {
   return <span className="flag txt">{c.slice(0, 2)}</span>;
 }
 
+/** Moeda do dashboard: as que têm movimento primeiro, depois todas as moedas do mundo, com busca. */
 export function CurrencyPicker({ value, options, onChange }: { value: string; options: string[]; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [alignLeft, setAlignLeft] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -96,18 +100,43 @@ export function CurrencyPicker({ value, options, onChange }: { value: string; op
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, [open]);
+  useEffect(() => { if (!open) setQ(''); }, [open]);
+  const used = [...new Set(options)].filter((c) => matchCurrency(c, q));
+  const rest = ALL_CURRENCIES.filter((c) => !used.includes(c) && !options.includes(c) && matchCurrency(c, q));
+  const pick = (c: string) => { onChange(c); setOpen(false); };
+  const item = (c: string) => (
+    <button type="button" key={c} role="option" aria-selected={c === value} onClick={() => pick(c)} data-testid="currency-option">
+      <Flag currency={c} /><span className="cur-name"><b>{c}</b> · {currencyName(c)}</span>{c === value && <Icon name="check" size={14} />}
+    </button>
+  );
   return (
     <div className="menu-wrap" ref={ref}>
-      <button type="button" className="dsel cur" onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} data-testid="currency">
+      <button type="button" className="dsel cur" aria-haspopup="listbox" aria-expanded={open} data-testid="currency" title={currencyName(value)}
+        onClick={(e) => {
+          // abre para o lado que tem espaço (no celular o seletor pode estar na coluna da esquerda)
+          const r = e.currentTarget.getBoundingClientRect();
+          setAlignLeft(r.right < Math.min(340, window.innerWidth * 0.92) + 8);
+          setOpen((v) => !v);
+        }}>
         <Flag currency={value} /><b>{value}</b><Icon name="chevron" size={14} />
       </button>
       {open && (
-        <div className="menu fade" role="listbox" style={{ minWidth: 140 }}>
-          {options.map((c) => (
-            <button type="button" key={c} role="option" aria-selected={c === value} onClick={() => { onChange(c); setOpen(false); }}>
-              <Flag currency={c} />{c}{c === value && <span className="spacer" />}{c === value && <Icon name="check" size={14} />}
-            </button>
-          ))}
+        <div className="menu fade cur-menu" style={alignLeft ? { left: 0, right: 'auto' } : undefined} data-testid="currency-menu">
+          <div className="cur-search">
+            <Icon name="search" size={14} />
+            <input autoFocus placeholder="Buscar moeda..." value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar moeda" data-testid="currency-search"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setOpen(false);
+                if (e.key === 'Enter') { const first = used[0] ?? rest[0]; if (first) pick(first); }
+              }} />
+          </div>
+          <div className="cur-list" role="listbox" aria-label="Moedas">
+            {used.length > 0 && <div className="cur-group">Com movimento</div>}
+            {used.map(item)}
+            {rest.length > 0 && <div className="cur-group">Todas as moedas</div>}
+            {rest.map(item)}
+            {!used.length && !rest.length && <div className="cur-empty">Nenhuma moeda encontrada</div>}
+          </div>
         </div>
       )}
     </div>
