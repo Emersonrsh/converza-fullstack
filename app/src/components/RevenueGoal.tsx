@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { Icon } from '../icons';
 import { getSocket } from '../socket';
@@ -58,7 +59,8 @@ export function RevenueGoal({ accountId }: { accountId: string | null }) {
           </span>
         </span>
       </button>
-      {open && <TrailModal onClose={() => { setOpen(false); load(); }} />}
+      {/* no body: o topo tem desfoque de fundo, que prende janelas fixas dentro dele */}
+      {open && createPortal(<TrailModal onClose={() => { setOpen(false); load(); }} />, document.body)}
     </>
   );
 }

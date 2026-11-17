@@ -493,12 +493,12 @@ dashboardRouter.get('/achievements', asyncHandler(async (req, res) => {
   const levels = LEVELS.map((l) => ({ ...l, reached: l.minSales ? salesCount >= l.minSales : revenue >= l.target }));
   const next = levels.find((l) => !l.reached) ?? null;
   const prev = [...levels].reverse().find((l) => l.reached);
-  const base = prev?.target ?? 0;
   res.json({
     revenue, sales: salesCount,
     level: prev ? { key: prev.key, label: prev.label } : null,
     next: next ? { key: next.key, label: next.label, target: next.target,
-      progress: next.minSales ? 0 : Math.min(100, Math.round(((revenue - base) / Math.max(1, next.target - base)) * 100)) } : null,
+      // mesma conta do contador do topo: faturamento / meta
+      progress: next.minSales ? 0 : Math.min(100, Math.floor((revenue / Math.max(1, next.target)) * 100)) } : null,
     levels: levels.map(({ minSales: _m, ...l }) => l),
     steps: [
       { key: 'whatsapp', label: 'Conectar um número de WhatsApp', done: n(conn?.n) > 0, route: '/connections' },
