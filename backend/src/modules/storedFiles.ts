@@ -81,6 +81,14 @@ export function verifyFileSig(fileId: string, e: unknown, s: unknown) {
 
 /** ID da mídia na Meta para este número: reaproveita o envio anterior por até 25 dias (a Meta guarda 30). */
 export async function mediaIdFor(fileId: string, conn: WaConnection & { id: string }, opts: { asVoice?: boolean } = {}) {
+  // o arquivo precisa ser da mesma empresa da conexão (um fluxo não pode mandar o anexo de outra conta)
+  const [own] = await db.select({ id: schema.storedFiles.id }).from(schema.storedFiles)
+    .innerJoin(schema.connections, eq(schema.connections.accountId, schema.storedFiles.accountId))
+    .where(and(eq(schema.storedFiles.id, fileId), eq(schema.connections.id, conn.id))).limit(1);
+  if (!own) {
+    console.warn(`[arquivos] anexo ${fileId} recusado: não é da empresa da conexão ${conn.id}`);
+    throw new AppError(410, 'O anexo não existe mais nesta conta. Envie o arquivo de novo no bloco.');
+  }
   const fresh = new Date(Date.now() - 25 * 86_400_000);
   const [hit] = await db.select().from(schema.storedFileMedia)
     .where(and(eq(schema.storedFileMedia.fileId, fileId), eq(schema.storedFileMedia.connectionId, conn.id), gt(schema.storedFileMedia.uploadedAt, fresh))).limit(1);

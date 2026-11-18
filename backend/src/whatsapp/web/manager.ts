@@ -9,6 +9,7 @@
  *   funcionam igual nos dois tipos de conexão.
  */
 import { createHash, randomBytes, randomInt, randomUUID } from 'crypto';
+import { safeDownload } from '../../flows/http';
 import QRCode from 'qrcode';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
@@ -480,18 +481,15 @@ async function jidFor(s: Session, to: string): Promise<string> {
 
 const MAX_LINK_BYTES = 64 * 1024 * 1024;
 async function fromLink(url: string): Promise<{ data: Buffer; mime: string; fileName: string | null }> {
-  let resp: Response;
-  try { resp = await fetch(url, { signal: AbortSignal.timeout(60_000) }); } catch (err) {
-    throw new WebSendError(`Não consegui baixar o arquivo do link (${(err as Error).message}).`);
+  // mesmas travas do bloco HTTP dos fluxos: nada de endereço interno, nem por redirecionamento ou DNS
+  let r: { data: Buffer; mime: string };
+  try { r = await safeDownload(url, MAX_LINK_BYTES); } catch (err) {
+    const msg = (err as Error).message;
+    throw new WebSendError(/maior que/i.test(msg) ? 'O arquivo do link é grande demais (máximo 64 MB).' : msg);
   }
-  if (!resp.ok) throw new WebSendError(`Não consegui baixar o arquivo do link (HTTP ${resp.status}).`);
-  const len = Number(resp.headers.get('content-length') ?? 0);
-  if (len > MAX_LINK_BYTES) throw new WebSendError('O arquivo do link é grande demais (máximo 64 MB).');
-  const data = Buffer.from(await resp.arrayBuffer());
-  if (data.length > MAX_LINK_BYTES) throw new WebSendError('O arquivo do link é grande demais (máximo 64 MB).');
   let fileName: string | null = null;
   try { fileName = decodeURIComponent(new URL(url).pathname.split('/').pop() ?? '') || null; } catch { /* sem nome */ }
-  return { data, mime: (resp.headers.get('content-type') ?? 'application/octet-stream').split(';')[0].trim(), fileName };
+  return { data: r.data, mime: r.mime || 'application/octet-stream', fileName };
 }
 
 async function quotedOf(s: Session, jid: string, waId: string | null | undefined) {

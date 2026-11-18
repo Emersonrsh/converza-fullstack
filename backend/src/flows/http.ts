@@ -11,6 +11,9 @@ import net from 'node:net';
 import type { HttpRequestSpec, HttpResult } from './interpreter';
 
 const MAX_BYTES = 1_000_000;
+/** Só nos testes automáticos (nunca em produção): host:porta locais liberados, ex. o servidor de imagens de teste. */
+const TEST_ALLOW = new Set(process.env.NODE_ENV === 'production' ? [] : (process.env.SAFE_FETCH_TEST_HOSTS ?? '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean));
+
 const TIMEOUT_MS = 10_000;
 const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']);
 
@@ -60,8 +63,9 @@ function rawRequest(urlStr: string, req: { method: string; headers: Record<strin
     return Promise.resolve({ ok: false, status: 0, headers: {}, text: '', error: 'Somente URLs http ou https' });
   }
   const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  if ((net.isIP(host) && isBlockedIp(host)) || host === 'localhost' || host.endsWith('.localhost')
-      || host.endsWith('.internal') || host.endsWith('.local')) {
+  const testAllowed = TEST_ALLOW.has(url.host.toLowerCase());
+  if (!testAllowed && ((net.isIP(host) && isBlockedIp(host)) || host === 'localhost' || host.endsWith('.localhost')
+      || host.endsWith('.internal') || host.endsWith('.local'))) {
     return Promise.resolve({ ok: false, status: 0, headers: {}, text: '', error: 'Destino bloqueado por segurança' });
   }
   const method = METHODS.has(req.method) ? req.method : 'GET';
@@ -74,7 +78,7 @@ function rawRequest(urlStr: string, req: { method: string; headers: Record<strin
     const request = lib.request(url, {
       method,
       headers: { 'User-Agent': opts.userAgent, Accept: 'application/json, text/plain, */*', ...req.headers },
-      lookup: safeLookup as any,
+      ...(testAllowed ? {} : { lookup: safeLookup as any }),
       timeout: opts.timeoutMs ?? TIMEOUT_MS,
     }, (res) => {
       const chunks: Buffer[] = [];
