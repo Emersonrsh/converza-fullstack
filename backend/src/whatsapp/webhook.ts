@@ -15,6 +15,7 @@ import { friendlyWaError, sendText } from './cloud-api';
 import { optKeyword } from '../utils/optout';
 import { extractContent } from './inbound';
 import { handleAccountUpdate, handleEchoes, handleHistory, handleStateSync } from './coexistence';
+import { authorizedEntries, phoneIdsOf, type Entry } from './webhookAuth';
 
 export { extractContent };
 import { signedMediaPath } from '../utils/mediaSign';
@@ -38,53 +39,64 @@ whatsappWebhookRouter.get('/', (req, res) => {
  * Com META_APP_SECRET configurado, eventos sem assinatura válida são recusados —
  * assim ninguém consegue forjar mensagens para disparar fluxos ou gastar tokens de IA.
  */
-let warnedNoSecret = false;
 const hmacOk = (secret: string, raw: Buffer, got: Buffer) => {
   const expected = Buffer.from(createHmac('sha256', secret).update(raw).digest('hex'));
   return got.length === expected.length && timingSafeEqual(got, expected);
 };
+
+let warnedNoSecret = false;
 /**
- * Assinatura: confere com a chave do app do operador e, para conexões manuais com o app da Meta
- * do próprio cliente, com a chave secreta cadastrada nessa conexão.
+ * Confere a assinatura e devolve só as entradas autorizadas (null = recusar o aviso inteiro).
+ * Produção sem nenhuma chave para conferir: recusa (antes aceitava sem conferir).
  */
-async function signatureOk(req: Request): Promise<boolean> {
-  if (config.whatsapp.skipSignature) return true;
-  const body = (req.body ?? {}) as { entry?: { id?: string; changes?: { value?: { metadata?: { phone_number_id?: string } } }[] }[] };
-  const phoneIds = [...new Set((body.entry ?? []).flatMap((e) => (e.changes ?? []).map((c) => c.value?.metadata?.phone_number_id)).filter((x): x is string => !!x))];
-  const wabaIds = [...new Set((body.entry ?? []).map((e) => e.id).filter((x): x is string => !!x))];
-  const secrets: string[] = config.whatsapp.appSecret ? [config.whatsapp.appSecret] : [];
-  if (phoneIds.length || wabaIds.length) {
-    const own = await db.select({ appSecret: schema.connections.appSecret }).from(schema.connections)
-      .where(and(isNotNull(schema.connections.appSecret), or(
+async function verifiedEntries(req: Request): Promise<Entry[] | null> {
+  const body = (req.body ?? {}) as { entry?: Entry[] };
+  const entries = Array.isArray(body.entry) ? body.entry : [];
+  // só para testes automáticos; em produção a assinatura é sempre conferida
+  if (config.whatsapp.skipSignature && config.env !== 'production') return entries;
+  const phoneIds = [...new Set(entries.flatMap(phoneIdsOf))];
+  const wabaIds = [...new Set(entries.map((e) => e.id).filter((x): x is string => !!x))];
+  const conns = phoneIds.length || wabaIds.length
+    ? await db.select({ phoneNumberId: schema.connections.phoneNumberId, wabaId: schema.connections.wabaId, appSecret: schema.connections.appSecret })
+      .from(schema.connections).where(and(isNotNull(schema.connections.appSecret), or(
         phoneIds.length ? inArray(schema.connections.phoneNumberId, phoneIds) : sql`false`,
         wabaIds.length ? inArray(schema.connections.wabaId, wabaIds) : sql`false`,
-      )));
-    secrets.push(...own.map((r) => r.appSecret!).filter(Boolean));
-  }
-  if (!secrets.length) {
-    if (!warnedNoSecret && config.env === 'production') {
-      console.warn('[whatsapp webhook] META_APP_SECRET não configurado: a assinatura dos eventos não está sendo verificada.');
-      warnedNoSecret = true;
+      )))
+    : [];
+  const global = config.whatsapp.appSecret;
+  if (!global && !conns.length) {
+    if (config.env === 'production') {
+      if (!warnedNoSecret) { console.error('[whatsapp webhook] META_APP_SECRET não configurado: eventos recusados até configurar.'); warnedNoSecret = true; }
+      return null;
     }
-    return true;
+    return entries;
   }
   const header = String(req.headers['x-hub-signature-256'] ?? '');
   const raw = (req as Request & { rawBody?: Buffer }).rawBody;
-  if (!header.startsWith('sha256=') || !raw) return false;
+  if (!header.startsWith('sha256=') || !raw) return null;
   const got = Buffer.from(header.slice(7));
-  return secrets.some((sec) => hmacOk(sec, raw, got));
+  const globalOk = !!global && hmacOk(global, raw, got);
+  const okSecrets = new Set(conns.map((c) => c.appSecret!).filter((sec) => hmacOk(sec, raw, got)));
+  if (!globalOk && !okSecrets.size) return null;
+  const { keep, dropped } = authorizedEntries(entries, { globalOk, okSecrets, conns });
+  if (dropped.length) {
+    console.warn(`[whatsapp webhook] ${dropped.length} entrada(s) descartada(s): a assinatura não é da conexão delas (waba ${dropped.map((e) => e.id ?? '?').join(', ')}; número ${dropped.flatMap(phoneIdsOf).join(', ') || '?'})`);
+  }
+  return keep;
 }
 
 // 2) Recebimento de eventos (mensagens e status). Responde 200 rápido.
 whatsappWebhookRouter.post('/', asyncHandler(async (req, res) => {
-  if (!(await signatureOk(req))) {
+  const entries = await verifiedEntries(req);
+  if (!entries) {
     console.warn('[whatsapp webhook] evento recusado: assinatura inválida. Confira se META_APP_SECRET é a "Chave secreta do app" do MESMO app da Meta onde o webhook está cadastrado.');
     res.sendStatus(401);
     return;
   }
   res.sendStatus(200); // ACK imediato; processa depois
+  if (!entries.length) return;
   try {
-    await processWebhook(req.body);
+    await processWebhook({ ...(req.body ?? {}), entry: entries });
   } catch (err) {
     console.error('[whatsapp webhook] erro:', (err as Error).message);
   }
