@@ -28,7 +28,7 @@ async function run() {
   const owners = emails.length
     ? (await db.execute(sql`
         select distinct m.account_id from memberships m join users u on u.id = m.user_id
-        where m.role = 'owner' and lower(u.email) in (${sql.join(emails.map((e) => sql`${e}`), sql`, `)})`)).rows.map((r) => String((r as { account_id: string }).account_id))
+        where m.role = 'owner' and u.email_verified_at is not null and lower(u.email) in (${sql.join(emails.map((e) => sql`${e}`), sql`, `)})`)).rows.map((r) => String((r as { account_id: string }).account_id))
     : [];
 
   let added = 0;

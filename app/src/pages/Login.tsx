@@ -98,7 +98,13 @@ export function Login() {
             <div><label className="label">Nome da empresa</label><input className="input" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Minha Loja" data-testid="reg-company" /></div>
           </>}
           <div><label className="label">E-mail</label><input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required data-testid="login-email" /></div>
-          <div><label className="label">Senha</label><input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} data-testid="login-password" /></div>
+          <div>
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <label className="label">Senha</label>
+              {mode === 'login' && <Link to="/esqueci-senha" style={{ fontSize: 12.5 }} data-testid="login-forgot">Esqueci minha senha</Link>}
+            </div>
+            <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} data-testid="login-password" />
+          </div>
           {mode === 'register' && (
             <label className="auth-terms">
               <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} data-testid="reg-terms" />

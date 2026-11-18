@@ -5,6 +5,7 @@ import { useAuth } from './auth';
 import { Spinner } from './components/ui';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
+import { ConfirmEmailLink, ForgotPassword, ResetPassword, VerifyEmailWait } from './pages/EmailPages';
 import { InviteAccept } from './pages/InviteAccept';
 import { NoCompany } from './pages/NoCompany';
 import { Dashboard } from './pages/Dashboard';
@@ -39,6 +40,9 @@ export default function App() {
   if (loc.pathname === '/termos') return <LegalPage doc="termos" />;
   if (loc.pathname === '/privacidade') return <LegalPage doc="privacidade" />;
   if (loc.pathname === '/exclusao-de-dados') return <LegalPage doc="exclusao" />;
+  // links mandados por e-mail: abrem com ou sem login
+  if (loc.pathname === '/confirmar-email') return <ConfirmEmailLink />;
+  if (loc.pathname === '/redefinir-senha') return <ResetPassword />;
   if (loading) return <div style={{ height: '100vh' }}><Spinner /></div>;
   if (!user && offline) {
     return (
@@ -55,10 +59,13 @@ export default function App() {
     return (
       <Routes>
         <Route path="/convite/:token" element={<InviteAccept />} />
+        <Route path="/esqueci-senha" element={<ForgotPassword />} />
         <Route path="*" element={<Login />} />
       </Routes>
     );
   }
+  // conta nova com o e-mail ainda não confirmado: nada do app até confirmar
+  if (user.emailVerified === false) return <VerifyEmailWait />;
   // sem nenhuma empresa (saiu, foi removido, empresa excluída): aceitar convite ou criar uma
   if (!accounts.length) {
     return (

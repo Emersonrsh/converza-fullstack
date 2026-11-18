@@ -7,6 +7,7 @@ import { AppError } from '../utils/http';
 import { recordAccessLater } from './accessLog';
 
 export const isPlatformAdmin = (email: string | undefined | null) => !!email && config.platformAdmins.includes(email.toLowerCase());
+// os acessos dados pelo e-mail (dono da plataforma, suporte, conta da casa) só valem com o e-mail confirmado: authRequired já barra quem não confirmou
 
 export const isSupportEmail = (email: string | undefined | null) => !!email && config.supportEmails.includes(email.toLowerCase());
 
@@ -29,18 +30,53 @@ export function notSupport(req: Request, what = 'Esta ação') {
   if (req.support) throw new AppError(403, `${what} só pode ser feita por alguém da própria empresa (o suporte não faz).`, { code: 'support_blocked' });
 }
 
-/** Exige um Bearer token válido e popula req.user. */
-export function authRequired(req: Request, _res: Response, next: NextFunction) {
+/** Última troca de senha de cada usuário (guardada por 30 s para não consultar o banco a cada pedido). */
+const pwCache = new Map<string, { at: number; changed: number | null }>();
+export function forgetPasswordCache(userId: string) { pwCache.delete(userId); }
+async function passwordChangedAt(userId: string): Promise<number | null | undefined> {
+  const hit = pwCache.get(userId);
+  if (hit && Date.now() - hit.at < 30_000) return hit.changed;
+  const [u] = await db.select({ p: schema.users.passwordChangedAt }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+  if (!u) return undefined;
+  const changed = u.p ? u.p.getTime() : null;
+  pwCache.set(userId, { at: Date.now(), changed });
+  if (pwCache.size > 5000) pwCache.delete(pwCache.keys().next().value as string);
+  return changed;
+}
+
+/** Confere o token: válido, de um usuário que existe e emitido depois da última troca de senha. */
+export async function sessionFrom(token: string): Promise<{ id: string; email: string; verified: boolean } | null> {
+  let payload: ReturnType<typeof verifyToken>;
+  try { payload = verifyToken(token); } catch { return null; }
+  const changed = await passwordChangedAt(payload.userId);
+  if (changed === undefined) return null;
+  if (changed && (payload.iat ?? 0) < Math.floor(changed / 1000)) return null;
+  return { id: payload.userId, email: payload.email, verified: payload.ev !== false };
+}
+
+function bearer(req: Request) {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) throw new AppError(401, 'Token ausente');
-  try {
-    const payload = verifyToken(header.slice(7));
-    req.user = { id: payload.userId, email: payload.email };
+  return header.slice(7);
+}
+
+/** Exige login (mesmo sem o e-mail confirmado): só as rotas de sessão e de confirmação usam este. */
+export function authAllowUnverified(req: Request, _res: Response, next: NextFunction) {
+  (async () => {
+    const user = await sessionFrom(bearer(req));
+    if (!user) throw new AppError(401, 'Token inválido ou expirado');
+    req.user = user;
     recordAccessLater(req, req.user, 'session');
+  })().then(() => next(), next);
+}
+
+/** Exige um Bearer token válido de uma conta com o e-mail confirmado e popula req.user. */
+export function authRequired(req: Request, res: Response, next: NextFunction) {
+  authAllowUnverified(req, res, (err?: unknown) => {
+    if (err) return next(err);
+    if (!req.user!.verified) return next(new AppError(403, 'Confirme o seu e-mail para usar o Converza. Enviamos um link para a sua caixa de entrada.', { code: 'email_not_verified' }));
     next();
-  } catch {
-    throw new AppError(401, 'Token inválido ou expirado');
-  }
+  });
 }
 
 /**

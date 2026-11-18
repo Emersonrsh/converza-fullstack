@@ -53,6 +53,21 @@ export const users = pgTable('users', {
   /** aceite dos Termos de Uso e da Política de Privacidade no cadastro (e a versão aceita) */
   termsAcceptedAt: timestamp('terms_accepted_at', { withTimezone: true }),
   termsVersion: text('terms_version'),
+  /** e-mail confirmado pelo link (contas criadas antes da confirmação já vêm marcadas) */
+  emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
+  /** última troca de senha: tokens de login emitidos antes disso deixam de valer */
+  passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Links de uso único mandados por e-mail (confirmar o e-mail, redefinir a senha). Guarda só o hash. */
+export const userTokens = pgTable('user_tokens', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  kind: text('kind').$type<'verify' | 'reset'>().notNull(),
+  tokenHash: text('token_hash').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -1304,7 +1319,7 @@ export const mcpCalls = pgTable('mcp_calls', {
 }));
 
 export const schema = {
-  accounts, users, memberships, connections, contacts, conversations, messages, quickReplies,
+  accounts, users, userTokens, memberships, connections, contacts, conversations, messages, quickReplies,
   tags, flowFolders, flows, flowRuns, flowNodeStats, voices, knowledgeBases, agents, agentRuns, campaigns, webhooks, products, sales, adSpend, subscriptions,
   kanbanBoards, kanbanColumns, kanbanCards, contactFields, contactExports, webhookEvents, webhookUsage, flowPending,
   campaignRecipients, dispatchUsage, metaProfiles, metaAdAccounts, metaCampaignFlows, metaCampaignProducts, adRules, adRuleLogs, pushSubscriptions, pixels, pixelEvents, invoices, billingEvents,

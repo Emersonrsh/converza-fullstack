@@ -62,11 +62,12 @@ export async function sendPlatformInviteEmail(inv: typeof schema.platformInvites
  * a empresa que convidou (ela vira a indicação da conta nova).
  */
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-export async function acceptPlatformInviteOnSignup(tx: Tx | typeof db, email: string, token: string | null): Promise<string | null> {
+export async function acceptPlatformInviteOnSignup(tx: Tx | typeof db, email: string, token: string | null, opts: { byEmail?: boolean } = {}): Promise<string | null> {
   const now = new Date();
   let inv: typeof schema.platformInvites.$inferSelect | undefined;
   if (token) [inv] = await tx.select().from(schema.platformInvites).where(eq(schema.platformInvites.token, token)).limit(1);
-  if (!inv || inv.status !== 'pending') {
+  // pelo e-mail só depois de confirmado (senão qualquer um aceitaria o convite de outra pessoa)
+  if ((!inv || inv.status !== 'pending') && opts.byEmail !== false) {
     [inv] = await tx.select().from(schema.platformInvites)
       .where(and(eq(schema.platformInvites.email, email), eq(schema.platformInvites.status, 'pending'), gt(schema.platformInvites.expiresAt, now)))
       .orderBy(desc(schema.platformInvites.createdAt)).limit(1);

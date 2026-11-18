@@ -1,10 +1,10 @@
 import { Router, type Request } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { signToken } from './jwt';
-import { authRequired, isPlatformAdmin } from './middleware';
+import { authAllowUnverified, forgetPasswordCache, isPlatformAdmin } from './middleware';
 import { accountsFor } from './accounts';
 import { asyncHandler, AppError } from '../utils/http';
 import { acceptPlatformInviteOnSignup } from '../modules/invites';
@@ -12,6 +12,8 @@ import { config } from '../config';
 import { syncHouseAccounts } from '../billing/house';
 import { TERMS_VERSION } from '../modules/legal';
 import { recordAccessLater } from './accessLog';
+import { consumeToken, sendPasswordReset, sendVerification, verificationRequired } from './emailFlows';
+import { emailConfigured } from '../email/mailer';
 import { assertUnderLimits, clearAttempts, clientIp, countAttempt, type Limit } from './throttle';
 
 export const authRouter = Router();
@@ -36,6 +38,32 @@ const registerSchema = z.object({
 
 export function slugifyName(s: string) { return slugify(s); }
 
+/** Dados do usuário que o app recebe (os acessos pelo e-mail só valem com ele confirmado). */
+function userView(u: { id: string; name: string; email: string }, verified: boolean) {
+  return { id: u.id, name: u.name, email: u.email, emailVerified: verified, platformAdmin: verified && isPlatformAdmin(u.email) };
+}
+const isVerified = (u: { emailVerifiedAt: Date | null }) => !!u.emailVerifiedAt || !verificationRequired();
+const session = async (u: { id: string; name: string; email: string; emailVerifiedAt: Date | null }) => {
+  const verified = isVerified(u);
+  return {
+    token: signToken({ userId: u.id, email: u.email, ev: verified }),
+    user: userView(u, verified),
+    accounts: verified ? await accountsFor(u.id, u.email) : [],
+  };
+};
+
+/** Depois de confirmar o e-mail: convites para a plataforma feitos para ele e conta da casa. */
+async function afterVerified(user: { id: string; email: string }) {
+  const invitedBy = await acceptPlatformInviteOnSignup(db, user.email, null);
+  await db.update(schema.platformInvites).set({ acceptedUserId: user.id })
+    .where(and(eq(schema.platformInvites.email, user.email), isNull(schema.platformInvites.acceptedUserId)));
+  if (invitedBy) {
+    await db.execute(sql`update accounts set referred_by = ${invitedBy}
+      where referred_by is null and id in (select account_id from memberships where user_id = ${user.id} and role = 'owner')`);
+  }
+  if (config.house.emails.includes(user.email.toLowerCase())) await syncHouseAccounts().catch((err) => console.error('[conta da casa]', (err as Error).message));
+}
+
 authRouter.post('/register', asyncHandler(async (req, res) => {
   const regLimits: Limit[] = [{ key: `register:ip:${clientIp(req)}`, max: 10, windowSec: 3600 }];
   await assertUnderLimits(regLimits, 'cadastro');
@@ -47,11 +75,16 @@ authRouter.post('/register', asyncHandler(async (req, res) => {
   const [existing] = await db.select().from(schema.users).where(sql`lower(${schema.users.email}) = ${email}`).limit(1);
   if (existing) throw new AppError(409, 'E-mail já cadastrado');
 
+  // veio pelo link do convite mandado para este mesmo e-mail: o e-mail já está provado
+  const [invite] = inviteToken ? await db.select().from(schema.platformInvites).where(eq(schema.platformInvites.token, inviteToken)).limit(1) : [];
+  const provenByInvite = !!invite && invite.status === 'pending' && invite.email.toLowerCase() === email;
+  const verified = provenByInvite || !verificationRequired();
+
   const passwordHash = await bcrypt.hash(password, 10);
 
   const result = await db.transaction(async (tx) => {
     const [user] = await tx.insert(schema.users).values({
-      name, email, passwordHash, termsAcceptedAt: new Date(), termsVersion: TERMS_VERSION,
+      name, email, passwordHash, termsAcceptedAt: new Date(), termsVersion: TERMS_VERSION, emailVerifiedAt: verified ? new Date() : null,
     }).returning();
     const baseSlug = slugify(companyName ?? name);
     const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
@@ -59,27 +92,37 @@ authRouter.post('/register', asyncHandler(async (req, res) => {
     const [referrer] = code
       ? await tx.select({ id: schema.accounts.id }).from(schema.accounts).where(eq(schema.accounts.referralCode, code)).limit(1)
       : [];
-    // convite para a plataforma: quem convidou vira a indicação (se não veio outro código)
-    const invitedBy = await acceptPlatformInviteOnSignup(tx, email, inviteToken ?? null);
+    // convite para a plataforma: quem convidou vira a indicação (se não veio outro código).
+    // Pelo e-mail só com ele confirmado; sem confirmar, só pelo link.
+    const invitedBy = await acceptPlatformInviteOnSignup(tx, email, inviteToken ?? null, { byEmail: verified });
     const [account] = await tx.insert(schema.accounts).values({
       name: companyName ?? `Empresa de ${name}`, slug, referredBy: referrer?.id ?? invitedBy ?? null,
     }).returning();
     await tx.insert(schema.memberships).values({ userId: user.id, accountId: account.id, role: 'owner' });
     await tx.insert(schema.subscriptions).values({ accountId: account.id, status: 'inactive' });
-    await tx.update(schema.platformInvites).set({ acceptedUserId: user.id })
-      .where(eq(schema.platformInvites.email, email));
+    if (verified) {
+      await tx.update(schema.platformInvites).set({ acceptedUserId: user.id })
+        .where(eq(schema.platformInvites.email, email));
+    }
     return { user, account };
   });
 
-  // dono que está em HOUSE_EMAILS: a empresa nova já nasce como conta da casa
-  if (config.house.emails.includes(email)) await syncHouseAccounts().catch((err) => console.error('[conta da casa]', (err as Error).message));
+  let verificationSent = false;
+  if (verified) {
+    // dono que está em HOUSE_EMAILS: a empresa nova já nasce como conta da casa
+    if (config.house.emails.includes(email)) await syncHouseAccounts().catch((err) => console.error('[conta da casa]', (err as Error).message));
+  } else {
+    const r = await sendVerification(result.user);
+    verificationSent = r.sent;
+    if (!r.sent) console.error('[cadastro] e-mail de confirmação não saiu:', r.error);
+  }
 
-  const token = signToken({ userId: result.user.id, email: result.user.email });
   recordAccessLater(req, result.user, 'register');
   res.status(201).json({
-    token,
-    user: { id: result.user.id, name: result.user.name, email: result.user.email, platformAdmin: isPlatformAdmin(result.user.email) },
-    accounts: [{ id: result.account.id, name: result.account.name, slug: result.account.slug, role: 'owner' }],
+    token: signToken({ userId: result.user.id, email: result.user.email, ev: verified }),
+    user: userView(result.user, verified),
+    accounts: verified ? [{ id: result.account.id, name: result.account.name, slug: result.account.slug, role: 'owner' }] : [],
+    verificationSent,
   });
 }));
 
@@ -105,22 +148,86 @@ authRouter.post('/login', asyncHandler(async (req, res) => {
     throw new AppError(401, 'Credenciais inválidas');
   }
   await clearAttempts([limits[0].key]);
-
-  const token = signToken({ userId: user.id, email: user.email });
   recordAccessLater(req, user, 'login');
-  res.json({ token, user: { id: user.id, name: user.name, email: user.email, platformAdmin: isPlatformAdmin(user.email) }, accounts: await accountsFor(user.id, user.email) });
+  res.json(await session(user));
 }));
 
 /** Token novo (o app chama ao abrir e de tempos em tempos): quem está usando não cai, e um token vazado vence logo. */
-authRouter.post('/refresh', authRequired, asyncHandler(async (req, res) => {
-  const [user] = await db.select({ id: schema.users.id, email: schema.users.email }).from(schema.users).where(eq(schema.users.id, req.user!.id)).limit(1);
+authRouter.post('/refresh', authAllowUnverified, asyncHandler(async (req, res) => {
+  const [user] = await db.select().from(schema.users).where(eq(schema.users.id, req.user!.id)).limit(1);
   if (!user) throw new AppError(401, 'Sessão inválida');
-  res.json({ token: signToken({ userId: user.id, email: user.email }) });
+  const verified = isVerified(user);
+  res.json({ token: signToken({ userId: user.id, email: user.email, ev: verified }), emailVerified: verified });
 }));
 
-authRouter.get('/me', authRequired, asyncHandler(async (req, res) => {
-  const [user] = await db.select({ id: schema.users.id, name: schema.users.name, email: schema.users.email })
-    .from(schema.users).where(eq(schema.users.id, req.user!.id)).limit(1);
+authRouter.get('/me', authAllowUnverified, asyncHandler(async (req, res) => {
+  const [user] = await db.select().from(schema.users).where(eq(schema.users.id, req.user!.id)).limit(1);
   if (!user) throw new AppError(404, 'Usuário não encontrado');
-  res.json({ user: { ...user, platformAdmin: isPlatformAdmin(user.email) }, accounts: await accountsFor(user.id, user.email) });
+  const s = await session(user);
+  res.json({ user: s.user, accounts: s.accounts });
+}));
+
+/* ------------------------------------------------------------ confirmação de e-mail */
+
+authRouter.post('/resend-verification', authAllowUnverified, asyncHandler(async (req, res) => {
+  const [user] = await db.select().from(schema.users).where(eq(schema.users.id, req.user!.id)).limit(1);
+  if (!user) throw new AppError(401, 'Sessão inválida');
+  if (isVerified(user)) return res.json({ ok: true, alreadyVerified: true });
+  const limits: Limit[] = [{ key: `verify:user:${user.id}`, max: 3, windowSec: 15 * 60 }];
+  await assertUnderLimits(limits, 'reenvio');
+  await countAttempt(limits);
+  const r = await sendVerification(user);
+  if (!r.sent) throw new AppError(502, 'Não conseguimos mandar o e-mail agora. Tente de novo em alguns minutos.');
+  res.json({ ok: true });
+}));
+
+authRouter.post('/verify-email', asyncHandler(async (req, res) => {
+  const { token } = z.object({ token: z.string().trim().max(120) }).parse(req.body ?? {});
+  const userId = await consumeToken(token, 'verify');
+  if (!userId) throw new AppError(410, 'Este link de confirmação venceu ou já foi usado. Entre na sua conta e peça um novo.', { code: 'link_invalid' });
+  const [user] = await db.update(schema.users).set({ emailVerifiedAt: sql`coalesce(${schema.users.emailVerifiedAt}, now())` })
+    .where(eq(schema.users.id, userId)).returning();
+  if (!user) throw new AppError(410, 'Conta não encontrada.');
+  await afterVerified(user);
+  recordAccessLater(req, user, 'login');
+  res.json(await session(user));
+}));
+
+/* ------------------------------------------------------------ esqueci minha senha */
+
+authRouter.post('/forgot-password', asyncHandler(async (req, res) => {
+  const email = z.object({ email: z.string().trim().email() }).parse(req.body ?? {}).email.toLowerCase();
+  if (!emailConfigured()) throw new AppError(503, 'O envio de e-mail não está configurado. Fale com o suporte do Converza.');
+  const limits: Limit[] = [
+    { key: `reset:email:${email}`, max: 3, windowSec: 3600 },
+    { key: `reset:ip:${clientIp(req)}`, max: 20, windowSec: 3600 },
+  ];
+  await assertUnderLimits(limits, 'redefinição de senha');
+  await countAttempt(limits);
+  const [user] = await db.select().from(schema.users).where(sql`lower(${schema.users.email}) = ${email}`).limit(1);
+  if (user) {
+    const r = await sendPasswordReset(user);
+    if (!r.sent) console.error('[senha] e-mail de redefinição não saiu:', r.error);
+  }
+  // mesma resposta com ou sem conta: não revela quem tem cadastro
+  res.json({ ok: true });
+}));
+
+authRouter.post('/reset-password', asyncHandler(async (req, res) => {
+  const d = z.object({ token: z.string().trim().max(120), password: z.string().min(8, 'A senha precisa ter pelo menos 8 caracteres') }).parse(req.body ?? {});
+  const userId = await consumeToken(d.token, 'reset');
+  if (!userId) throw new AppError(410, 'Este link venceu ou já foi usado. Peça um novo em "Esqueci minha senha".', { code: 'link_invalid' });
+  const passwordHash = await bcrypt.hash(d.password, 10);
+  // trocar a senha derruba os logins antigos; abrir o link também prova o e-mail
+  const [user] = await db.update(schema.users).set({
+    passwordHash, passwordChangedAt: new Date(), emailVerifiedAt: sql`coalesce(${schema.users.emailVerifiedAt}, now())`,
+  }).where(eq(schema.users.id, userId)).returning();
+  if (!user) throw new AppError(410, 'Conta não encontrada.');
+  forgetPasswordCache(user.id);
+  await clearAttempts([`login:email:${user.email.toLowerCase()}`]);
+  await afterVerified(user);
+  recordAccessLater(req, user, 'login');
+  // o token novo precisa nascer depois da troca (a conferência é por segundo)
+  await new Promise((r) => setTimeout(r, 1000));
+  res.json(await session(user));
 }));

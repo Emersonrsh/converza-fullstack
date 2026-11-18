@@ -2,7 +2,7 @@ import type { Server as HttpServer } from 'http';
 import { Server as IOServer, Socket } from 'socket.io';
 import { config } from '../config';
 import { and, eq } from 'drizzle-orm';
-import { verifyToken } from '../auth/jwt';
+import { sessionFrom } from '../auth/middleware';
 import { db, schema } from '../db';
 import { isUuid } from '../utils/http';
 
@@ -18,7 +18,10 @@ export function initIO(server: HttpServer): IOServer {
     if (!token || !accountId || !isUuid(accountId)) return next(new Error('auth ausente'));
     let userId: string;
     try {
-      userId = verifyToken(token).userId;
+      const u = await sessionFrom(token);
+      if (!u) return next(new Error('token inválido'));
+      if (!u.verified) return next(new Error('e-mail não confirmado'));
+      userId = u.id;
     } catch {
       return next(new Error('token inválido'));
     }

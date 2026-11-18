@@ -225,6 +225,13 @@
       "when": 1794660000000,
       "tag": "0031_message_reactions",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1795010000000,
+      "tag": "0032_email_verification",
+      "breakpoints": true
     }
   ]
 }

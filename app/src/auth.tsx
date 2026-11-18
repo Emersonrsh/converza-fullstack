@@ -17,6 +17,10 @@ interface AuthShape {
   switchAccount: (id: string) => void;
   /** relê as empresas do usuário (depois de criar, sair, excluir ou aceitar convite) */
   reloadAccounts: (preferId?: string | null) => Promise<Account[]>;
+  verifyEmail: (token: string) => Promise<void>;
+  resetPassword: (token: string, password: string) => Promise<void>;
+  /** devolve se o e-mail já está confirmado */
+  refreshSession: () => Promise<boolean>;
 }
 
 const Ctx = createContext<AuthShape>(null as unknown as AuthShape);
@@ -94,6 +98,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     applyAuth(await api.post<AuthResp>('/auth/register', { name, email, password, companyName, acceptTerms: true, ...(ref ? { ref } : {}), ...(inviteToken ? { inviteToken } : {}) }));
     localStorage.removeItem('converza:ref');
   };
+  /** Link do e-mail de confirmação: entra já com a conta confirmada. */
+  const verifyEmail = async (token: string) => { applyAuth(await api.post<AuthResp>('/auth/verify-email', { token })); };
+  /** Link de "Esqueci minha senha": troca a senha e entra. */
+  const resetPassword = async (token: string, password: string) => { applyAuth(await api.post<AuthResp>('/auth/reset-password', { token, password })); };
+  /** "Já confirmei": pega um token novo e recarrega a conta. */
+  const refreshSession = async () => {
+    const r = await api.post<{ token: string; emailVerified: boolean }>('/auth/refresh', {});
+    setToken(r.token);
+    const me = await api.get<{ user: User; accounts: Account[] }>('/auth/me');
+    applyAuth({ token: r.token, user: me.user, accounts: me.accounts } as AuthResp);
+    return r.emailVerified;
+  };
   const logout = () => {
     setToken(null); setAccountId(null); disconnectSocket();
     setUser(null); setAccounts([]); setAcc(null);
@@ -115,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <Ctx.Provider value={{ user, accounts, accountId, loading, offline, retry, login, register, logout, switchAccount, reloadAccounts }}>
+    <Ctx.Provider value={{ user, accounts, accountId, loading, offline, retry, login, register, logout, switchAccount, reloadAccounts, verifyEmail, resetPassword, refreshSession }}>
       {children}
     </Ctx.Provider>
   );
