@@ -40,6 +40,8 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   if (e?.type === 'request.aborted') return res.status(400).json({ code: 'aborted', error: 'O envio foi interrompido antes de terminar. Confira sua internet e tente de novo.' });
   if (e?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Dados enviados em formato inválido.' });
   if (status >= 400 && status < 500) return res.status(status).json({ error: 'Não foi possível processar o envio. Tente de novo.' });
+  // PATCH sem nenhum campo para alterar (o banco recusa um UPDATE vazio)
+  if (err instanceof Error && /No values to set/.test(err.message)) return res.status(422).json({ error: 'Nada para alterar: envie pelo menos um campo.' });
   console.error(err);
   return res.status(500).json({ error: 'Erro interno do servidor' });
 }

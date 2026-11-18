@@ -58,6 +58,16 @@ import { initIO } from './realtime/io';
 import { startAgentWorker, startDispatchWorker, startFlowWorker, startPixelWorker, startWebhookWorker } from './queue/worker';
 
 const app = express();
+app.disable('x-powered-by');
+// cabeçalhos de segurança em todas as respostas da API (a mídia acrescenta a própria CSP).
+// Sem Cross-Origin-Resource-Policy: o app fica em outro domínio e carrega imagens/áudios daqui.
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Frame-Options', 'DENY');
+  if (config.env === 'production') res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  next();
+});
 app.use(cors({ origin: config.appOrigins, credentials: true, exposedHeaders: ['Content-Disposition'] }));
 // gerar fluxo a partir de imagens: até 4 imagens (já reduzidas no navegador)
 app.use('/api/v1/flows/generate', express.json({ limit: '10mb' }));
