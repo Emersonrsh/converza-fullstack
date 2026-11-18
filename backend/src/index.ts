@@ -2,6 +2,7 @@ import { platformRouter } from './modules/platform';
 import http from 'http';
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import { config } from './config';
 import { errorHandler } from './utils/http';
 import { authRequired, requireAccount, platformAdminRequired } from './auth/middleware';
@@ -68,6 +69,13 @@ app.use((_req, res, next) => {
   if (config.env === 'production') res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
   next();
 });
+// respostas em texto (JSON, HTML) saem comprimidas: menos banda e app mais rápido em conexão lenta.
+// Imagem, áudio e vídeo já vêm comprimidos e ficam de fora sozinhos (o filtro olha o Content-Type).
+app.use(compression({
+  threshold: 1024,
+  // a mídia define o próprio tamanho e responde por pedaços (o player avança e volta): fica de fora
+  filter: (req, res) => !req.path.startsWith('/api/v1/media') && compression.filter(req, res),
+}));
 app.use(cors({ origin: config.appOrigins, credentials: true, exposedHeaders: ['Content-Disposition'] }));
 // gerar fluxo a partir de imagens: até 4 imagens (já reduzidas no navegador)
 app.use('/api/v1/flows/generate', express.json({ limit: '10mb' }));
