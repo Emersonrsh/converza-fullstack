@@ -7,7 +7,7 @@ import { redis } from '../redis';
 import { db, schema } from '../db';
 import { isUuid } from '../utils/http';
 import { emitToAccount } from '../realtime/io';
-import { ensureConversation, systemNote } from '../modules/conversationStore';
+import { ensureConversation, markAnsweredByAutomation, systemNote } from '../modules/conversationStore';
 import { findContactByPhone } from '../modules/contactStore';
 import { touchBoard, upsertContactCard } from '../modules/kanbanStore';
 import { mediaIdFor } from '../modules/storedFiles';
@@ -166,7 +166,9 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
       accountId: p.accountId, conversationId: conv.id, direction: 'out', type, body, mediaUrl, status, waMessageId, error,
       waMediaId: extra.waMediaId ?? null, mimeType: extra.mimeType ?? null, fileName: extra.fileName ?? null,
     }).returning();
-    await db.update(schema.conversations).set({ lastMessageAt: new Date() }).where(eq(schema.conversations.id, conv.id));
+    // enviada: o cliente foi respondido e a conversa sai de "não lidas"
+    if (status === 'sent') await markAnsweredByAutomation(p.accountId, conv.id);
+    else await db.update(schema.conversations).set({ lastMessageAt: new Date() }).where(eq(schema.conversations.id, conv.id));
     emitToAccount(p.accountId, 'message:new', { conversationId: conv.id, message: msg });
     // o fluxo não segue adiante sem essa mensagem: para aqui e espera alguém retomar
     if (status !== 'sent') throw new FlowSendFailed(msg.id, error ?? 'Não foi possível enviar');
@@ -435,7 +437,7 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
             accountId: p.accountId, conversationId: conv.id, direction: 'out', type: 'text', status: 'sent', waMessageId: r.waMessageId,
             body: `💠 Botão PIX · ${formatBRL(pix.amount)}${pix.text ? `\n${pix.text}` : ''}\n\nCopia e cola:\n${pix.code}`,
           }).returning();
-          await db.update(schema.conversations).set({ lastMessageAt: new Date() }).where(eq(schema.conversations.id, conv.id));
+          await markAnsweredByAutomation(p.accountId, conv.id);
           emitToAccount(p.accountId, 'message:new', { conversationId: conv.id, message: msg });
         } catch (err) {
           console.warn('[flow] cartão Pix recusado, enviando como texto:', (err as Error).message);

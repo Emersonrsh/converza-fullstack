@@ -14,6 +14,16 @@ export async function ensureConversation(accountId: string, contactId: string, c
 }
 
 /** Evento do atendimento (transferência, resolução, agente…): nota sem autor, exibida como aviso central no chat. */
+/**
+ * A automação (fluxo ou agente de IA) respondeu o cliente: a conversa deixa de contar como não lida.
+ * Só fica "não lida" o que chegou e ninguém respondeu.
+ */
+export async function markAnsweredByAutomation(accountId: string, conversationId: string) {
+  const [row] = await db.update(schema.conversations).set({ lastMessageAt: new Date(), unreadCount: 0 })
+    .where(eq(schema.conversations.id, conversationId)).returning({ id: schema.conversations.id, unreadCount: schema.conversations.unreadCount });
+  if (row) emitToAccount(accountId, 'conversation:updated', { conversation: row });
+}
+
 export async function systemNote(accountId: string, conversationId: string, body: string) {
   const [msg] = await db.insert(schema.messages).values({
     accountId, conversationId, direction: 'out', type: 'note', body, status: 'sent', senderUserId: null,

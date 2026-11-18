@@ -269,6 +269,7 @@ async function sendTexts(ctx: Ctx, texts: string[], audio?: { asAudio: boolean; 
   const wa: WaConnection = { phoneNumberId: conn.phoneNumberId, accessToken: conn.accessToken };
   let tokens = 0;
   let audioChars = 0;
+  let anySent = false;
   for (let i = 0; i < texts.length; i++) {
     if (i) await sleep(900);
     const text = texts[i];
@@ -296,6 +297,7 @@ async function sendTexts(ctx: Ctx, texts: string[], audio?: { asAudio: boolean; 
         sent = { type: 'text', body, waMessageId: null, waMediaId: null, status: 'failed', error: (err as Error).message };
       }
     }
+    if (sent.status === 'sent') anySent = true;
     const [msg] = await db.insert(schema.messages).values({
       accountId, conversationId: conv.id, direction: 'out', type: sent.type, body: sent.body, status: sent.status,
       waMessageId: sent.waMessageId, waMediaId: sent.waMediaId, mimeType: sent.type === 'audio' ? 'audio/ogg' : null,
@@ -306,8 +308,11 @@ async function sendTexts(ctx: Ctx, texts: string[], audio?: { asAudio: boolean; 
       message: { ...msg, agentName: agent.name, mediaUrl: msg.waMediaId ? signedMediaPath(msg.id) : null },
     });
   }
-  const [upd] = await db.update(schema.conversations).set({ lastMessageAt: new Date() }).where(eq(schema.conversations.id, conv.id)).returning();
-  if (upd) { conv = upd; ctx.conv = upd; }
+  // o agente respondeu: a conversa sai de "não lidas" (se o envio falhou, continua contando)
+  const answered = anySent;
+  const [upd] = await db.update(schema.conversations).set({ lastMessageAt: new Date(), ...(answered ? { unreadCount: 0 } : {}) })
+    .where(eq(schema.conversations.id, conv.id)).returning();
+  if (upd) { conv = upd; ctx.conv = upd; if (answered) emitToAccount(accountId, 'conversation:updated', { conversation: { id: upd.id, unreadCount: 0 } }); }
   return { tokens, audioChars };
 }
 
