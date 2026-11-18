@@ -3087,3 +3087,24 @@ html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:10
   .rev-goal-target{display:none}
   .rev-goal-txt{font-size:12px}
 }
+
+/* proteção de número banido (regra embutida) */
+.rules-guard{display:flex;align-items:flex-start;gap:14px;padding:16px 18px}
+.rules-guard > div{flex:1;min-width:0}
+.rules-guard b{font-size:14px}
+.rules-guard p{margin:4px 0 0;font-size:12.5px;line-height:1.5}
+.rules-guard-ic{width:36px;height:36px;border-radius:10px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--danger);background:color-mix(in srgb, var(--danger) 13%, transparent)}
+
+/* aviso na tela: número caiu, foi banido ou ficou restrito */
+.inst-alerts{position:fixed;top:72px;right:20px;z-index:120;display:flex;flex-direction:column;gap:10px;width:min(380px,calc(100vw - 24px))}
+.inst-alert{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:14px;border:1px solid var(--border);background:var(--surface);box-shadow:var(--shadow-lg, 0 12px 40px rgba(0,0,0,.25));animation:instin .25s cubic-bezier(.2,.8,.2,1)}
+.inst-alert.banned{border-color:color-mix(in srgb, var(--danger) 55%, var(--border))}
+.inst-alert.down,.inst-alert.restricted{border-color:color-mix(in srgb, #f59e0b 55%, var(--border))}
+.inst-alert-ic{width:34px;height:34px;border-radius:10px;flex:none;display:flex;align-items:center;justify-content:center;color:#f59e0b;background:color-mix(in srgb, #f59e0b 14%, transparent)}
+.inst-alert.banned .inst-alert-ic{color:var(--danger);background:color-mix(in srgb, var(--danger) 14%, transparent)}
+.inst-alert-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.inst-alert-t b{font-size:13.5px}
+.inst-alert-t span{font-size:12.5px;line-height:1.45;color:var(--muted)}
+.inst-alert-t .btn{align-self:flex-start;margin-top:4px}
+@keyframes instin{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+@media (max-width:700px){.inst-alerts{top:64px;right:12px}}

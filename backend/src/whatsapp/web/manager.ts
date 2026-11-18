@@ -275,7 +275,7 @@ async function onOpen(s: Session, me: { jid: string; lid: string | null; name: s
   const [before] = await db.select().from(schema.connections).where(eq(schema.connections.id, s.connectionId)).limit(1);
   const firstTime = !before?.displayPhone || before.webState === 'logged_out' || before.webState === 'qr' || before.webState === 'qr_expired' || before.webState === 'starting';
   await patchConnection(s, {
-    status: 'connected', webState: 'open', displayPhone: formatPhone(phone), verifiedName: me.name && me.name !== '~' ? me.name : before?.verifiedName ?? null,
+    status: 'connected', webState: 'open', phoneStatus: null, displayPhone: formatPhone(phone), verifiedName: me.name && me.name !== '~' ? me.name : before?.verifiedName ?? null,
     lastError: null, lastCheckedAt: new Date(), ...(firstTime ? { onboardedAt: new Date() } : {}),
   });
   log(s, `conectado (${formatPhone(phone)})`);
@@ -295,7 +295,12 @@ async function onClose(s: Session, code: number | null, message: string) {
     return down('logged_out', 'O WhatsApp desconectou este aparelho (saiu em “Aparelhos conectados” no celular, ou o número foi removido). Leia o QR Code de novo.', true);
   }
   if (code === 403) {
-    return down('logged_out', 'O WhatsApp recusou a conexão deste número (403). Ele pode ter sido banido ou restrito por uso da API não oficial — confira no celular.', true);
+    // 403 do WhatsApp = número banido (ou bloqueado) para aparelhos conectados
+    await clearSession(s.connectionId);
+    setState(s, 'logged_out');
+    await patchConnection(s, { status: 'disconnected', webState: 'logged_out', phoneStatus: 'BANNED',
+      lastError: 'O WhatsApp recusou a conexão deste número (403): ele foi banido ou bloqueado por uso da API não oficial. Confira no celular.' }, true);
+    return stopLocal(s);
   }
   if (code === 411) {
     return down('logged_out', 'O WhatsApp pediu para conectar o aparelho de novo (versão do multiaparelho). Leia o QR Code de novo.', true);

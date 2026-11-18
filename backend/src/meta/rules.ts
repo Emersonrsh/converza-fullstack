@@ -13,6 +13,7 @@ import { db, schema } from '../db';
 import type { AdRuleAction, AdRuleCondition } from '../db/schema';
 import { redis } from '../redis';
 import { emitToAccount } from '../realtime/io';
+import { BAN_GUARD_NAME, banGuardEnabled, setBanGuard } from './banGuard';
 import { asyncHandler, AppError, isUuid } from '../utils/http';
 import { validTz } from '../modules/dashboard';
 import { loadManagerRows } from '../modules/meta';
@@ -248,6 +249,7 @@ adRulesRouter.get('/', asyncHandler(async (req, res) => {
     metrics: Object.entries(METRICS).map(([id, m]) => ({ id, label: m.label, money: !!m.money, pct: !!m.pct, x: !!m.x })),
     windows: Object.entries(WINDOWS).map(([id, w]) => ({ id, label: w.label })),
     everyMinutes: EVERY_MIN,
+    banGuard: { enabled: await banGuardEnabled(accountId), name: BAN_GUARD_NAME },
   });
 }));
 
@@ -256,6 +258,14 @@ adRulesRouter.post('/', asyncHandler(async (req, res) => {
   const d = ruleSchema.parse(req.body);
   const [r] = await db.insert(schema.adRules).values({ ...d, action: cleanAction(d.action), accountId: req.accountId!, createdBy: req.user?.id ?? null }).returning();
   res.json({ rule: r });
+}));
+
+/** Proteção de número banido: pausa as campanhas ligadas ao número quando o WhatsApp o bane (ligada por padrão). */
+adRulesRouter.put('/ban-guard', asyncHandler(async (req, res) => {
+  manager(req.role);
+  const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+  await setBanGuard(req.accountId!, enabled);
+  res.json({ enabled });
 }));
 
 async function own(accountId: string, id: string) {

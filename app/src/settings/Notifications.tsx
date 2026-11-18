@@ -5,7 +5,7 @@ import { Icon } from '../icons';
 import { Spinner, Switch, toast } from '../components/ui';
 import { EmptyBox, Head, LoadError, errMsg, relTime, useLoad } from './common';
 
-interface Device { id: string; endpoint: string; device: string | null; prefs: { sales: boolean }; createdAt: string; lastSentAt: string | null }
+interface Device { id: string; endpoint: string; device: string | null; prefs: { sales: boolean; instances?: boolean }; createdAt: string; lastSentAt: string | null }
 interface Resp { configured: boolean; publicKey: string | null; devices: Device[] }
 
 const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
@@ -67,6 +67,9 @@ export function NotificationsPage() {
   }
   async function toggle(d: Device) {
     try { await api.patch(`/push/${d.id}`, { sales: !d.prefs.sales }); void reload(); } catch (e) { toast(errMsg(e, 'Não foi possível salvar')); }
+  }
+  async function toggleInst(d: Device) {
+    try { await api.patch(`/push/${d.id}`, { instances: d.prefs.instances === false }); void reload(); } catch (e) { toast(errMsg(e, 'Não foi possível salvar')); }
   }
   async function remove(d: Device) {
     setBusy(`r${d.id}`);
@@ -133,6 +136,7 @@ export function NotificationsPage() {
                   <small className="faint">ativado {relTime(d.createdAt)}{d.lastSentAt ? ` · último aviso ${relTime(d.lastSentAt)}` : ''}</small>
                 </div>
                 <label className="push-pref" data-testid="push-pref-sales"><Switch on={d.prefs.sales} onClick={() => void toggle(d)} /><span>Vendas aprovadas</span></label>
+                <label className="push-pref" data-testid="push-pref-instances"><Switch on={d.prefs.instances !== false} onClick={() => void toggleInst(d)} /><span>Número caiu ou foi banido</span></label>
                 <button type="button" className="btn sm" onClick={() => void test(d)} disabled={busy === `t${d.id}`}>Testar</button>
                 <button type="button" className="btn sm icon" onClick={() => void remove(d)} disabled={busy === `r${d.id}`} title="Parar de receber neste aparelho" data-testid="push-remove"><Icon name="trash" size={14} /></button>
               </div>

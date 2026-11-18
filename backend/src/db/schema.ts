@@ -865,7 +865,7 @@ export const pushSubscriptions = pgTable('push_subscriptions', {
   p256dh: text('p256dh').notNull(),
   auth: text('auth').notNull(),
   device: text('device'),
-  prefs: jsonb('prefs').$type<{ sales: boolean }>().notNull().default({ sales: true }),
+  prefs: jsonb('prefs').$type<{ sales: boolean; instances?: boolean }>().notNull().default({ sales: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   lastSentAt: timestamp('last_sent_at', { withTimezone: true }),
 }, (t) => ({

@@ -79,6 +79,16 @@ export function saleMessage(tpl: { title: string; body: string } | null | undefi
   return { title: renderTemplate(t.title || SALE_TEMPLATE_DEFAULT.title, vars, 120) || 'Venda aprovada', body: renderTemplate(t.body ?? '', vars, 300) };
 }
 
+/** Aviso simples para todos os aparelhos da empresa que querem esse tipo (ex.: número caiu ou foi banido). */
+export async function pushToAccount(accountId: string, kind: 'instances', msg: PushMessage) {
+  if (!pushConfigured()) return { sent: 0 };
+  const subs = await db.select().from(schema.pushSubscriptions)
+    .innerJoin(schema.memberships, and(eq(schema.memberships.userId, schema.pushSubscriptions.userId), eq(schema.memberships.accountId, schema.pushSubscriptions.accountId)))
+    .where(and(eq(schema.pushSubscriptions.accountId, accountId), sql`coalesce((${schema.pushSubscriptions.prefs}->>${kind})::boolean, true)`));
+  if (!subs.length) return { sent: 0 };
+  return deliverDetailed(subs.map((x) => x.push_subscriptions), msg);
+}
+
 /** Aparelhos da empresa que querem o aviso, com o modelo de mensagem de cada pessoa. */
 async function subsWithTemplates(accountId: string, kind: 'sales') {
   return db.select({ s: schema.pushSubscriptions, tpl: schema.memberships.pushSaleTemplate }).from(schema.pushSubscriptions)
@@ -198,7 +208,7 @@ pushRouter.post('/subscribe', asyncHandler(async (req, res) => {
   const d = z.object({ subscription: subSchema, device: z.string().trim().max(120).optional(), sales: z.boolean().default(true) }).parse(req.body);
   const [row] = await db.insert(schema.pushSubscriptions).values({
     userId: req.user!.id, accountId: req.accountId!, endpoint: d.subscription.endpoint,
-    p256dh: d.subscription.keys.p256dh, auth: d.subscription.keys.auth, device: d.device ?? null, prefs: { sales: d.sales },
+    p256dh: d.subscription.keys.p256dh, auth: d.subscription.keys.auth, device: d.device ?? null, prefs: { sales: d.sales, instances: true },
   }).onConflictDoUpdate({
     target: [schema.pushSubscriptions.accountId, schema.pushSubscriptions.endpoint],
     set: { userId: req.user!.id, p256dh: d.subscription.keys.p256dh, auth: d.subscription.keys.auth, device: d.device ?? null },
@@ -214,9 +224,11 @@ async function ownDevice(userId: string, accountId: string, id: string) {
 }
 
 pushRouter.patch('/:id', asyncHandler(async (req, res) => {
-  await ownDevice(req.user!.id, req.accountId!, req.params.id);
-  const d = z.object({ sales: z.boolean() }).parse(req.body);
-  await db.update(schema.pushSubscriptions).set({ prefs: { sales: d.sales } }).where(eq(schema.pushSubscriptions.id, req.params.id));
+  const cur = await ownDevice(req.user!.id, req.accountId!, req.params.id);
+  const d = z.object({ sales: z.boolean().optional(), instances: z.boolean().optional() }).parse(req.body);
+  const prev = (cur.prefs ?? { sales: true }) as { sales: boolean; instances?: boolean };
+  await db.update(schema.pushSubscriptions).set({ prefs: { ...prev, ...(d.sales !== undefined ? { sales: d.sales } : {}), ...(d.instances !== undefined ? { instances: d.instances } : {}) } })
+    .where(eq(schema.pushSubscriptions.id, req.params.id));
   res.json({ ok: true });
 }));
 

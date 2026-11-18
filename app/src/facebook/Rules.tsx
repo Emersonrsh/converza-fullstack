@@ -16,7 +16,7 @@ interface Rule {
 }
 interface Log { id: string; ruleName: string; objectName: string; level: string; action: string; status: 'applied' | 'error' | 'skipped'; detail: string; values: Record<string, number>; createdAt: string }
 interface MetricDef { id: string; label: string; money: boolean; pct: boolean; x: boolean }
-interface RulesData { rules: Rule[]; logs: Log[]; metrics: MetricDef[]; windows: { id: string; label: string }[]; everyMinutes: number }
+interface RulesData { rules: Rule[]; logs: Log[]; metrics: MetricDef[]; windows: { id: string; label: string }[]; everyMinutes: number; banGuard?: { enabled: boolean; name: string } }
 interface SimMatch { id: string; name: string; level: string; values: Record<string, number>; status: string; cooling: boolean; preview: string; currency: string }
 
 const LEVELS: [Level, string, string][] = [['campaign', 'Campanhas', 'campanha'], ['adset', 'Conjuntos de anúncios', 'conjunto'], ['ad', 'Anúncios', 'anúncio']];
@@ -74,6 +74,13 @@ export function Rules({ overview }: { overview: Overview }) {
     if (!window.confirm(`Excluir a regra “${r.name}”? O histórico dela também some.`)) return;
     try { await api.del(`/ad-rules/${r.id}`); toast('Regra excluída'); void load(); } catch (e) { toast((e as Error).message); }
   }
+  async function toggleGuard() {
+    if (!data?.banGuard) return;
+    const enabled = !data.banGuard.enabled;
+    setData({ ...data, banGuard: { ...data.banGuard, enabled } });
+    try { await api.put('/ad-rules/ban-guard', { enabled }); toast(enabled ? 'Proteção de número banido ligada' : 'Proteção de número banido desligada'); }
+    catch (e) { toast((e as Error).message); void load(); }
+  }
   async function runNow(r: Rule) {
     setRunning(r.id);
     try {
@@ -108,6 +115,17 @@ export function Rules({ overview }: { overview: Overview }) {
         </div>
         {overview.canEdit && <button type="button" className="btn primary" onClick={() => setEditing({ ...TEMPLATES[0].d(accounts[0].actId), name: '', conditions: [{ metric: 'spend', op: 'gt', value: 0 }] })} data-testid="rule-new"><Icon name="plus" size={15} />Nova regra</button>}
       </section>
+
+      {data.banGuard && (
+        <section className="card rules-guard" data-testid="ban-guard">
+          <span className="rules-guard-ic"><Icon name="shield" size={18} /></span>
+          <div>
+            <b>Pausar campanhas quando um número for banido</b>
+            <p className="faint">Se o WhatsApp banir um número conectado, o Converza pausa na hora as campanhas que mandam pessoas para ele (ou só os conjuntos daquele número, quando a campanha também anuncia outros). Você recebe o aviso no celular e por e-mail, e o que foi pausado aparece no histórico abaixo.</p>
+          </div>
+          <span data-testid="ban-guard-switch"><Switch on={data.banGuard.enabled} onClick={() => { if (overview.canEdit) void toggleGuard(); }} /></span>
+        </section>
+      )}
 
       {overview.canEdit && (
         <div className="rules-tpl" data-testid="rule-templates">
@@ -147,7 +165,7 @@ export function Rules({ overview }: { overview: Overview }) {
             {data.logs.map((l) => (
               <li key={l.id} className={l.status} data-testid="rule-log-item">
                 <span className={cx('rules-log-st', l.status)}>{l.status === 'applied' ? 'feito' : l.status === 'error' ? 'erro' : 'ignorado'}</span>
-                <span className="rules-log-t"><b>{l.detail}</b><small className="faint">{l.ruleName} · {Object.entries(l.values).map(([k, v]) => `${metric(k)?.label ?? k}: ${fmtVal(metric(k), v, 'BRL')}`).join(' · ')}</small></span>
+                <span className="rules-log-t"><b>{l.detail}</b><small className="faint">{[l.ruleName, ...Object.entries(l.values).map(([k, v]) => `${metric(k)?.label ?? k}: ${fmtVal(metric(k), v, 'BRL')}`)].join(' · ')}</small></span>
                 <span className="faint">{when(l.createdAt)}</span>
               </li>
             ))}

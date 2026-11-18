@@ -144,13 +144,20 @@ export async function handleStateSync(accountId: string, conn: Conn, items: any[
 /** account_update: desconectado pelo app/Meta ou restrição da conta. */
 export async function handleAccountUpdate(wabaId: string, value: any) {
   const ev = String(value?.event ?? '').toUpperCase();
+  const ban = String(value?.ban_info?.waba_ban_state ?? '').toUpperCase();
+  const banned = ev === 'DISABLED_UPDATE' && (ban === 'DISABLE' || !ban);
   const msg = ev === 'PARTNER_REMOVED' ? 'O número foi desconectado do Converza (pelo WhatsApp Business do celular ou pela Meta). Conecte de novo para voltar a atender.'
     : ev === 'ACCOUNT_VIOLATION' ? 'A Meta apontou violação de política nesta conta do WhatsApp Business.'
-      : ev === 'DISABLED_UPDATE' || ev === 'ACCOUNT_RESTRICTION' ? 'A Meta restringiu esta conta do WhatsApp Business.'
-        : null;
+      : banned ? 'A Meta desativou (baniu) esta conta do WhatsApp Business.'
+        : ev === 'DISABLED_UPDATE' && ban === 'SCHEDULE_FOR_DISABLE' ? 'A Meta agendou a desativação desta conta do WhatsApp Business. Peça revisão no Gerenciador do WhatsApp.'
+          : ev === 'DISABLED_UPDATE' || ev === 'ACCOUNT_RESTRICTION' ? 'A Meta restringiu esta conta do WhatsApp Business.'
+            : null;
   if (!msg || !wabaId) return;
+  const before = await db.select().from(schema.connections).where(eq(schema.connections.wabaId, wabaId));
   const rows = await db.update(schema.connections)
-    .set({ lastError: msg, ...(ev === 'PARTNER_REMOVED' ? { status: 'disconnected' as const } : {}) })
+    .set({ lastError: msg, ...(ev === 'PARTNER_REMOVED' || banned ? { status: 'disconnected' as const } : {}), ...(banned ? { phoneStatus: 'BANNED' } : {}) })
     .where(eq(schema.connections.wabaId, wabaId)).returning();
   rows.forEach(emitConnection);
+  const { maybeAlertInstance } = await import('../modules/instanceAlerts');
+  for (const r of rows) await maybeAlertInstance(before.find((b) => b.id === r.id) ?? null, r).catch((err) => console.error('[conexões] aviso:', (err as Error).message));
 }

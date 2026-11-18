@@ -6,6 +6,7 @@ import { useAuth } from '../auth';
 import { api, num } from '../api';
 import { getSocket } from '../socket';
 import { RevenueGoal } from './RevenueGoal';
+import { InstanceAlerts } from './InstanceAlerts';
 import { Avatar, Toaster, cx } from './ui';
 import { AppNotices } from './AppNotices';
 import { DiscordInvite, DiscordMark, setDiscordHidden, useDiscordHidden } from '../dashboard/DiscordInvite';
@@ -206,6 +207,7 @@ export function Layout() {
       <Toaster />
       <DiscordInvite />
       <AppNotices accountId={accountId} />
+      <InstanceAlerts accountId={accountId} />
     </div>
   );
 }
