@@ -68,6 +68,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
     return () => { alive = false; };
   }, [attempt]);
+  // renova o token ao entrar e a cada 6 horas com o app aberto
+  useEffect(() => {
+    if (!user) return;
+    const renew = () => { api.post<{ token: string }>('/auth/refresh', {}).then((r) => { if (r?.token && getToken()) setToken(r.token); }).catch(() => undefined); };
+    renew();
+    const t = setInterval(renew, 6 * 3600_000);
+    return () => clearInterval(t);
+  }, [user?.id]);
   const retry = () => { setLoading(true); setAttempt((n) => n + 1); };
   // sem servidor: tenta de novo sozinho a cada 5 s (ex.: deploy terminando)
   useEffect(() => {

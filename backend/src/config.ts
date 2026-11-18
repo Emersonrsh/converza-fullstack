@@ -43,7 +43,10 @@ export const config = {
   databaseUrl: required('DATABASE_URL', 'postgres://converza:converza@localhost:5432/converza'),
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
   jwtSecret: jwtSecret(),
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '30d',
+  // limite de tentativas de login/cadastro (desligar só vale fora de produção, para os testes automáticos)
+  authThrottle: process.env.NODE_ENV === 'production' || process.env.AUTH_THROTTLE !== 'off',
+  // o app renova o token sozinho enquanto está em uso; parado por mais tempo que isso, pede login de novo
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
   whatsapp: {
     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? 'converza-verify',
     // a Meta desliga cada versão ~2 anos depois do lançamento (v24.0 vale até 18/02/2028)

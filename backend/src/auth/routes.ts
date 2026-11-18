@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { eq, sql } from 'drizzle-orm';
@@ -12,6 +12,7 @@ import { config } from '../config';
 import { syncHouseAccounts } from '../billing/house';
 import { TERMS_VERSION } from '../modules/legal';
 import { recordAccessLater } from './accessLog';
+import { assertUnderLimits, clearAttempts, clientIp, countAttempt, type Limit } from './throttle';
 
 export const authRouter = Router();
 
@@ -36,6 +37,9 @@ const registerSchema = z.object({
 export function slugifyName(s: string) { return slugify(s); }
 
 authRouter.post('/register', asyncHandler(async (req, res) => {
+  const regLimits: Limit[] = [{ key: `register:ip:${clientIp(req)}`, max: 10, windowSec: 3600 }];
+  await assertUnderLimits(regLimits, 'cadastro');
+  await countAttempt(regLimits);
   const { name, password, companyName, ref, inviteToken, acceptTerms } = registerSchema.parse(req.body);
   const email = registerSchema.shape.email.parse(req.body.email).trim().toLowerCase();
   if (acceptTerms !== true) throw new AppError(422, 'Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.', { field: 'acceptTerms' });
@@ -81,17 +85,37 @@ authRouter.post('/register', asyncHandler(async (req, res) => {
 
 const loginSchema = z.object({ email: z.string().trim().email(), password: z.string() });
 
+// hash qualquer para conferir quando o e-mail não existe (o tempo de resposta não entrega quem tem cadastro)
+const DUMMY_HASH = '$2a$10$b9V05isTrbY4/oWfVgziYOhsEVE3d2gARUB8zz8IuIae9XYvoZa.O';
+const LOGIN_WINDOW = 15 * 60;
+const loginLimits = (req: Request, email: string): Limit[] => [
+  { key: `login:email:${email}`, max: 8, windowSec: LOGIN_WINDOW },
+  { key: `login:ip:${clientIp(req)}`, max: 40, windowSec: LOGIN_WINDOW },
+];
+
 authRouter.post('/login', asyncHandler(async (req, res) => {
   const { password } = loginSchema.parse(req.body);
   const email = loginSchema.shape.email.parse(req.body.email).trim().toLowerCase();
+  const limits = loginLimits(req, email);
+  await assertUnderLimits(limits, 'login');
   const [user] = await db.select().from(schema.users).where(sql`lower(${schema.users.email}) = ${email}`).limit(1);
-  if (!user) throw new AppError(401, 'Credenciais inválidas');
-  const ok = await bcrypt.compare(password, user.passwordHash);
-  if (!ok) throw new AppError(401, 'Credenciais inválidas');
+  const ok = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
+  if (!user || !ok) {
+    await countAttempt(limits);
+    throw new AppError(401, 'Credenciais inválidas');
+  }
+  await clearAttempts([limits[0].key]);
 
   const token = signToken({ userId: user.id, email: user.email });
   recordAccessLater(req, user, 'login');
   res.json({ token, user: { id: user.id, name: user.name, email: user.email, platformAdmin: isPlatformAdmin(user.email) }, accounts: await accountsFor(user.id, user.email) });
+}));
+
+/** Token novo (o app chama ao abrir e de tempos em tempos): quem está usando não cai, e um token vazado vence logo. */
+authRouter.post('/refresh', authRequired, asyncHandler(async (req, res) => {
+  const [user] = await db.select({ id: schema.users.id, email: schema.users.email }).from(schema.users).where(eq(schema.users.id, req.user!.id)).limit(1);
+  if (!user) throw new AppError(401, 'Sessão inválida');
+  res.json({ token: signToken({ userId: user.id, email: user.email }) });
 }));
 
 authRouter.get('/me', authRequired, asyncHandler(async (req, res) => {
