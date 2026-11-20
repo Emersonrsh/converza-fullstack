@@ -15,6 +15,7 @@ import { PRICING } from './plans';
 import { emitToAccount } from '../realtime/io';
 import { config } from '../config';
 import { SAMPLE_VARS, deliverDetailed, pushConfigured, pushSaleToAccount } from './push';
+import { DEFAULT_LIMIT_MB } from './storedFiles';
 
 export const platformRouter = Router();
 
@@ -168,6 +169,7 @@ platformRouter.get('/accounts/:id', asyncHandler(async (req, res) => {
     account: {
       id: a.id, name: a.name, number: a.number, createdAt: a.createdAt, timezone: a.timezone,
       suspendedAt: a.suspendedAt, suspendedReason: a.suspendedReason, status: st?.status ?? 'inactive',
+      attachmentsLimitMb: a.attachmentsLimitMb ?? DEFAULT_LIMIT_MB, attachmentsLimitCustom: a.attachmentsLimitMb != null,
     },
     subscription: sub ? {
       status: sub.status, instances: sub.instances, periodEnd: sub.currentPeriodEnd, startedAt: sub.startedAt, gateway: sub.gateway,
@@ -245,6 +247,15 @@ platformRouter.post('/accounts/:id/ai-credits', asyncHandler(async (req, res) =>
     tokens: body.mode === 'add' ? body.tokens : before - balance, before, balance, note: body.note || undefined,
   });
   res.json({ ok: true, balance, before });
+}));
+
+/** Limite de anexos (respostas rápidas e fluxos) da empresa, em MB. `mb: null` volta ao padrão. */
+platformRouter.post('/accounts/:id/attachments-limit', asyncHandler(async (req, res) => {
+  const a = await accountOr404(req.params.id);
+  const { mb } = z.object({ mb: z.coerce.number().int().min(50, 'Mínimo 50 MB').max(2000, 'Máximo 2.000 MB').nullable() }).parse(req.body ?? {});
+  await db.update(schema.accounts).set({ attachmentsLimitMb: mb }).where(eq(schema.accounts.id, a.id));
+  await audit(req, a.id, a.name, 'attachments_limit', { before: a.attachmentsLimitMb ?? DEFAULT_LIMIT_MB, after: mb ?? DEFAULT_LIMIT_MB });
+  res.json({ ok: true, limitMb: mb ?? DEFAULT_LIMIT_MB });
 }));
 
 /* ------------------------------------------------------------------ registro */

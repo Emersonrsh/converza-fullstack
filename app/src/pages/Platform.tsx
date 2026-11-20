@@ -19,7 +19,7 @@ const FILTERS: ['all' | Status, string][] = [
   ['all', 'Todas'], ['paying', 'Pagando'], ['canceling', 'Cancelando'], ['past_due', 'Atrasadas'], ['courtesy', 'Cortesia'],
   ['house', 'Da casa'], ['inactive', 'Sem assinatura'], ['canceled', 'Canceladas'], ['suspended', 'Suspensas'],
 ];
-const ACTION: Record<string, string> = { suspend: 'Suspendeu', reactivate: 'Reativou', courtesy: 'Deu cortesia', ai_credits: 'Adicionou créditos de IA', ai_credits_remove: 'Tirou créditos de IA', push_test: 'Enviou notificação de teste', push_sale_test: 'Simulou venda (notificação)' };
+const ACTION: Record<string, string> = { suspend: 'Suspendeu', reactivate: 'Reativou', courtesy: 'Deu cortesia', ai_credits: 'Adicionou créditos de IA', ai_credits_remove: 'Tirou créditos de IA', push_test: 'Enviou notificação de teste', push_sale_test: 'Simulou venda (notificação)', attachments_limit: 'Mudou o limite de anexos' };
 const ROLE: Record<string, string> = { owner: 'Dono', admin: 'Administrador', agent: 'Atendente' };
 const INV: Record<string, [string, string]> = { paid: ['Paga', 'green'], pending: ['Pendente', 'amber'], overdue: ['Atrasada', 'red'], refunded: ['Reembolsada', ''], canceled: ['Cancelada', ''] };
 
@@ -38,7 +38,7 @@ interface Row {
 }
 interface AuditRow { id: string; actorEmail: string; accountName: string; action: string; detail: Record<string, any>; createdAt: string }
 interface Detail {
-  account: { id: string; name: string; number: number; createdAt: string; suspendedAt: string | null; suspendedReason: string | null; status: Status };
+  account: { id: string; name: string; number: number; createdAt: string; suspendedAt: string | null; suspendedReason: string | null; status: Status; attachmentsLimitMb: number; attachmentsLimitCustom: boolean };
   subscription: { status: string; instances: number; periodEnd: string | null; startedAt: string | null; gateway: string | null; paymentMethod: string | null; country: string; cancelAtPeriodEnd: boolean; house: boolean; renewing: boolean; aiTokensBalance: number } | null;
   members: { name: string; email: string; role: string; joinedAt: string; lastAccess: string | null }[];
   numbers: { name: string; provider: string; status: string; displayPhone: string | null }[];
@@ -194,6 +194,38 @@ function CreditsModal({ d, onClose, onDone }: { d: Detail; onClose: () => void; 
   );
 }
 
+const LIMIT_PRESETS = [200, 500, 1000];
+
+function AttachmentsModal({ d, onClose, onDone }: { d: Detail; onClose: () => void; onDone: () => void }) {
+  const [mb, setMb] = useState(d.account.attachmentsLimitMb);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function save(value: number | null) {
+    setBusy(true); setErr(null);
+    try {
+      const r = await api.post<{ limitMb: number }>(`/platform/accounts/${d.account.id}/attachments-limit`, { mb: value });
+      toast(`Limite de anexos: ${num(r.limitMb)} MB`); onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Erro'); setBusy(false); }
+  }
+  return (
+    <Modal title="Limite de anexos" icon="paperclip" width={460} onClose={onClose} footer={<>
+      {d.account.attachmentsLimitCustom && <button type="button" className="btn ghost" disabled={busy} onClick={() => void save(null)} data-testid="pf-limit-reset">Voltar ao padrão (200 MB)</button>}
+      <span style={{ flex: 1 }} />
+      <button type="button" className="btn" onClick={onClose}>Cancelar</button>
+      <button type="button" className="btn primary" disabled={busy || mb < 50 || mb > 2000} onClick={() => void save(mb)} data-testid="pf-limit-save">{busy ? 'Salvando…' : `Salvar ${num(mb)} MB`}</button>
+    </>}>
+      <div className="pf-form">
+        <p className="muted">Espaço para os anexos das respostas rápidas e dos fluxos de <b>{d.account.name}</b>. Os arquivos ficam no banco de dados da plataforma: aumente com cuidado.</p>
+        <div className="pf-days pf-presets">{LIMIT_PRESETS.map((v) => <button type="button" key={v} className={cx(mb === v && 'on')} onClick={() => setMb(v)}>{num(v)} MB</button>)}</div>
+        <label><span className="label">Limite em MB (50 a 2.000)</span>
+          <input className="input" type="number" min={50} max={2000} step={50} value={mb}
+            onChange={(e) => setMb(Math.max(0, Math.floor(Number(e.target.value) || 0)))} data-testid="pf-limit-mb" /></label>
+        {err && <div className="hint bad"><Icon name="alert" size={14} /><span>{err}</span></div>}
+      </div>
+    </Modal>
+  );
+}
+
 function SuspendModal({ d, onClose, onDone }: { d: Detail; onClose: () => void; onDone: () => void }) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -236,6 +268,7 @@ function AuditList({ items, showAccount }: { items: AuditRow[]; showAccount?: bo
               {a.action === 'courtesy' && `${a.detail.days} dias, ${a.detail.instances} ${a.detail.instances === 1 ? 'número' : 'números'}, até ${date(a.detail.until)}${a.detail.note ? ` · ${a.detail.note}` : ''}`}
               {a.action === 'suspend' && `Motivo: ${a.detail.reason}`}
               {a.action === 'reactivate' && (a.detail.reason ? `Estava suspensa por: ${a.detail.reason}` : 'Acesso devolvido')}
+              {a.action === 'attachments_limit' && `${num(a.detail.before)} MB → ${num(a.detail.after)} MB`}
               {a.action.startsWith('ai_credits') && `${a.action === 'ai_credits' ? '+' : '−'}${num(a.detail.tokens)} tokens · saldo ${num(a.detail.before)} → ${num(a.detail.balance)}${a.detail.note ? ` · ${a.detail.note}` : ''}`}
             </span>
             <small>{a.actorEmail} · {dateTime(a.createdAt)}</small>
@@ -250,7 +283,7 @@ function AccountDrawer({ id, onClose, onChanged }: { id: string; onClose: () => 
   const bg = useBackdrop(onClose);
   const [d, setD] = useState<Detail | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [modal, setModal] = useState<null | 'courtesy' | 'suspend' | 'credits'>(null);
+  const [modal, setModal] = useState<null | 'courtesy' | 'suspend' | 'credits' | 'attachments'>(null);
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => { api.get<Detail>(`/platform/accounts/${id}`).then(setD).catch((e) => setErr(e instanceof Error ? e.message : 'Erro')); }, [id]);
   useEffect(load, [load]);
@@ -287,6 +320,8 @@ function AccountDrawer({ id, onClose, onChanged }: { id: string; onClose: () => 
                   <div><small>Total já pago</small><span>{money(d.totals.paid)}</span></div>
                   <div><small>Equipe</small><span>{d.members.length} {d.members.length === 1 ? 'pessoa' : 'pessoas'}</span></div>
                   <div><small>IA nos últimos 30 dias</small><span>{num(d.totals.aiTokens30)} tokens</span></div>
+                  <div><small>Limite de anexos</small><span data-testid="pf-limit">{num(d.account.attachmentsLimitMb)} MB{d.account.attachmentsLimitCustom ? '' : ' (padrão)'}{' '}
+                    <button type="button" className="cd-link" style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer' }} onClick={() => setModal('attachments')} data-testid="pf-limit-edit">alterar</button></span></div>
                 </div>
               </section>
               <section className="cd-sec">
@@ -352,6 +387,7 @@ function AccountDrawer({ id, onClose, onChanged }: { id: string; onClose: () => 
             {modal === 'courtesy' && <CourtesyModal d={d} onClose={() => setModal(null)} onDone={changed} />}
             {modal === 'suspend' && <SuspendModal d={d} onClose={() => setModal(null)} onDone={changed} />}
             {modal === 'credits' && <CreditsModal d={d} onClose={() => setModal(null)} onDone={changed} />}
+            {modal === 'attachments' && <AttachmentsModal d={d} onClose={() => setModal(null)} onDone={changed} />}
           </>
         )}
       </aside>

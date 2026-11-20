@@ -6,7 +6,7 @@ import { db, schema } from '../db';
 import { asyncHandler, AppError, isUuid, publicBase } from '../utils/http';
 import { config } from '../config';
 import { flowExtras, globalsOf } from '../flows/globals';
-import { FILE_RULES, saveFile, signedFilePath, type FileKind } from './storedFiles';
+import { FILE_RULES, dropFlowFilesNoLongerUsed, saveFile, signedFilePath, type FileKind } from './storedFiles';
 import { aiEnabled, byokBaseUrl, chatCompleteWith, listModels, type ChatMsg } from '../ai/provider';
 import { toChatParts } from '../flows/aiBlock';
 import type { ChatPart } from '../ai/provider';
@@ -385,6 +385,8 @@ flowsRouter.put('/:id', asyncHandler(async (req, res) => {
     patch.status = data.status;
   }
   const [row] = await db.update(schema.flows).set(patch).where(eq(schema.flows.id, flow.id)).returning();
+  // anexos que saíram do fluxo liberam o espaço na hora (a limpeza de hora em hora pega o resto)
+  if (data.graph) await dropFlowFilesNoLongerUsed(accountId, flow.graph).catch((err) => console.error('[fluxos] liberar anexos:', (err as Error).message));
   res.json({ flow: { ...row, graph: normalizeGraph(row.graph) } });
 }));
 
@@ -397,6 +399,7 @@ flowsRouter.delete('/:id', asyncHandler(async (req, res) => {
     throw new AppError(409, `Este fluxo está no disparo em massa “${live.map((c) => c.name).join('”, “')}”. Termine ou cancele o disparo antes de excluir o fluxo.`, { code: 'flow_in_dispatch' });
   }
   await db.delete(schema.flows).where(eq(schema.flows.id, flow.id));
+  await dropFlowFilesNoLongerUsed(req.accountId!, flow.graph).catch((err) => console.error('[fluxos] liberar anexos:', (err as Error).message));
   res.status(204).end();
 }));
 

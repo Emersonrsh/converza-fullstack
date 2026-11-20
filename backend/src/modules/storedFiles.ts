@@ -23,8 +23,15 @@ export const FILE_RULES: Record<FileKind, { mimes: RegExp; maxMb: number; maxInp
   sticker: { mimes: /^image\/webp$/i, maxMb: 0.5, maxInputMb: 0.5, label: 'figurinha WEBP 512×512 (até 500 KB)' },
 };
 
-/** Até 200 MB de anexos por empresa (o banco também guarda o resto). */
-const ACCOUNT_LIMIT = 200 * 1024 * 1024;
+/** Padrão de 200 MB de anexos por empresa; o painel da plataforma pode mudar por empresa (accounts.attachments_limit_mb). */
+export const DEFAULT_LIMIT_MB = 200;
+
+async function accountLimitMb(accountId: string) {
+  const [a] = await db.select({ mb: schema.accounts.attachmentsLimitMb }).from(schema.accounts).where(eq(schema.accounts.id, accountId)).limit(1);
+  return a?.mb && a.mb > 0 ? a.mb : DEFAULT_LIMIT_MB;
+}
+
+const fileRow = { id: schema.storedFiles.id, mime: schema.storedFiles.mime, fileName: schema.storedFiles.fileName, size: schema.storedFiles.size };
 
 export async function saveFile(accountId: string, kind: FileKind, data: Buffer, mime: string, fileName: string, purpose: 'quick_reply' | 'flow' = 'quick_reply') {
   let m = mime.split(';')[0].trim().toLowerCase();
@@ -32,8 +39,17 @@ export async function saveFile(accountId: string, kind: FileKind, data: Buffer, 
   if (!rule) throw new AppError(422, 'Tipo de anexo inválido');
   if (!rule.mimes.test(m)) throw new AppError(422, `Esse arquivo não serve: use ${rule.label}.`, { code: 'bad_type' });
   if (data.length > rule.maxInputMb * 1024 * 1024) throw new AppError(413, `Arquivo grande demais: use ${rule.label}.`, { code: 'too_big' });
-  // compressão automática (imagem, áudio e PDF) antes de guardar
   const originalSize = data.length;
+  // o mesmo arquivo já guardado nesta empresa (mesmo uso): reaproveita em vez de ocupar espaço de novo.
+  // Documento só se o nome for o mesmo, porque o nome aparece para o cliente.
+  const sourceSha256 = createHash('sha256').update(data).digest('hex');
+  const same = and(eq(schema.storedFiles.accountId, accountId), eq(schema.storedFiles.purpose, purpose), eq(schema.storedFiles.sourceSha256, sourceSha256),
+    ...(kind === 'document' ? [eq(schema.storedFiles.fileName, fileName.slice(0, 140) || 'arquivo')] : []));
+  // created_at renovado: a limpeza de anexos sem uso não apaga um arquivo que acabou de ser escolhido de novo
+  const [dup] = await db.update(schema.storedFiles).set({ createdAt: new Date() })
+    .where(eq(schema.storedFiles.id, sql`(select id from stored_files where ${same} order by created_at desc limit 1)`)).returning(fileRow);
+  if (dup) return { ...dup, originalSize, compressed: dup.size < originalSize, reused: true };
+  // compressão automática (imagem, áudio e PDF) antes de guardar
   const c = await compressFile(data, m, fileName);
   data = c.data; m = c.mime; fileName = c.fileName;
   if (kind === 'audio' && !/^audio\/(aac|mp4|mpeg|amr|ogg|opus)/.test(m)) {
@@ -43,11 +59,12 @@ export async function saveFile(accountId: string, kind: FileKind, data: Buffer, 
     throw new AppError(413, `Mesmo comprimido, o arquivo ficou com ${(data.length / 1048576).toFixed(1).replace('.', ',')} MB e o WhatsApp aceita até ${rule.maxMb} MB neste tipo.`, { code: 'too_big' });
   }
   const [{ used }] = await db.execute(sqlUsed(accountId)).then((r) => r.rows as { used: number }[]);
-  if (Number(used) + data.length > ACCOUNT_LIMIT) throw new AppError(413, 'A empresa chegou ao limite de 200 MB de anexos (respostas rápidas e fluxos). Apague anexos que não usa mais.', { code: 'storage_full' });
+  const limitMb = await accountLimitMb(accountId);
+  if (Number(used) + data.length > limitMb * 1024 * 1024) throw new AppError(413, `A empresa chegou ao limite de ${limitMb} MB de anexos (respostas rápidas e fluxos). Apague anexos que não usa mais.`, { code: 'storage_full' });
   const [row] = await db.insert(schema.storedFiles).values({
     accountId, purpose, mime: m, fileName: fileName.slice(0, 140) || 'arquivo', size: data.length,
-    sha256: createHash('sha256').update(data).digest('hex'), data: null,
-  }).returning({ id: schema.storedFiles.id, mime: schema.storedFiles.mime, fileName: schema.storedFiles.fileName, size: schema.storedFiles.size });
+    sha256: createHash('sha256').update(data).digest('hex'), sourceSha256, data: null,
+  }).returning(fileRow);
   try {
     // um pedaço por comando: o banco nunca recebe mais que ~1 MB de uma vez
     for (let i = 0, idx = 0; i < data.length; i += CHUNK, idx++) {
@@ -58,7 +75,28 @@ export async function saveFile(accountId: string, kind: FileKind, data: Buffer, 
     console.error(`[arquivos] falha ao gravar "${fileName}" (${data.length} bytes): ${(err as Error).message}`);
     throw new AppError(503, 'Não foi possível guardar o arquivo agora (o banco não respondeu). Tente de novo em instantes.', { code: 'storage_unavailable' });
   }
-  return { ...row, originalSize, compressed: c.compressed };
+  return { ...row, originalSize, compressed: c.compressed, reused: false };
+}
+
+/** Folga antes de apagar um anexo sem uso: protege o arquivo que alguém acabou de escolher num editor ainda não salvo. */
+export const UNUSED_GRACE = sql`interval '10 minutes'`;
+
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+/**
+ * Libera na hora o espaço dos anexos que saíram de um fluxo (bloco apagado, arquivo trocado ou fluxo excluído):
+ * `before` é o fluxo como estava. Só apaga o que nenhum fluxo da empresa usa mais.
+ */
+export async function dropFlowFilesNoLongerUsed(accountId: string, before: unknown) {
+  const ids = [...new Set((JSON.stringify(before ?? null).match(UUID_RE) ?? []).map((x) => x.toLowerCase()))];
+  if (!ids.length) return 0;
+  const r = await db.execute(sql`
+    delete from stored_files f
+    where f.account_id = ${accountId} and f.purpose = 'flow' and f.id = any(${`{${ids.join(',')}}`}::uuid[])
+      and f.created_at < now() - ${UNUSED_GRACE}
+      and not exists (select 1 from flows w where w.account_id = f.account_id and w.graph::text like '%' || f.id::text || '%')
+    returning f.id`);
+  return r.rows.length;
 }
 
 const sqlUsed = (accountId: string) => sql`select coalesce(sum(size), 0)::bigint as used from stored_files where account_id = ${accountId}`;

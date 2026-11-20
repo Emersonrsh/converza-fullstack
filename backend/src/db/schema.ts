@@ -42,6 +42,8 @@ export const accounts = pgTable('accounts', {
   /** suspensa pelo dono da plataforma (painel da plataforma): ninguém da empresa entra e os números não enviam */
   suspendedAt: timestamp('suspended_at', { withTimezone: true }),
   suspendedReason: text('suspended_reason'),
+  /** limite de anexos (respostas rápidas e fluxos) em MB, definido no painel da plataforma; vazio = 200 MB */
+  attachmentsLimitMb: integer('attachments_limit_mb'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -1103,11 +1105,14 @@ export const storedFiles = pgTable('stored_files', {
   fileName: text('file_name').notNull(),
   size: integer('size').notNull(),
   sha256: text('sha256').notNull(),
+  /** hash do arquivo como foi enviado (antes da compressão): reenvio do mesmo arquivo reaproveita este */
+  sourceSha256: text('source_sha256'),
   /** arquivos antigos; os novos ficam em stored_file_chunks (pedaços de 1 MB) */
   data: bytea('data'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   byAccount: index('stored_files_account_idx').on(t.accountId),
+  dedupe: index('stored_files_dedupe_idx').on(t.accountId, t.purpose, t.sourceSha256),
 }));
 
 export const storedFileChunks = pgTable('stored_file_chunks', {

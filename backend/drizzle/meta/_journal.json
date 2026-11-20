@@ -239,6 +239,13 @@
       "when": 1795020000000,
       "tag": "0033_unread_answered",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795030000000,
+      "tag": "0034_attachments_limit",
+      "breakpoints": true
     }
   ]
 }
