@@ -137,6 +137,8 @@ membersAreaRouter.post('/:slug/enter', asyncHandler(async (req, res) => {
   const [m] = await db.select().from(schema.memberUsers).where(and(eq(schema.memberUsers.accountId, area.accountId),
     sql`${schema.memberUsers.phone} in (${sql.join(phoneVariants(phone).map((p) => sql`${p}`), sql`, `)})`)).limit(1);
   if (!m) throw new AppError(404, 'Não encontramos acesso para este número. Use o mesmo WhatsApp da compra.');
+  const [{ n }] = (await db.execute(sql`select count(*)::int as n from member_access where member_id = ${m.id} and revoked_at is null`)).rows as { n: number }[];
+  if (!n) throw new AppError(403, 'O acesso deste número está bloqueado. Fale com quem vendeu o curso.');
   await db.update(schema.memberUsers).set({ lastLoginAt: new Date() }).where(eq(schema.memberUsers.id, m.id));
   res.json({ token: sign(m), member: memberView(m) });
 }));

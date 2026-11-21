@@ -497,6 +497,63 @@ membersRouter.get('/people', asyncHandler(async (req, res) => {
   res.json({ members: rows });
 }));
 
+/** Normaliza o número digitado pela empresa: sem código do país e com cara de brasileiro, ganha o 55. */
+function fullPhone(raw: string): string | null {
+  const d = String(raw ?? '').replace(/\D/g, '');
+  if (d.length < 8 || d.length > 15) return null;
+  return d.length === 10 || d.length === 11 ? `55${d}` : d;
+}
+
+/** Libera cursos para um número de WhatsApp (sem venda). Cria o membro se ainda não existir. */
+membersRouter.post('/people', asyncHandler(async (req, res) => {
+  managerOnly(req);
+  const p = z.object({
+    phone: z.string().trim().min(8, 'Informe o WhatsApp com DDD').max(30),
+    name: z.string().trim().max(80).optional(),
+    courseIds: z.array(z.string()).min(1, 'Escolha pelo menos um curso').max(100),
+    notify: z.boolean().optional(),
+  }).safeParse(req.body ?? {});
+  if (!p.success) throw new AppError(422, p.error.issues[0]?.message ?? 'Dados inválidos');
+  const phone = fullPhone(p.data.phone);
+  if (!phone) throw new AppError(422, 'Número inválido. Use o DDD (e o código do país, se for de fora do Brasil).');
+  const ids = p.data.courseIds.filter(isUuid);
+  const courses = ids.length ? await db.select({ id: schema.memberCourses.id, title: schema.memberCourses.title }).from(schema.memberCourses)
+    .where(and(eq(schema.memberCourses.accountId, req.accountId!), sql`${schema.memberCourses.id} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`)) : [];
+  if (!courses.length) throw new AppError(422, 'Curso não encontrado');
+  const { phoneVariants } = await import('./membersArea');
+  const variants = phoneVariants(phone);
+  const inList = sql.join(variants.map((v) => sql`${v}`), sql`, `);
+  // mesmo número com outro formato (sem o 9, sem o 55): reaproveita o membro e o contato
+  let [member] = await db.select().from(schema.memberUsers).where(and(eq(schema.memberUsers.accountId, req.accountId!), sql`${schema.memberUsers.phone} in (${inList})`)).limit(1);
+  const [contact] = await db.select({ id: schema.contacts.id, name: schema.contacts.name, email: schema.contacts.email }).from(schema.contacts)
+    .where(and(eq(schema.contacts.accountId, req.accountId!), sql`regexp_replace(coalesce(${schema.contacts.waId}, ${schema.contacts.phone}), '\\D', '', 'g') in (${inList})`)).limit(1);
+  if (!member) {
+    member = await upsertMember(req.accountId!, { email: normEmail(contact?.email), phone, name: p.data.name || contact?.name || null, contactId: contact?.id ?? null });
+  } else if (p.data.name && !member.name) {
+    await db.update(schema.memberUsers).set({ name: p.data.name }).where(eq(schema.memberUsers.id, member.id));
+  }
+  const granted: string[] = [];
+  for (const c of courses) {
+    const [row] = await db.insert(schema.memberAccess).values({ accountId: req.accountId!, memberId: member.id, courseId: c.id, source: 'manual' })
+      .onConflictDoUpdate({ target: [schema.memberAccess.memberId, schema.memberAccess.courseId], set: { revokedAt: null, source: 'manual' }, setWhere: sql`${schema.memberAccess.revokedAt} is not null` })
+      .returning({ id: schema.memberAccess.id });
+    if (row) granted.push(c.title);
+  }
+  let notified: Awaited<ReturnType<typeof sendMemberAccess>> | null = null;
+  if (p.data.notify && granted.length) notified = await sendMemberAccess(req.accountId!, member.id, { courseTitles: granted, reason: 'sale' });
+  res.status(201).json({ memberId: member.id, granted, already: courses.length - granted.length, notified });
+}));
+
+/** Tira o acesso do membro a todos os cursos. */
+membersRouter.delete('/people/:id/access', asyncHandler(async (req, res) => {
+  managerOnly(req);
+  if (!isUuid(req.params.id)) throw new AppError(404, 'Membro não encontrado');
+  const rows = await db.update(schema.memberAccess).set({ revokedAt: new Date() })
+    .where(and(eq(schema.memberAccess.memberId, req.params.id), eq(schema.memberAccess.accountId, req.accountId!), isNull(schema.memberAccess.revokedAt)))
+    .returning({ id: schema.memberAccess.id });
+  res.json({ revoked: rows.length });
+}));
+
 membersRouter.post('/people/:id/resend', asyncHandler(async (req, res) => {
   managerOnly(req);
   if (!isUuid(req.params.id)) throw new AppError(404, 'Membro não encontrado');

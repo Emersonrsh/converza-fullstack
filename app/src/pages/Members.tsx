@@ -163,6 +163,8 @@ function PeopleTab() {
   const [rows, setRows] = useState<Person[] | null>(null);
   const [q, setQ] = useState('');
   const [revoke, setRevoke] = useState<{ p: Person; c: Person['courses'][number] } | null>(null);
+  const [revokeAll, setRevokeAll] = useState<Person | null>(null);
+  const [adding, setAdding] = useState(false);
   const load = useCallback(() => { api.get<{ members: Person[] }>(`/members/people${q ? `?q=${encodeURIComponent(q)}` : ''}`).then((r) => setRows(r.members)).catch((e) => toast(e.message)); }, [q]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
   async function resend(p: Person) {
@@ -172,8 +174,11 @@ function PeopleTab() {
   return (
     <>
       <div className="mbx-intro">
-        <div><h2>Membros</h2><p className="muted">Quem tem acesso aos cursos. O acesso é liberado sozinho quando a venda de um produto ligado a um curso é aprovada.</p></div>
-        <input className="input" style={{ maxWidth: 280 }} placeholder="Buscar por nome, e-mail ou WhatsApp" value={q} onChange={(e) => setQ(e.target.value)} data-testid="mbx-people-q" />
+        <div><h2>Membros</h2><p className="muted">Quem tem acesso aos cursos. O acesso é liberado sozinho na venda aprovada de um produto ligado ao curso, ou por você, pelo número de WhatsApp.</p></div>
+        <div className="mbx-people-acts">
+          <input className="input" style={{ maxWidth: 280 }} placeholder="Buscar por nome, e-mail ou WhatsApp" value={q} onChange={(e) => setQ(e.target.value)} data-testid="mbx-people-q" />
+          {canEdit && <button type="button" className="btn primary" onClick={() => setAdding(true)} data-testid="mbx-add-person"><Icon name="plus" size={15} />Liberar acesso</button>}
+        </div>
       </div>
       {!rows ? <Spinner /> : !rows.length ? (
         <div className="mbx-empty"><Icon name="users" size={28} /><b>{q ? 'Ninguém encontrado' : 'Nenhum membro ainda'}</b><span>{q ? 'Tente outro termo.' : 'Ligue um curso a um produto; a primeira venda aprovada cria o primeiro membro.'}</span></div>
@@ -187,18 +192,28 @@ function PeopleTab() {
                   <td><b>{p.name || 'Sem nome'}</b><small className="faint">{[p.email, p.phone ? `+${p.phone}` : null].filter(Boolean).join(' · ')}</small></td>
                   <td>{p.courses.map((c) => (
                     <div key={c.accessId} className="mbx-pc">
-                      <span>{c.title}</span><span className="mbx-mini"><i style={{ width: `${c.total ? Math.round((c.done / c.total) * 100) : 0}%` }} /></span><small>{c.done}/{c.total}</small>
+                      <span>{c.title}</span>{c.source === 'manual' && <small className="mbx-src">manual</small>}<span className="mbx-mini"><i style={{ width: `${c.total ? Math.round((c.done / c.total) * 100) : 0}%` }} /></span><small>{c.done}/{c.total}</small>
                       {canEdit && <button type="button" className="btn icon sm ghost" title="Tirar o acesso a este curso" onClick={() => setRevoke({ p, c })} data-testid="mbx-revoke"><Icon name="close" size={12} /></button>}
                     </div>
                   ))}</td>
                   <td>{dt(p.createdAt)}</td>
                   <td>{p.lastLoginAt ? dt(p.lastLoginAt) : <span className="faint">nunca entrou</span>}</td>
-                  <td>{canEdit && <button type="button" className="btn sm" onClick={() => void resend(p)} data-testid="mbx-resend"><Icon name="send" size={13} />Reenviar acesso</button>}</td>
+                  <td>{canEdit && <div className="mbx-person-acts">
+                    <button type="button" className="btn sm" onClick={() => void resend(p)} data-testid="mbx-resend"><Icon name="send" size={13} />Reenviar acesso</button>
+                    <button type="button" className="btn sm ghost danger" onClick={() => setRevokeAll(p)} data-testid="mbx-revoke-all"><Icon name="lock" size={13} />Bloquear acesso</button>
+                  </div>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+      {adding && <GrantModal onClose={() => setAdding(false)} onDone={() => { setAdding(false); load(); }} />}
+      {revokeAll && (
+        <ConfirmModal title="Bloquear o acesso?" confirm="Bloquear acesso" danger onClose={() => setRevokeAll(null)}
+          onConfirm={async () => { await api.del(`/members/people/${revokeAll.id}/access`); setRevokeAll(null); load(); toast('Acesso bloqueado'); }}>
+          <p><b>{revokeAll.name || (revokeAll.phone ? `+${revokeAll.phone}` : revokeAll.email)}</b> perde o acesso a todos os cursos ({revokeAll.courses.length}) e não consegue mais entrar na área de membros. Para devolver, use “Liberar acesso” com o mesmo número.</p>
+        </ConfirmModal>
       )}
       {revoke && (
         <ConfirmModal title="Tirar o acesso?" confirm="Tirar acesso" danger onClose={() => setRevoke(null)}
@@ -207,6 +222,56 @@ function PeopleTab() {
         </ConfirmModal>
       )}
     </>
+  );
+}
+
+/** Liberar cursos para um número de WhatsApp, sem venda. */
+function GrantModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [courses, setCourses] = useState<CourseRow[] | null>(null);
+  const [phone, setPhone] = useState('');
+  const [name, setName] = useState('');
+  const [pick, setPick] = useState<string[]>([]);
+  const [notify, setNotify] = useState(true);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.get<{ courses: CourseRow[] }>('/members/courses').then((r) => { setCourses(r.courses); if (r.courses.length === 1) setPick([r.courses[0].id]); }).catch((e) => toast(e.message)); }, []);
+  const digits = phone.replace(/\D/g, '');
+  async function save() {
+    setBusy(true);
+    try {
+      const r = await api.post<{ granted: string[]; already: number; notified: { whatsapp: boolean; email: boolean; error?: string } | null }>('/members/people', { phone, name: name.trim() || undefined, courseIds: pick, notify });
+      const sent = r.notified ? (r.notified.whatsapp ? ' Link enviado pelo WhatsApp.' : r.notified.email ? ' Link enviado por e-mail.' : ' O link não saiu: sem conversa recente no WhatsApp nem e-mail; o cliente entra digitando o número.') : '';
+      toast(r.granted.length ? `Acesso liberado a ${r.granted.length} curso(s).${sent}` : 'Esse número já tinha acesso a esses cursos.');
+      onDone();
+    } catch (e) { toast((e as Error).message); setBusy(false); }
+  }
+  return (
+    <Modal title="Liberar acesso" icon="users" width={500} onClose={onClose} footer={<>
+      <button type="button" className="btn" onClick={onClose}>Cancelar</button>
+      <button type="button" className="btn primary" disabled={busy || digits.length < 10 || !pick.length} onClick={() => void save()} data-testid="mbx-grant-save">{busy ? 'Liberando…' : 'Liberar acesso'}</button>
+    </>}>
+      <div className="mbx-form">
+        <label className="label">WhatsApp do cliente (com DDD)</label>
+        <input className="input" type="tel" autoFocus value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(11) 99999-9999 ou +52 55 1234 5678" data-testid="mbx-grant-phone" />
+        <small className="faint">É com este número que o cliente entra na área de membros.</small>
+        <label className="label">Nome (opcional)</label>
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Como aparece na área" data-testid="mbx-grant-name" />
+        <label className="label">Cursos</label>
+        {!courses ? <Spinner /> : !courses.length ? <small className="faint">Crie um curso primeiro.</small> : (
+          <div className="mbx-checks">
+            {courses.map((c) => (
+              <label key={c.id} className={cx('mbx-check', pick.includes(c.id) && 'on')} data-testid="mbx-grant-course">
+                <input type="checkbox" checked={pick.includes(c.id)} onChange={(e) => setPick(e.target.checked ? [...pick, c.id] : pick.filter((x) => x !== c.id))} />
+                <span>{c.title}</span>{!c.published && <small className="faint">rascunho</small>}
+              </label>
+            ))}
+          </div>
+        )}
+        <label className="mbx-check plain">
+          <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} data-testid="mbx-grant-notify" />
+          <span>Mandar o link de acesso pelo WhatsApp (se ele falou com você nas últimas 24 h) ou por e-mail</span>
+        </label>
+      </div>
+    </Modal>
   );
 }
 
