@@ -15,7 +15,7 @@ interface CourseRow {
 }
 interface Settings { slug: string; url: string; title: string; subtitle: string; color: string; bannerUrl: string | null; storage: 'r2' | 'local' | null }
 interface LessonT { id: string; title: string; description: string | null; fileName: string | null; fileSize: number | null; hasFile: boolean; sort: number }
-interface ModuleT { id: string; title: string; sort: number; coverUrl: string | null; locked: boolean; unlockAfterDays: number | null; lessons: LessonT[] }
+interface ModuleT { id: string; title: string; sort: number; coverUrl: string | null; locked: boolean; unlockAfterDays: number | null; isBonus?: boolean; lessons: LessonT[] }
 interface CourseFull { course: CourseRow & { members: number }; modules: ModuleT[] }
 interface Person {
   id: string; name: string | null; email: string | null; phone: string | null; createdAt: string; lastLoginAt: string | null; hasPassword: boolean;
@@ -473,6 +473,9 @@ function ModuleCard({ m, index, count, canEdit, storage, onReload, onMove, onMov
     if (!title.trim() || title === m.title) { setTitle(m.title); return; }
     try { await api.patch(`/members/modules/${m.id}`, { title: title.trim() }); await onReload(); } catch (e) { toast((e as Error).message); }
   }
+  async function toggleBonus() {
+    try { await api.patch(`/members/modules/${m.id}`, { isBonus: !m.isBonus }); await onReload(); toast(m.isBonus ? 'Módulo voltou para o curso' : 'Módulo marcado como bônus'); } catch (e) { toast((e as Error).message); }
+  }
   async function addLesson() {
     if (!newLesson.trim()) return;
     try { await api.post(`/members/modules/${m.id}/lessons`, { title: newLesson.trim() }); setNewLesson(''); await onReload(); } catch (e) { toast((e as Error).message); }
@@ -491,10 +494,11 @@ function ModuleCard({ m, index, count, canEdit, storage, onReload, onMove, onMov
         </div>
         <input ref={coverRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => { const x = e.target.files?.[0]; if (x) void cover(x); e.target.value = ''; }} />
         <div className="mbx-mod-title">
-          <small>Módulo {index + 1}{m.locked && <span className="mbx-locked" data-testid="mbx-module-locked"><Icon name="lock" size={11} />{m.unlockAfterDays ? `libera ${m.unlockAfterDays} dia(s) após a compra` : 'bloqueado'}</span>}</small>
+          <small>{m.isBonus ? <span className="mbx-bonus-tag" data-testid="mbx-bonus-tag"><Icon name="gift" size={11} />Bônus</span> : `Módulo ${index + 1}`}{m.locked && <span className="mbx-locked" data-testid="mbx-module-locked"><Icon name="lock" size={11} />{m.unlockAfterDays ? `libera ${m.unlockAfterDays} dia(s) após a compra` : 'bloqueado'}</span>}</small>
           <input className="input bare" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => void rename()} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} disabled={!canEdit} data-testid="mbx-module-title" />
         </div>
         {canEdit && <div className="mbx-row-acts">
+          <button type="button" className={cx('btn sm', m.isBonus ? 'mbx-bonusbtn on' : 'ghost')} onClick={() => void toggleBonus()} data-testid="mbx-bonus" title={m.isBonus ? 'Este módulo aparece na fileira de Bônus. Clique para voltar ao curso.' : 'Mostrar este módulo na fileira de Bônus, separada do curso'}><Icon name="gift" size={13} />{m.isBonus ? 'É bônus' : 'Bônus'}</button>
           <button type="button" className={cx('btn sm', m.locked ? 'mbx-lockbtn on' : 'ghost')} onClick={() => setLockOpen(true)} data-testid="mbx-lock"><Icon name="lock" size={13} />{m.locked ? 'Bloqueado' : 'Bloquear'}</button>
           <button type="button" className="btn icon sm ghost" disabled={index === 0} onClick={() => onMove(-1)} aria-label="Subir módulo"><Icon name="chevronUp" size={14} /></button>
           <button type="button" className="btn icon sm ghost" disabled={index === count - 1} onClick={() => onMove(1)} aria-label="Descer módulo"><Icon name="chevron" size={14} /></button>

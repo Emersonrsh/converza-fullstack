@@ -2,7 +2,7 @@
  * Converza Members — área do aluno de cada empresa (/m/<slug>).
  * Login próprio do membro, vitrine dos cursos liberados, página do curso e leitor de PDF.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { Link, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { API_BASE } from '../api';
 import { Icon } from '../icons';
@@ -14,7 +14,7 @@ import './members.css';
 interface Info { title: string; subtitle: string; color: string; company: string; bannerUrl: string | null }
 interface Member { id: string; name: string | null; email: string | null; phone: string | null; hasPassword: boolean }
 interface LessonLite { id: string; title: string; hasFile: boolean; done: boolean }
-interface ModuleT { id: string; title: string; coverUrl: string | null; locked: boolean; unlockAt: string | null; lessons: LessonLite[]; done: number; total: number }
+interface ModuleT { id: string; title: string; bonus?: boolean; coverUrl: string | null; locked: boolean; unlockAt: string | null; lessons: LessonLite[]; done: number; total: number }
 interface CourseT { id: string; title: string; description: string | null; coverUrl: string | null; modules: ModuleT[]; done: number; total: number }
 interface Catalog { member: Member; courses: CourseT[]; continue: { lessonId: string; title: string; moduleTitle: string; courseId: string } | null }
 interface LessonFull {
@@ -233,6 +233,22 @@ function Home({ slug, info, cat }: { slug: string; info: Info; cat: Catalog }) {
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 3500); return () => clearTimeout(t); }, [notice]);
   const go = cat.continue ? cat.continue.lessonId : firstLesson?.id;
+  const poster = (c: CourseT, m: ModuleT, i: number) => (
+              <button type="button" key={m.id} className={`mbr-poster${m.locked ? ' locked' : ''}`} data-testid="mbr-module"
+                onClick={() => {
+                  if (m.locked) { setNotice(`“${m.title}” está bloqueado${m.unlockAt ? ` e libera em ${dayMonth(m.unlockAt)}` : ' por enquanto'}.`); return; }
+                  const l = m.lessons.find((x) => !x.done) ?? m.lessons[0]; if (l) nav(`/m/${slug}/aula/${l.id}`); else nav(`/m/${slug}/curso/${c.id}`);
+                }}>
+                {m.coverUrl ? <img src={m.coverUrl} alt="" loading="lazy" /> : <span className="mbr-poster-fill" style={{ '--h': `${((i + (m.bonus ? 5 : 0)) * 47) % 360}` } as CSSProperties}><span>{m.title}</span></span>}
+                {m.locked && <span className="mbr-lock" data-testid="mbr-module-lock"><Icon name="lock" size={22} /><b>{lockText(m)}</b></span>}
+                <span className="mbr-poster-info">
+                  {m.bonus ? <small>Bônus</small> : !/^\s*m[óo]dulo\b/i.test(m.title) && <small>Módulo {i + 1}</small>}
+                  <b>{m.title}</b>
+                  <span className="mbr-bar"><i style={{ width: `${pct(m.done, m.total)}%` }} /></span>
+                  <em>{m.total ? (m.done ? `${m.done} de ${m.total} aulas` : `${m.total} aula(s)`) : 'Em breve'}</em>
+                </span>
+              </button>
+  );
   return (
     <main className="mbr-main">
       <section className="mbr-hero" style={info.bannerUrl ? { backgroundImage: `linear-gradient(90deg, rgba(6,12,13,.94) 0%, rgba(6,12,13,.7) 45%, rgba(6,12,13,.15) 100%), url("${info.bannerUrl}")` } : undefined} data-testid="mbr-hero">
@@ -264,28 +280,22 @@ function Home({ slug, info, cat }: { slug: string; info: Info; cat: Catalog }) {
           <div className="mbr-sec-hd">
             <div>
               <h2><Link to={`/m/${slug}/curso/${c.id}`}>{c.title}</Link></h2>
-              <small>{c.modules.length} módulo(s) · {c.total} aula(s) · {pct(c.done, c.total)}% concluído</small>
+              <small>{c.modules.filter((m) => !m.bonus).length} módulo(s) · {c.total} aula(s) · {pct(c.done, c.total)}% concluído</small>
             </div>
             <Link to={`/m/${slug}/curso/${c.id}`} className="mbr-btn ghost sm">Ver curso</Link>
           </div>
-          <Rail>
-            {c.modules.map((m, i) => (
-              <button type="button" key={m.id} className={`mbr-poster${m.locked ? ' locked' : ''}`} data-testid="mbr-module"
-                onClick={() => {
-                  if (m.locked) { setNotice(`“${m.title}” está bloqueado${m.unlockAt ? ` e libera em ${dayMonth(m.unlockAt)}` : ' por enquanto'}.`); return; }
-                  const l = m.lessons.find((x) => !x.done) ?? m.lessons[0]; if (l) nav(`/m/${slug}/aula/${l.id}`); else nav(`/m/${slug}/curso/${c.id}`);
-                }}>
-                {m.coverUrl ? <img src={m.coverUrl} alt="" loading="lazy" /> : <span className="mbr-poster-fill" style={{ '--h': `${(i * 47) % 360}` } as CSSProperties}><span>{m.title}</span></span>}
-                {m.locked && <span className="mbr-lock" data-testid="mbr-module-lock"><Icon name="lock" size={22} /><b>{lockText(m)}</b></span>}
-                <span className="mbr-poster-info">
-                  <small>Módulo {i + 1}</small>
-                  <b>{m.title}</b>
-                  <span className="mbr-bar"><i style={{ width: `${pct(m.done, m.total)}%` }} /></span>
-                  <em>{m.total ? (m.done ? `${m.done} de ${m.total} aulas` : `${m.total} aula(s)`) : 'Em breve'}</em>
-                </span>
-              </button>
-            ))}
-          </Rail>
+          <Rail>{c.modules.filter((m) => !m.bonus).map((m, i) => poster(c, m, i))}</Rail>
+        </section>
+      ))}
+      {cat.courses.filter((c) => c.modules.some((m) => m.bonus)).map((c) => (
+        <section className="mbr-sec" key={`b-${c.id}`} data-testid="mbr-bonus-row">
+          <div className="mbr-sec-hd">
+            <div>
+              <h2>Bônus{cat.courses.length > 1 ? <span className="mbr-sec-of"> · {c.title}</span> : null}</h2>
+              <small>{c.modules.filter((m) => m.bonus).length} bônus incluído(s)</small>
+            </div>
+          </div>
+          <Rail>{c.modules.filter((m) => m.bonus).map((m, i) => poster(c, m, i))}</Rail>
         </section>
       ))}
       {notice && <div className="mbr-toast" data-testid="mbr-toast"><Icon name="lock" size={15} />{notice}</div>}
@@ -324,9 +334,10 @@ function CoursePage({ slug, cat }: { slug: string; cat: Catalog }) {
           {next && <button type="button" className="mbr-btn primary" onClick={() => nav(`/m/${slug}/aula/${next.id}`)}><Icon name="play" size={15} />{c.done ? 'Continuar' : 'Começar'}</button>}
         </div>
       </section>
-      {c.modules.map((m, i) => (
-        <section className={`mbr-mod${m.locked ? ' locked' : ''}`} key={m.id}>
-          <div className="mbr-mod-hd">{!/^\s*m[óo]dulo\b/i.test(m.title) && <small>Módulo {i + 1}</small>}<b>{m.title}</b>{m.locked ? <span className="mbr-lock-tag" data-testid="mbr-course-lock"><Icon name="lock" size={13} />{lockText(m)}</span> : <span>{m.done}/{m.total}</span>}</div>
+      {c.modules.map((m, k) => { const i = groupIdx(c.modules, m); return (<Fragment key={m.id}>
+        {m.bonus && (k === 0 || !c.modules[k - 1].bonus) && <h2 className="mbr-group-t">Bônus</h2>}
+        <section className={`mbr-mod${m.locked ? ' locked' : ''}`}>
+          <div className="mbr-mod-hd">{m.bonus ? <small>Bônus</small> : !/^\s*m[óo]dulo\b/i.test(m.title) && <small>Módulo {i + 1}</small>}<b>{m.title}</b>{m.locked ? <span className="mbr-lock-tag" data-testid="mbr-course-lock"><Icon name="lock" size={13} />{lockText(m)}</span> : <span>{m.done}/{m.total}</span>}</div>
           {m.locked ? m.lessons.map((l, j) => (
             <div key={l.id} className="mbr-lesson off"><span className="mbr-lesson-n">{j + 1}</span><span>{l.title}</span><Icon name="lock" size={14} /></div>
           )) : m.lessons.length ? m.lessons.map((l, j) => (
@@ -338,12 +349,16 @@ function CoursePage({ slug, cat }: { slug: string; cat: Catalog }) {
             </Link>
           )) : <div className="mbr-muted pad">Aulas em breve.</div>}
         </section>
-      ))}
+      </Fragment>); })}
     </main>
   );
 }
 
-const modName = (m: { title: string }, i: number) => (/^\s*m[óo]dulo\b/i.test(m.title) ? m.title : `Módulo ${i + 1} · ${m.title}`);
+const modName = (m: { title: string; bonus?: boolean }, i: number) => (m.bonus
+  ? (/b[ôo]nus/i.test(m.title) ? m.title : `Bônus · ${m.title}`)
+  : /^\s*m[óo]dulo\b/i.test(m.title) ? m.title : `Módulo ${i + 1} · ${m.title}`);
+/** posição do módulo entre os do mesmo tipo (curso ou bônus) */
+const groupIdx = (mods: ModuleT[], m: ModuleT) => mods.filter((x) => !!x.bonus === !!m.bonus).indexOf(m);
 
 function LessonPage({ slug, api, cat, onChange }: { slug: string; api: Api; cat: Catalog; onChange: () => void }) {
   const { lessonId = '' } = useParams();
@@ -376,7 +391,7 @@ function LessonPage({ slug, api, cat, onChange }: { slug: string; api: Api; cat:
   if (!d) return <div className="mbr-loading"><span className="mbr-spin" /></div>;
   const prevT = titleOf(d.prevId), nextT = titleOf(d.nextId);
   const modIdx = course ? course.modules.findIndex((m) => m.lessons.some((l) => l.id === d.lesson.id)) : -1;
-  const modLabel = course && modIdx >= 0 ? modName(course.modules[modIdx], modIdx) : d.lesson.moduleTitle;
+  const modLabel = course && modIdx >= 0 ? modName(course.modules[modIdx], groupIdx(course.modules, course.modules[modIdx])) : d.lesson.moduleTitle;
   return (
     <main className="mbr-lessonpage">
       <div className="mbr-viewer">
@@ -424,7 +439,12 @@ function LessonPage({ slug, api, cat, onChange }: { slug: string; api: Api; cat:
             </div>
             <span className="mbr-bar"><i style={{ width: `${pct(course.done, course.total)}%` }} /></span>
             <div className="mbr-side-list">
-              {course.modules.map((m, i) => <SideModule key={m.id} slug={slug} m={m} i={i} current={d.lesson.id} />)}
+              {course.modules.map((m, k) => (
+                <Fragment key={m.id}>
+                  {m.bonus && (k === 0 || !course.modules[k - 1].bonus) && <div className="mbr-side-group">Bônus</div>}
+                  <SideModule slug={slug} m={m} i={groupIdx(course.modules, m)} current={d.lesson.id} />
+                </Fragment>
+              ))}
             </div>
           </aside>
         </>

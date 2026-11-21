@@ -314,7 +314,7 @@ membersRouter.get('/courses/:id', asyncHandler(async (req, res) => {
   res.json({
     course: { ...c, coverKey: undefined, coverUrl: await coverUrl(c.coverKey, req), members },
     modules: await Promise.all(modules.map(async (m) => ({
-      id: m.id, title: m.title, sort: m.sort, coverUrl: await coverUrl(m.coverKey, req), locked: m.locked, unlockAfterDays: m.unlockAfterDays,
+      id: m.id, title: m.title, sort: m.sort, coverUrl: await coverUrl(m.coverKey, req), locked: m.locked, unlockAfterDays: m.unlockAfterDays, isBonus: m.isBonus,
       lessons: lessons.filter((l) => l.moduleId === m.id).map((l) => ({ id: l.id, title: l.title, description: l.description, fileName: l.fileName, fileSize: l.fileSize, hasFile: !!l.fileKey, sort: l.sort })),
     }))),
   });
@@ -381,8 +381,8 @@ membersRouter.post('/courses/:id/modules', asyncHandler(async (req, res) => {
   const p = z.object({ title: z.string().trim().min(1, 'Dê um nome ao módulo').max(120) }).safeParse(req.body ?? {});
   if (!p.success) throw new AppError(422, p.error.issues[0]?.message ?? 'Dados inválidos');
   const [{ n }] = (await db.execute(sql`select coalesce(max(sort), -1)::int + 1 as n from member_modules where course_id = ${c.id}`)).rows as { n: number }[];
-  const [m] = await db.insert(schema.memberModules).values({ accountId: req.accountId!, courseId: c.id, title: p.data.title, sort: n }).returning();
-  res.status(201).json({ module: { id: m.id, title: m.title, sort: m.sort, coverUrl: null, locked: false, unlockAfterDays: null, lessons: [] } });
+  const [m] = await db.insert(schema.memberModules).values({ accountId: req.accountId!, courseId: c.id, title: p.data.title, sort: n, isBonus: /b[ôo]nus/i.test(p.data.title) }).returning();
+  res.status(201).json({ module: { id: m.id, title: m.title, sort: m.sort, coverUrl: null, locked: false, unlockAfterDays: null, isBonus: m.isBonus, lessons: [] } });
 }));
 
 membersRouter.patch('/modules/:id', asyncHandler(async (req, res) => {
@@ -392,6 +392,7 @@ membersRouter.patch('/modules/:id', asyncHandler(async (req, res) => {
     title: z.string().trim().min(1, 'Dê um nome ao módulo').max(120).optional(),
     locked: z.boolean().optional(),
     unlockAfterDays: z.number().int().min(1, 'Mínimo de 1 dia').max(3650).nullable().optional(),
+    isBonus: z.boolean().optional(),
   }).safeParse(req.body ?? {});
   if (!p.success) throw new AppError(422, p.error.issues[0]?.message ?? 'Dados inválidos');
   const patch: Partial<typeof schema.memberModules.$inferInsert> = {};
@@ -399,6 +400,7 @@ membersRouter.patch('/modules/:id', asyncHandler(async (req, res) => {
   if (p.data.locked !== undefined) patch.locked = p.data.locked;
   if (p.data.unlockAfterDays !== undefined) patch.unlockAfterDays = p.data.unlockAfterDays;
   if (patch.locked === false) patch.unlockAfterDays = null;
+  if (p.data.isBonus !== undefined) patch.isBonus = p.data.isBonus;
   if (Object.keys(patch).length) await db.update(schema.memberModules).set(patch).where(eq(schema.memberModules.id, m.id));
   res.json({ ok: true });
 }));

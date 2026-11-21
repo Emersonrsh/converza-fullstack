@@ -1346,6 +1346,8 @@ export const memberModules = pgTable('member_modules', {
   /** bloqueado para os alunos; com unlockAfterDays, libera sozinho N dias depois do acesso de cada aluno */
   locked: boolean('locked').notNull().default(false),
   unlockAfterDays: integer('unlock_after_days'),
+  /** bônus: fica numa fileira própria, depois dos módulos do curso */
+  isBonus: boolean('is_bonus').notNull().default(false),
   sort: integer('sort').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

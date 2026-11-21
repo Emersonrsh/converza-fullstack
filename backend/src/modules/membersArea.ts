@@ -193,7 +193,7 @@ membersAreaRouter.get('/:slug/catalog', memberAuth, asyncHandler(async (req: Mem
     join member_access a on a.course_id = c.id and a.member_id = ${mid} and a.revoked_at is null
     where c.account_id = ${accountId} and c.published order by c.sort, c.created_at`)).rows as { id: string; title: string; description: string | null; coverKey: string | null; since: string }[];
   const ids = courses.map((c) => c.id);
-  const modules = ids.length ? await db.select().from(schema.memberModules).where(sql`${schema.memberModules.courseId} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`).orderBy(asc(schema.memberModules.sort), asc(schema.memberModules.createdAt)) : [];
+  const modules = ids.length ? await db.select().from(schema.memberModules).where(sql`${schema.memberModules.courseId} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`).orderBy(asc(schema.memberModules.isBonus), asc(schema.memberModules.sort), asc(schema.memberModules.createdAt)) : [];
   const lessons = ids.length ? await db.select({ id: schema.memberLessons.id, moduleId: schema.memberLessons.moduleId, title: schema.memberLessons.title, hasFile: sql<boolean>`${schema.memberLessons.fileKey} is not null` })
     .from(schema.memberLessons).where(sql`${schema.memberLessons.courseId} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`).orderBy(asc(schema.memberLessons.sort), asc(schema.memberLessons.createdAt)) : [];
   const prog = await db.select().from(schema.memberProgress).where(eq(schema.memberProgress.memberId, mid));
@@ -206,7 +206,7 @@ membersAreaRouter.get('/:slug/catalog', memberAuth, asyncHandler(async (req: Mem
     const mods = await Promise.all(modules.filter((m) => m.courseId === c.id).map(async (m) => {
       const ls = lessons.filter((l) => l.moduleId === m.id).map((l) => ({ id: l.id, title: l.title, hasFile: l.hasFile, done: done.has(l.id) }));
       const lk = lockOf.get(m.id)!;
-      return { id: m.id, title: m.title, coverUrl: await coverUrl(m.coverKey, req), locked: lk.locked, unlockAt: lk.unlockAt, lessons: ls, done: ls.filter((l) => l.done).length, total: ls.length };
+      return { id: m.id, title: m.title, bonus: m.isBonus, coverUrl: await coverUrl(m.coverKey, req), locked: lk.locked, unlockAt: lk.unlockAt, lessons: ls, done: ls.filter((l) => l.done).length, total: ls.length };
     }));
     const total = mods.reduce((s, m) => s + m.total, 0);
     const dn = mods.reduce((s, m) => s + m.done, 0);
@@ -244,7 +244,7 @@ membersAreaRouter.get('/:slug/lessons/:id', memberAuth, asyncHandler(async (req:
   // módulos bloqueados para este aluno ficam de fora da sequência
   const seq = ((await db.execute(sql`
     select l.id, m.locked, m.unlock_after_days as days from member_lessons l join member_modules m on m.id = l.module_id
-    where l.course_id = ${l.course_id} order by m.sort, m.created_at, l.sort, l.created_at`)).rows as { id: string; locked: boolean; days: number | null }[])
+    where l.course_id = ${l.course_id} order by m.is_bonus, m.sort, m.created_at, l.sort, l.created_at`)).rows as { id: string; locked: boolean; days: number | null }[])
     .filter((x) => !moduleLock({ locked: x.locked, unlockAfterDays: x.days }, l.since).locked);
   const i = seq.findIndex((s) => s.id === l.id);
   await db.insert(schema.memberProgress).values({ memberId: req.member!.id, lessonId: l.id })

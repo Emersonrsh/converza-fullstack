@@ -159,7 +159,10 @@
 
 /* leitor */
 .mbr-reader{position:relative;margin-top:14px;border:1px solid var(--mb-line);border-radius:16px;background:#0b1214;overflow:hidden;display:flex;flex-direction:column;height:calc(100dvh - var(--top) - 250px);min-height:440px;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-.mbr-reader.full{height:100dvh;border-radius:0;border:0}
+.mbr-reader.full{height:100dvh;border-radius:0;border:0;margin:0!important}
+.mbr-reader.pseudo{position:fixed;inset:0;z-index:1000;width:100vw;height:100dvh;min-height:0}
+.mbr-reader.full .mbr-reader-bar{padding-top:max(8px, env(safe-area-inset-top))}
+.mbr-reader.full .mbr-reader-pages{padding-bottom:calc(40px + env(safe-area-inset-bottom))}
 .mbr-reader-bar{position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:var(--mb-s1);border-bottom:1px solid var(--mb-line);flex:none}
 .mbr-reader-grp{display:flex;align-items:center;gap:4px}
 .mbr-ibtn{width:34px;height:34px;display:grid;place-items:center;border-radius:9px;border:0;background:transparent;color:var(--mb-muted);cursor:pointer;transition:background .15s,color .15s}
@@ -267,3 +270,9 @@
 .mbr-toast .ic{color:#fbbf24;flex:none}
 
 .mbr-hint{color:var(--mb-faint);font-size:12.5px;margin-top:-6px;line-height:1.4}
+
+/* bônus */
+.mbr-sec-of{color:var(--mb-muted);font-weight:500}
+.mbr-group-t{font-size:18px;margin:30px 0 12px;display:flex;align-items:center;gap:10px}
+.mbr-group-t::after{content:"";flex:1;height:1px;background:var(--mb-line)}
+.mbr-side-group{margin:14px 8px 2px;padding-top:12px;border-top:1px solid var(--mb-line);font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--mb-accent)}

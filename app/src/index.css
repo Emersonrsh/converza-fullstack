@@ -3236,3 +3236,6 @@ html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:10
   .mbx-lesson .input.bare{flex:1 1 calc(100% - 40px)}
   .mbx-grid{grid-template-columns:1fr}
 }
+
+.mbx-bonus-tag{display:inline-flex;align-items:center;gap:4px;color:#f59e0b;font-weight:700}
+.mbx-bonusbtn.on{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.45);color:#f59e0b}
