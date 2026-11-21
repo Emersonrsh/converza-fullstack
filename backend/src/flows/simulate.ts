@@ -195,6 +195,14 @@ function memoryExecutor(state: SimState, outputs: SimOutput[], visited: string[]
     ai: (req) => deps.ai(req, state.history),
     getProduct: (id) => deps.product(id),
     checkoutLink: async (r) => `https://checkout.infinitepay.io/exemplo?valor=${r.amount.toFixed(2)}`,
+    xpagCharge: async (r) => {
+      note(`💱 XPag: cobrança de exemplo em ${r.currency}${r.method ? ` (${r.method})` : ''} — na simulação nada é cobrado.`);
+      const ex: Record<string, string> = {
+        MXN: r.method === 'OXXO' ? 'Paga en cualquier tienda OXXO con esta ficha: https://xpag.global/exemplo-oxxo' : 'CLABE: 000000000000000000 (exemplo)\nBanco: exemplo\nBeneficiario: exemplo',
+        COP: 'Paga aquí: https://xpag.global/exemplo-nequi', BRL: 'Pix copia e cola:\n00020126exemplo', USDT: 'Red: TRON (TRC20)\nDirección: T-exemplo', USDC: 'Red: SOLANA\nDirección: exemplo',
+      };
+      return { link: '', instructions: ex[r.currency] ?? 'Instruções de pagamento (exemplo)', amount: r.amount, currency: r.currency };
+    },
     onEnter(nodeId) { visited.push(nodeId); },
     onAdvance() {},
     note,

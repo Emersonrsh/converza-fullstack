@@ -24,6 +24,7 @@ import { cleanupOrphanRuns, sweepFlowFiles } from './flows/runner';
 import { agentsRouter } from './modules/agents';
 import { knowledgeRouter } from './modules/knowledge';
 import { infinitepayRouter, infinitepayHookRouter, startInfinitePaySweep } from './modules/infinitepay';
+import { xpagRouter, xpagHookRouter, startXpagSweep } from './modules/xpag';
 import { startConnectionHealthSweep } from './modules/connections';
 import { webhooksRouter, hooksInRouter } from './modules/webhooks';
 import { teamRouter } from './modules/team';
@@ -97,6 +98,7 @@ app.get('/api/v1/health', (_req, res) => res.json({ ok: true, service: 'converza
 // Webhook público da Meta (sem auth — autenticado pelo verify token / assinatura)
 app.use('/api/v1/webhooks/whatsapp', whatsappWebhookRouter);
 app.use('/api/v1/pay-hooks/infinitepay', infinitepayHookRouter);
+app.use('/api/v1/pay-hooks/xpag', xpagHookRouter);
 // Receptor público de integrações externas (identificado por token)
 app.use('/api/v1/hooks', hooksInRouter);
 // mídia das conversas (link assinado, sem login)
@@ -143,6 +145,7 @@ app.use('/api/v1/flow-folders', ...guard, flowFoldersRouter);
 app.use('/api/v1/agents', ...guard, agentsRouter);
 app.use('/api/v1/knowledge-bases', ...guard, knowledgeRouter);
 app.use('/api/v1/payments/infinitepay', ...guard, infinitepayRouter);
+app.use('/api/v1/payments/xpag', ...guard, xpagRouter);
 app.use('/api/v1/webhooks', ...guard, webhooksRouter);
 app.use('/api/v1/team', ...guard, teamRouter);
 app.use('/api/v1/settings', ...guard, settingsRouter);
@@ -183,6 +186,7 @@ if (process.env.START_WORKER !== 'false') {
   startBillingJobs();
   startTranslationSweep();
   startInfinitePaySweep();
+  startXpagSweep();
   // registros de acesso (Marco Civil): apaga os que passaram de 6 meses, uma vez por dia
   const purgeAccess = () => purgeAccessLogs().then((n) => { if (n) console.log(`[acessos] ${n} registros com mais de 6 meses apagados`); })
     .catch((err) => console.error('[acessos] limpeza:', (err as Error).message));

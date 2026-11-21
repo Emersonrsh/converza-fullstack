@@ -403,6 +403,16 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
       });
       return r.url;
     },
+    async xpagCharge(req) {
+      const { createXpagCharge } = await import('../modules/xpag');
+      const [c] = await db.select({ name: schema.contacts.name, phone: schema.contacts.phone, email: schema.contacts.email }).from(schema.contacts)
+        .where(and(eq(schema.contacts.id, p.contactId), eq(schema.contacts.accountId, p.accountId))).limit(1);
+      const r = await createXpagCharge({
+        accountId: p.accountId, contactId: p.contactId, amount: req.amount, currency: req.currency, method: req.method,
+        description: req.description, productId: req.productId, productName: req.productName, customer: { name: c?.name, phone: c?.phone, email: c?.email },
+      });
+      return { link: r.link, instructions: r.instructions, amount: r.amount, currency: r.currency };
+    },
     onEnter: (nodeId) => bump(nodeId, 'entries'),
     onAdvance: (nodeId) => bump(nodeId, 'advances'),
     note: () => {},
@@ -1083,7 +1093,7 @@ export async function onPaymentApproved(accountId: string, contactId: string) {
   for (const r of runs) await resumePaymentRun(r.id, r.currentNodeId ?? '', true);
 }
 
-/** Antes do "Não pago": confere uma última vez na InfinitePay os pedidos pendentes do contato. */
+/** Antes do "Não pago": confere uma última vez na InfinitePay e na XPag os pedidos pendentes do contato. */
 async function lastPaymentCheck(runId: string) {
   try {
     const [r] = await db.select({ accountId: schema.flowRuns.accountId, contactId: schema.flowRuns.contactId, status: schema.flowRuns.status })
@@ -1091,6 +1101,8 @@ async function lastPaymentCheck(runId: string) {
     if (!r || r.status !== 'waiting_payment' || !r.contactId) return;
     const { checkPendingForContact } = await import('../modules/infinitepay');
     await checkPendingForContact(r.accountId, r.contactId);
+    const { checkXpagPendingForContact } = await import('../modules/xpag');
+    await checkXpagPendingForContact(r.accountId, r.contactId);
   } catch (err) {
     console.error('[flows] última conferência do pagamento:', (err as Error).message);
   }

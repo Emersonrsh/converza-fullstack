@@ -85,6 +85,8 @@ export interface FlowExecutor {
   getProduct(productId: string): Promise<ProductInfo | null>;
   /** gera um link de checkout (InfinitePay) para o contato, com a venda "aguardando" */
   checkoutLink?(p: { provider: 'infinitepay'; amount: number; description: string; productId: string | null; productName: string | null }): Promise<string>;
+  /** cria uma cobrança na XPag (pesos mexicanos, Pix, Nequi, USDT…) para o contato, com a venda "aguardando" */
+  xpagCharge?(p: { amount: number; currency: string; method: string; description: string; productId: string | null; productName: string | null }): Promise<{ link: string; instructions: string; amount: number; currency: string }>;
   onEnter(nodeId: string): Promise<void> | void;
   onAdvance(nodeId: string): Promise<void> | void;
   /** Anotação visível só na simulação (no ar é ignorada). */
@@ -359,6 +361,12 @@ function alternatives(target: string): string[] {
 function toNum(s: string): number {
   const n = Number(String(s).replace(',', '.').replace(/[^\d.-]/g, ''));
   return Number.isFinite(n) ? n : NaN;
+}
+
+/** Valor de uma cobrança XPag (USDT/USDC não são moedas ISO). */
+export function formatXpag(n: number, currency: string): string {
+  if (currency === 'USDT' || currency === 'USDC') return `${n} ${currency}`;
+  return formatBRL(n, currency);
 }
 
 export function formatBRL(n: number, currency = 'BRL'): string {
@@ -926,6 +934,37 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
       if (!link && provider !== 'infinitepay') exec.note('⚠️ Pagamento sem link: cadastre o link de checkout do produto em Pagamentos.');
       if (text.trim()) await exec.sendText(text);
       state.vars.link_pagamento = link;
+      if (d.wait) {
+        return { kind: 'payment', nodeId: node.id, timeoutSeconds: Math.max(60, Math.round(Number(d.timeoutMinutes ?? 60) * 60)) };
+      }
+      return go(null);
+    }
+
+    case 'xpag': {
+      const s = await scope();
+      const p = d.productId ? await exec.getProduct(String(d.productId)) : null;
+      const currency = String(d.currency || 'MXN').toUpperCase();
+      // o preço do produto vale na moeda escolhida no bloco
+      const amount = p ? p.price : parseMoney(render(String(d.amount ?? ''), s));
+      const description = render(String(d.description ?? ''), s).trim() || p?.name || 'Pedido';
+      let link = '';
+      let instrucoes = '';
+      let preco = Number.isFinite(amount) ? formatXpag(amount, currency) : '';
+      if (!exec.xpagCharge) { /* sem XPag neste contexto */ }
+      else if (!Number.isFinite(amount) || amount <= 0) exec.note('⚠️ Pagamento XPag: escolha um produto com preço ou informe o valor.');
+      else {
+        try {
+          const r = await exec.xpagCharge({ amount, currency, method: String(d.method ?? ''), description, productId: p?.id ?? null, productName: p?.name ?? null });
+          link = r.link; instrucoes = r.instructions; preco = formatXpag(r.amount, r.currency);
+        } catch (err) { exec.note(`⚠️ XPag: ${(err as Error).message}`); }
+      }
+      const produto = p?.name ?? '';
+      const sc = { ...s, link, instrucoes, produto, preco, product: produto, price: preco };
+      let text = render(d.text || '{{instrucoes}}', sc);
+      if (instrucoes && !text.includes(instrucoes) && !(link && text.includes(link))) text = `${text}\n${instrucoes}`.trim();
+      if (text.trim()) await exec.sendText(text);
+      state.vars.link_pagamento = link;
+      state.vars.instrucoes_pagamento = instrucoes;
       if (d.wait) {
         return { kind: 'payment', nodeId: node.id, timeoutSeconds: Math.max(60, Math.round(Number(d.timeoutMinutes ?? 60) * 60)) };
       }
