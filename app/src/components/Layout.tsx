@@ -1,5 +1,5 @@
 import { Logo } from './Logo';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Icon } from '../icons';
 import { useAuth } from '../auth';
@@ -34,7 +34,7 @@ const NAV: [string, [string, string, string][]][] = [
 ];
 
 const TITLES: Record<string, [string, string]> = {
-  '/': ['Dashboard', 'Visão geral da operação'],
+  '/': ['Dashboards', 'Visão geral da operação'],
   '/inbox': ['Chats ao vivo', 'Atendimento em tempo real'],
   '/kanban': ['Kanbans', 'Pipeline de vendas e gestão visual'],
   '/contacts': ['Contatos', 'Sua base de leads e clientes'],
@@ -51,6 +51,55 @@ const TITLES: Record<string, [string, string]> = {
   '/tutorials': ['Tutoriais', 'Aprenda a usar cada parte do Converza'],
   '/platform': ['Painel da plataforma', 'Todas as empresas, receita e assinaturas do Converza'],
 };
+
+/**
+ * Menu "Dashboards": o geral (todos os produtos) e um item por produto, que abre o dashboard filtrado
+ * (?produto=<id>). Abre sozinho quando um produto está escolhido.
+ */
+function DashboardNav({ accountId }: { accountId: string | null }) {
+  const loc = useLocation();
+  const nav = useNavigate();
+  const [products, setProducts] = useState<{ id: string; name: string }[]>([]);
+  const onDash = loc.pathname === '/';
+  const current = onDash ? new URLSearchParams(loc.search).get('produto') ?? '' : '';
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem('cz.nav.dash') !== '0'; } catch { return true; } });
+  const toggle = (v: boolean) => { setOpen(v); try { localStorage.setItem('cz.nav.dash', v ? '1' : '0'); } catch { /* sem storage */ } };
+  const load = useCallback(() => {
+    if (!accountId) return;
+    api.get<{ products: { id: string; name: string; active?: boolean }[] }>('/settings/products')
+      .then((r) => setProducts(r.products.filter((p) => p.active !== false))).catch(() => {});
+  }, [accountId]);
+  useEffect(() => { load(); }, [load]);
+  // produto criado, renomeado ou apagado nas configurações
+  useEffect(() => { window.addEventListener('converza:products', load); return () => window.removeEventListener('converza:products', load); }, [load]);
+  useEffect(() => { if (current) setOpen(true); }, [current]);
+  const hasKids = products.length > 0;
+  return (
+    <div className={cx('navtree', open && hasKids && 'open')} data-testid="nav-dashboards">
+      <div className={cx('navitem', onDash && !current && 'active')} role="link" tabIndex={0}
+        onClick={() => { nav('/'); if (hasKids && (!onDash || !current)) toggle(onDash ? !open : true); }}
+        onKeyDown={(e) => { if (e.key === 'Enter') nav('/'); }} data-testid="nav-dash-all">
+        <Icon name="layers" /><span>Dashboards</span>
+        {hasKids && (
+          <button type="button" className="navtree-caret" aria-label={open ? 'Fechar a lista de produtos' : 'Abrir a lista de produtos'}
+            onClick={(e) => { e.stopPropagation(); toggle(!open); }} data-testid="nav-dash-toggle">
+            <Icon name={open ? 'chevronUp' : 'chevron'} size={15} />
+          </button>
+        )}
+      </div>
+      {hasKids && open && (
+        <div className="navtree-kids">
+          {products.map((p) => (
+            <button type="button" key={p.id} className={cx('navitem navsub', current === p.id && 'active')} title={p.name}
+              onClick={() => nav(`/?produto=${encodeURIComponent(p.id)}`)} data-testid="nav-dash-product">
+              <Icon name="box" size={16} /><span>{p.name}</span><Icon name="chevronRight" size={14} />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Empresa suspensa no painel da plataforma: ninguém da empresa usa até reativar. */
 function Suspended({ name, reason, others, onSwitch, onLogout }: { name: string; reason: string | null | undefined; others: { id: string; name: string }[]; onSwitch: (id: string) => void; onLogout: () => void }) {
@@ -160,7 +209,7 @@ export function Layout() {
         {navGroups.map(([group, items]) => (
           <div key={group}>
             <div className="navgroup">{group}</div>
-            {items.map(([ic, label, to]) => (
+            {items.map(([ic, label, to]) => to === '/' ? <DashboardNav key={to} accountId={accountId} /> : (
               <NavLink key={to} to={to} end={to === '/'}
                 className={({ isActive }) => cx('navitem', isActive && 'active')}>
                 <Icon name={ic} /><span>{label}</span>

@@ -43,6 +43,14 @@ button{font-family:inherit}
 .navitem > span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .navitem > .ic{flex:none}
 .navitem.active{background:var(--nav-active);color:#fff;font-weight:600}
+.navtree .navitem{cursor:pointer}
+.navtree-caret{margin-left:auto;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:7px;background:transparent;color:inherit;cursor:pointer;opacity:.8;flex:none}
+.navtree-caret:hover{background:color-mix(in srgb, #fff 12%, transparent);opacity:1}
+.navtree-kids{position:relative;margin:2px 0 6px 20px;padding-left:10px;border-left:1px solid color-mix(in srgb, var(--sidebar-muted) 35%, transparent)}
+.navitem.navsub{font-size:13.5px;padding:7px 10px;gap:10px}
+.navitem.navsub > .ic:last-child{margin-left:auto;opacity:.55}
+.navitem.navsub.active > .ic:last-child{opacity:1}
+.navitem.navsub.active::before{display:none}
 .navitem .badge{margin-left:auto;background:var(--primary-600);color:#042a27;font-size:11px;font-weight:800;border-radius:20px;padding:1px 7px}
 .sidefoot{margin-top:auto;padding-top:12px}
 .tokens{display:flex;align-items:center;gap:10px;background:var(--sidebar-active);border-radius:12px;padding:10px 12px;margin-top:8px}
@@ -402,6 +410,10 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .cur-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;font-weight:500}
 .cur-group{padding:8px 10px 4px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
 .cur-empty{padding:14px 10px;color:var(--muted);font-size:13px}
+.dchip{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 6px 0 12px;border-radius:10px;background:color-mix(in srgb, var(--primary-600) 14%, var(--surface-2));border:1px solid color-mix(in srgb, var(--primary-600) 40%, transparent);font-size:13.5px;font-weight:600;max-width:260px}
+.dchip > span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dchip > button{display:grid;place-items:center;width:22px;height:22px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;flex:none}
+.dchip > button:hover{background:color-mix(in srgb, var(--text) 10%, transparent)}
 .dicons{display:flex;gap:4px;padding:4px;border-radius:12px;background:var(--surface-2)}
 .dicon{width:32px;height:32px;border:0;border-radius:9px;background:transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center}
 .dicon:hover{background:var(--surface);color:var(--text)}

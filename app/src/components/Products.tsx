@@ -35,6 +35,7 @@ export function ProductsManager({ onChange }: { onChange?: (list: Product[]) => 
     const r = await api.get<{ products: Product[] }>('/settings/products');
     setList(r.products);
     onChange?.(r.products);
+    window.dispatchEvent(new Event('converza:products')); // menu "Dashboards" da barra lateral
   };
   useEffect(() => { load().catch((e) => toast((e as Error).message)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

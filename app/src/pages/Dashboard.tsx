@@ -1,7 +1,7 @@
 import { Logo } from '../components/Logo';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SubscriptionAlert } from '../components/SubscriptionAlert';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { getSocket } from '../socket';
@@ -25,8 +25,9 @@ const PERIOD_OPTS: [Period, string][] = [
 const filtersKey = (acc: string | null) => `converza:dash:filters:${acc}`;
 const bannerKey = (acc: string | null) => `converza:dash:partnerBanner:${acc}`;
 
+// o produto vem do menu "Dashboards" (endereço), não dos filtros salvos
 function loadSaved(acc: string | null): DashFilters | null {
-  try { const v = localStorage.getItem(filtersKey(acc)); return v ? { ...DEFAULTS, ...JSON.parse(v) } : null; } catch { return null; }
+  try { const v = localStorage.getItem(filtersKey(acc)); return v ? { ...DEFAULTS, ...JSON.parse(v), productId: '' } : null; } catch { return null; }
 }
 const toQuery = (f: DashFilters) => {
   const q = new URLSearchParams({ period: f.period, currency: f.currency });
@@ -54,7 +55,14 @@ export function Dashboard() {
     try { const v = localStorage.getItem('cw.dash.tab'); return v === 'hoje' || v === 'atendimento' ? v : 'vendas'; } catch { return 'vendas'; }
   });
   useEffect(() => { try { localStorage.setItem('cw.dash.tab', tab); } catch { /* sem storage */ } }, [tab]);
-  const [filters, setFilters] = useState<DashFilters>(() => loadSaved(accountId) ?? DEFAULTS);
+  const [filters, setFilters] = useState<DashFilters>(() => ({ ...(loadSaved(accountId) ?? DEFAULTS), productId: new URLSearchParams(window.location.search).get('produto') ?? '' }));
+  // produto escolhido no menu "Dashboards" da barra lateral (?produto=<id>); sem ele, todos os produtos
+  const [params, setParams] = useSearchParams();
+  const urlProduct = params.get('produto') ?? '';
+  useEffect(() => {
+    setFilters((f) => (f.productId === urlProduct ? f : { ...f, productId: urlProduct }));
+    if (urlProduct) setTab('vendas'); // o filtro de produto vale para o dashboard de vendas
+  }, [urlProduct]);
   const [saved, setSaved] = useState<DashFilters | null>(() => loadSaved(accountId));
   const [sales, setSales] = useState<SalesDash | null>(null);
   const [att, setAtt] = useState<AttendanceDash | null>(null);
@@ -122,14 +130,15 @@ export function Dashboard() {
 
   const refresh = () => { void load(); setRefreshKey((x) => x + 1); };
   const changed = () => { void load(true); setRefreshKey((x) => x + 1); };
-  const isSaved = saved !== null && JSON.stringify(saved) === JSON.stringify(filters);
+  const isSaved = saved !== null && JSON.stringify(saved) === JSON.stringify({ ...filters, productId: '' });
   function saveFilters() {
-    localStorage.setItem(filtersKey(accountId), JSON.stringify(filters));
-    setSaved(filters);
+    const keep = { ...filters, productId: '' };
+    localStorage.setItem(filtersKey(accountId), JSON.stringify(keep));
+    setSaved(keep);
     toast('Filtros salvos — o dashboard vai abrir sempre assim');
   }
   function resetFilters() {
-    setFilters(DEFAULTS);
+    setFilters({ ...DEFAULTS, productId: urlProduct });
     toast('Filtros restaurados');
   }
   function closeBanner() {
@@ -209,11 +218,11 @@ export function Dashboard() {
           <option value="">{narrow ? 'Conexões' : 'Todas as conexões'}</option>
           {connections.map((c) => <option key={c.id} value={c.id}>{c.name}{c.displayPhone ? ` · ${c.displayPhone}` : ''}</option>)}
         </select>}
-        {tab === 'vendas' && (
-          <select className="select dsel" value={filters.productId} onChange={(e) => set({ productId: e.target.value })} data-testid="product-filter">
-            <option value="">{narrow ? 'Produtos' : 'Todos os produtos'}</option>
-            {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+        {tab === 'vendas' && filters.productId && (
+          <span className="dchip" data-testid="product-chip">
+            <Icon name="box" size={14} /><span>{products.find((p) => p.id === filters.productId)?.name ?? 'Produto'}</span>
+            <button type="button" onClick={() => { params.delete('produto'); setParams(params); }} aria-label="Ver todos os produtos" title="Ver todos os produtos" data-testid="product-chip-clear"><Icon name="close" size={12} /></button>
+          </span>
         )}
         <span className="spacer" />
         {tab !== 'atendimento' && <AdAccountFilter value={filters.adAccounts ?? []} onChange={(adAccounts) => set({ adAccounts })} />}
