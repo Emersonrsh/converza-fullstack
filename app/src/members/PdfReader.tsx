@@ -9,6 +9,8 @@ import { Icon } from '../icons';
 
 interface Props {
   url: string;
+  full: boolean;
+  onToggleFull: () => void;
   token: string | null;
   storeKey: string;
   onEnd?: (atEnd: boolean) => void;
@@ -19,6 +21,38 @@ type Link = { href: string; x: number; y: number; w: number; h: number };
 
 const fsElement = () => document.fullscreenElement ?? (document as unknown as { webkitFullscreenElement?: Element | null }).webkitFullscreenElement ?? null;
 const exitFs = () => (document.exitFullscreen ? document.exitFullscreen() : (document as unknown as { webkitExitFullscreen?: () => Promise<void> }).webkitExitFullscreen?.());
+
+/**
+ * Tela cheia de um elemento que continua montado entre as aulas.
+ * No iPhone (sem tela cheia de elemento), o elemento cobre a página e a rolagem de fundo trava.
+ */
+export function useFullscreen(ref: React.RefObject<HTMLElement | null>) {
+  const [real, setReal] = useState(false);
+  const [pseudo, setPseudo] = useState(false);
+  useEffect(() => {
+    const on = () => setReal(!!ref.current && fsElement() === ref.current);
+    document.addEventListener('fullscreenchange', on);
+    document.addEventListener('webkitfullscreenchange', on);
+    return () => { document.removeEventListener('fullscreenchange', on); document.removeEventListener('webkitfullscreenchange', on); if (fsElement()) void exitFs(); };
+  }, [ref]);
+  useEffect(() => {
+    if (!pseudo) return;
+    const html = document.documentElement, prev = html.style.overflow;
+    html.style.overflow = 'hidden';
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setPseudo(false); };
+    window.addEventListener('keydown', esc);
+    return () => { html.style.overflow = prev; window.removeEventListener('keydown', esc); };
+  }, [pseudo]);
+  const toggle = useCallback(() => {
+    if (pseudo) { setPseudo(false); return; }
+    if (fsElement()) { void exitFs(); return; }
+    const el = ref.current as (HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void }) | null;
+    const req = el && (el.requestFullscreen ? () => el.requestFullscreen() : el.webkitRequestFullscreen ? () => el.webkitRequestFullscreen!() : null);
+    if (!req || !(document.fullscreenEnabled || (document as unknown as { webkitFullscreenEnabled?: boolean }).webkitFullscreenEnabled)) { setPseudo(true); return; }
+    try { Promise.resolve(req()).catch(() => setPseudo(true)); } catch { setPseudo(true); }
+  }, [pseudo, ref]);
+  return { full: real || pseudo, pseudo, toggle };
+}
 
 const ZOOMS = [0.6, 0.75, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2];
 
@@ -31,8 +65,7 @@ function pdfjs() {
   return lib;
 }
 
-export default function PdfReader({ url, token, storeKey, onEnd }: Props) {
-  const wrap = useRef<HTMLDivElement>(null);
+export default function PdfReader({ url, token, storeKey, onEnd, full, onToggleFull }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [boxes, setBoxes] = useState<PageBox[]>([]);
@@ -41,9 +74,6 @@ export default function PdfReader({ url, token, storeKey, onEnd }: Props) {
   const [zoom, setZoom] = useState(1);
   const [page, setPage] = useState(1);
   const [progress, setProgress] = useState(0);
-  const [real, setReal] = useState(false);
-  const [pseudo, setPseudo] = useState(false);
-  const full = real || pseudo;
   const [pageInput, setPageInput] = useState('1');
 
   // abre o documento
@@ -76,21 +106,6 @@ export default function PdfReader({ url, token, storeKey, onEnd }: Props) {
     return () => ro.disconnect();
   }, []);
 
-  useEffect(() => {
-    const on = () => setReal(fsElement() === wrap.current);
-    document.addEventListener('fullscreenchange', on);
-    document.addEventListener('webkitfullscreenchange', on);
-    return () => { document.removeEventListener('fullscreenchange', on); document.removeEventListener('webkitfullscreenchange', on); };
-  }, []);
-  // tela cheia "da página" (iPhone não deixa um elemento que não é vídeo ocupar a tela): trava a rolagem de fundo
-  useEffect(() => {
-    if (!pseudo) return;
-    const html = document.documentElement, prev = html.style.overflow;
-    html.style.overflow = 'hidden';
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setPseudo(false); };
-    window.addEventListener('keydown', esc);
-    return () => { html.style.overflow = prev; window.removeEventListener('keydown', esc); };
-  }, [pseudo]);
   // ao entrar e sair da tela cheia, continua na mesma página
   const pageRef = useRef(1);
   pageRef.current = page;
@@ -136,19 +151,11 @@ export default function PdfReader({ url, token, storeKey, onEnd }: Props) {
   // documento curto que cabe sem rolar
   useEffect(() => { if (doc && scroller.current && scroller.current.scrollHeight <= scroller.current.clientHeight + 4) onEnd?.(true); });
 
-  function toggleFull() {
-    if (pseudo) { setPseudo(false); return; }
-    if (fsElement()) { void exitFs(); return; }
-    const el = wrap.current as (HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> | void }) | null;
-    const req = el && (el.requestFullscreen ? () => el.requestFullscreen() : el.webkitRequestFullscreen ? () => el.webkitRequestFullscreen!() : null);
-    if (!req || !(document.fullscreenEnabled || (document as unknown as { webkitFullscreenEnabled?: boolean }).webkitFullscreenEnabled)) { setPseudo(true); return; }
-    try { Promise.resolve(req()).catch(() => setPseudo(true)); } catch { setPseudo(true); }
-  }
   const zi = ZOOMS.findIndex((z) => Math.abs(z - zoom) < 0.001);
   const n = boxes.length;
 
   return (
-    <div className={`mbr-reader${full ? ' full' : ''}${pseudo ? ' pseudo' : ''}`} ref={wrap} data-testid="mbr-pdf" onContextMenu={(e) => e.preventDefault()}>
+    <div className={`mbr-reader${full ? ' full' : ''}`} data-testid="mbr-pdf" onContextMenu={(e) => e.preventDefault()}>
       <div className="mbr-reader-bar">
         <div className="mbr-reader-grp">
           <button type="button" className="mbr-ibtn" onClick={() => goTo(page - 1)} disabled={page <= 1} aria-label="Página anterior"><Icon name="chevronUp" size={16} /></button>
@@ -163,7 +170,7 @@ export default function PdfReader({ url, token, storeKey, onEnd }: Props) {
           <button type="button" className="mbr-zoom" onClick={() => setZoom(1)} title="Ajustar à largura" data-testid="mbr-zoom">{Math.round(zoom * 100)}%</button>
           <button type="button" className="mbr-ibtn" onClick={() => zi < ZOOMS.length - 1 && setZoom(ZOOMS[zi + 1])} disabled={zi >= ZOOMS.length - 1} aria-label="Aumentar"><Icon name="plus" size={16} /></button>
           <span className="mbr-reader-sep" />
-          <button type="button" className="mbr-ibtn" onClick={toggleFull} aria-label={full ? 'Sair da tela cheia' : 'Tela cheia'} title={full ? 'Sair da tela cheia' : 'Tela cheia'} data-testid="mbr-fullscreen"><Icon name={full ? 'minimize' : 'maximize'} size={16} /></button>
+          <button type="button" className="mbr-ibtn" onClick={onToggleFull} aria-label={full ? 'Sair da tela cheia' : 'Tela cheia'} title={full ? 'Sair da tela cheia' : 'Tela cheia'} data-testid="mbr-fullscreen"><Icon name={full ? 'minimize' : 'maximize'} size={16} /></button>
         </div>
         <i className="mbr-reader-prog" style={{ transform: `scaleX(${progress})` }} />
       </div>

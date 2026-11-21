@@ -6,7 +6,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import { Link, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { API_BASE } from '../api';
 import { Icon } from '../icons';
-import PdfReader from './PdfReader';
+import PdfReader, { useFullscreen } from './PdfReader';
 import './members.css';
 
 /* ============================================================ API do aluno */
@@ -368,11 +368,18 @@ function LessonPage({ slug, api, cat, onChange }: { slug: string; api: Api; cat:
   const [busy, setBusy] = useState(false);
   const [atEnd, setAtEnd] = useState(false);
   const [drawer, setDrawer] = useState(false);
+  const [fsToc, setFsToc] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const stage = useRef<HTMLDivElement>(null);
+  const fs = useFullscreen(stage);
   useEffect(() => {
-    setD(null); setErr(null); setAtEnd(false); setDrawer(false);
-    api.call<LessonFull>('GET', `/lessons/${lessonId}`).then(setD).catch((e) => setErr((e as Error).message));
-    window.scrollTo(0, 0);
-  }, [api, lessonId]);
+    // a tela cheia continua entre as aulas: o palco não é desmontado durante a troca
+    setErr(null); setAtEnd(false); setDrawer(false); setFsToc(false); setLoading(true);
+    let alive = true;
+    api.call<LessonFull>('GET', `/lessons/${lessonId}`).then((r) => { if (alive) { setD(r); setLoading(false); } }).catch((e) => { if (alive) { setErr((e as Error).message); setLoading(false); } });
+    if (!stage.current || !fs.full) window.scrollTo(0, 0);
+    return () => { alive = false; };
+  }, [api, lessonId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function toggle(done: boolean, goNext = false) {
     if (!d) return;
@@ -389,6 +396,7 @@ function LessonPage({ slug, api, cat, onChange }: { slug: string; api: Api; cat:
   const titleOf = (id: string | null) => (id && course ? course.modules.flatMap((m) => m.lessons).find((l) => l.id === id)?.title ?? null : null);
   if (err) return <div className="mbr-empty in" data-testid="mbr-lesson-err"><Icon name={/bloqueado/i.test(err) ? 'lock' : 'alert'} size={28} /><h2>{/bloqueado/i.test(err) ? 'Módulo bloqueado' : 'Não foi possível abrir a aula'}</h2><p>{err}</p><Link className="mbr-btn" to={`/m/${slug}`}>Voltar</Link></div>;
   if (!d) return <div className="mbr-loading"><span className="mbr-spin" /></div>;
+  const goLesson = (id: string | null) => id && nav(`/m/${slug}/aula/${id}`);
   const prevT = titleOf(d.prevId), nextT = titleOf(d.nextId);
   const modIdx = course ? course.modules.findIndex((m) => m.lessons.some((l) => l.id === d.lesson.id)) : -1;
   const modLabel = course && modIdx >= 0 ? modName(course.modules[modIdx], groupIdx(course.modules, course.modules[modIdx])) : d.lesson.moduleTitle;
@@ -411,9 +419,42 @@ function LessonPage({ slug, api, cat, onChange }: { slug: string; api: Api; cat:
           </div>
           {d.lesson.description && <p className="mbr-muted">{d.lesson.description}</p>}
         </header>
-        {d.hasPdf
-          ? <PdfReader url={`${API_BASE}/m/${slug}/lessons/${d.lesson.id}/pdf`} token={api.token} storeKey={`cz.member.pos.${d.lesson.id}`} onEnd={setAtEnd} />
-          : <div className="mbr-empty in"><Icon name="file" size={28} /><p>O material desta aula ainda não foi publicado.</p></div>}
+        <div ref={stage} className={`mbr-stage${fs.full ? ' full' : ''}${fs.pseudo ? ' pseudo' : ''}`} data-testid="mbr-stage">
+          {fs.full && (
+            <div className="mbr-fsbar" data-testid="mbr-fsbar">
+              <button type="button" className="mbr-ibtn" onClick={() => setFsToc(!fsToc)} aria-label="Conteúdo do curso" data-testid="mbr-fs-toc"><Icon name="list" size={18} /></button>
+              <div className="mbr-fsbar-t"><small>{modLabel}</small><b>{d.lesson.title}</b></div>
+              <button type="button" className="mbr-ibtn" disabled={!d.prevId || loading} onClick={() => goLesson(d.prevId)} aria-label="Aula anterior" title={prevT ? `Anterior: ${prevT}` : 'Anterior'} data-testid="mbr-fs-prev"><Icon name="chevronLeft" size={18} /></button>
+              {d.lesson.done
+                ? <button type="button" className="mbr-btn sm done" disabled={busy || loading || !d.nextId} onClick={() => goLesson(d.nextId)} data-testid="mbr-fs-next-done">{d.nextId ? <>Próxima<Icon name="chevronRight" size={15} /></> : <><Icon name="checkCircle" size={15} />Concluída</>}</button>
+                : <button type="button" className={`mbr-btn sm primary${atEnd ? ' pulse' : ''}`} disabled={busy || loading} onClick={() => void toggle(true, true)} data-testid="mbr-fs-complete"><Icon name="check" size={15} /><span className="mbr-fs-lbl">{d.nextId ? 'Concluir e avançar' : 'Concluir'}</span><span className="mbr-fs-sh">Concluir</span></button>}
+              <button type="button" className="mbr-ibtn" disabled={!d.nextId || loading} onClick={() => goLesson(d.nextId)} aria-label="Próxima aula" title={nextT ? `Próxima: ${nextT}` : 'Próxima'} data-testid="mbr-fs-next"><Icon name="chevronRight" size={18} /></button>
+            </div>
+          )}
+          {loading ? <div className="mbr-reader mbr-reader-wait"><div className="mbr-reader-msg"><span className="mbr-spin" /><p>Abrindo a aula…</p></div></div>
+            : d.hasPdf
+              ? <PdfReader url={`${API_BASE}/m/${slug}/lessons/${d.lesson.id}/pdf`} token={api.token} storeKey={`cz.member.pos.${d.lesson.id}`} onEnd={setAtEnd} full={fs.full} onToggleFull={fs.toggle} />
+              : <div className="mbr-reader mbr-reader-wait"><div className="mbr-reader-msg"><Icon name="file" size={28} /><p>O material desta aula ainda não foi publicado.</p>{fs.full && <button type="button" className="mbr-btn sm" onClick={fs.toggle}>Sair da tela cheia</button>}</div></div>}
+          {fs.full && fsToc && course && (
+            <>
+              <div className="mbr-fs-scrim" onClick={() => setFsToc(false)} />
+              <div className="mbr-fs-toc" data-testid="mbr-fs-toc-panel">
+                <div className="mbr-side-hd">
+                  <div><b className="mbr-side-t">{course.title}</b><small>{course.done} de {course.total} aulas · {pct(course.done, course.total)}%</small></div>
+                  <button type="button" className="mbr-ibtn" onClick={() => setFsToc(false)} aria-label="Fechar"><Icon name="close" size={16} /></button>
+                </div>
+                <div className="mbr-side-list">
+                  {course.modules.map((m, k) => (
+                    <Fragment key={m.id}>
+                      {m.bonus && (k === 0 || !course.modules[k - 1].bonus) && <div className="mbr-side-group">Bônus</div>}
+                      <SideModule slug={slug} m={m} i={groupIdx(course.modules, m)} current={d.lesson.id} />
+                    </Fragment>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
         <div className="mbr-lesson-acts">
           <button type="button" className="mbr-navbtn" disabled={!d.prevId} onClick={() => d.prevId && nav(`/m/${slug}/aula/${d.prevId}`)} data-testid="mbr-prev">
             <Icon name="chevronLeft" size={18} /><span><small>Anterior</small>{prevT && <b>{prevT}</b>}</span>
