@@ -1,9 +1,9 @@
 /**
  * Converza Members — área do aluno (pública, por empresa): <app>/m/<slug>.
  *
- * Login próprio do membro (e-mail ou WhatsApp + senha), separado das contas do Converza:
- * o token é assinado com outra chave e nunca serve no painel. Primeiro acesso e "esqueci a senha"
- * entram por um link de uso único que chega pelo WhatsApp ou e-mail.
+ * Entrada do membro só com o número de WhatsApp da compra (sem senha), separada das contas do Converza:
+ * o token é assinado com outra chave e nunca serve no painel. O link que chega pelo WhatsApp ou e-mail
+ * também entra direto (uso único).
  */
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { createHash } from 'node:crypto';
@@ -73,12 +73,35 @@ membersAreaRouter.get('/:slug/info', asyncHandler(async (req, res) => {
   res.json({ title: look.title, subtitle: look.subtitle, color: look.color, company: area.name, bannerUrl: await coverUrl(look.bannerKey, req) });
 }));
 
-/** acha o membro pelo e-mail ou pelo número (com ou sem o 55 do Brasil) */
+/**
+ * Formas possíveis de um mesmo número: com ou sem o 55 do Brasil e, no celular brasileiro,
+ * com ou sem o 9 depois do DDD (o WhatsApp guarda alguns números antigos sem ele).
+ */
+export function phoneVariants(raw: string): string[] {
+  const d = String(raw ?? '').replace(/\D/g, '');
+  if (d.length < 8) return [];
+  const out = new Set<string>([d]);
+  // sem código do país e com cara de número brasileiro (DDD + 8 ou 9 dígitos)
+  const br = d.startsWith('55') && (d.length === 12 || d.length === 13) ? d.slice(2) : (d.length === 10 || d.length === 11) ? d : null;
+  if (br) {
+    const ddd = br.slice(0, 2); const num = br.slice(2);
+    const forms = [num];
+    if (num.length === 9 && num.startsWith('9')) forms.push(num.slice(1));
+    if (num.length === 8 && /^[6-9]/.test(num)) forms.push(`9${num}`);
+    for (const f of forms) { out.add(`55${ddd}${f}`); out.add(`${ddd}${f}`); }
+  }
+  // México: o WhatsApp de celulares antigos guarda o número com 1 depois do 52
+  if (d.startsWith('521') && d.length === 13) out.add(`52${d.slice(3)}`);
+  else if (d.startsWith('52') && d.length === 12) out.add(`521${d.slice(2)}`);
+  return [...out];
+}
+
+/** acha o membro pelo e-mail ou pelo número de WhatsApp */
 async function findByLogin(accountId: string, login: string) {
   const email = normEmail(login);
   const phone = email ? null : normPhone(login);
   if (!email && !phone) return null;
-  const phones = phone ? [...new Set([phone, phone.startsWith('55') ? phone.slice(2) : `55${phone}`])] : [];
+  const phones = phone ? phoneVariants(phone) : [];
   const [m] = await db.select().from(schema.memberUsers).where(and(eq(schema.memberUsers.accountId, accountId),
     email ? sql`lower(${schema.memberUsers.email}) = ${email}` : sql`${schema.memberUsers.phone} in (${sql.join(phones.map((p) => sql`${p}`), sql`, `)})`)).limit(1);
   return m ?? null;
@@ -102,6 +125,22 @@ membersAreaRouter.post('/:slug/login', asyncHandler(async (req, res) => {
   res.json({ token: sign(m), member: memberView(m) });
 }));
 
+/** Entrada só com o número de WhatsApp da compra (sem senha). */
+membersAreaRouter.post('/:slug/enter', asyncHandler(async (req, res) => {
+  const area = await areaOf(req.params.slug);
+  const phone = String(req.body?.phone ?? '').trim().slice(0, 40);
+  if (phoneVariants(phone).length === 0) throw new AppError(422, 'Digite o seu número de WhatsApp com o DDD.');
+  // limite por IP: dificulta sair testando números
+  const limits = [{ key: `menter-ip:${clientIp(req)}`, max: 30, windowSec: 900 }, { key: `menter:${area.accountId}:${phone.replace(/\D/g, '')}`, max: 10, windowSec: 900 }];
+  await assertUnderLimits(limits, 'entrada');
+  await countAttempt(limits);
+  const [m] = await db.select().from(schema.memberUsers).where(and(eq(schema.memberUsers.accountId, area.accountId),
+    sql`${schema.memberUsers.phone} in (${sql.join(phoneVariants(phone).map((p) => sql`${p}`), sql`, `)})`)).limit(1);
+  if (!m) throw new AppError(404, 'Não encontramos acesso para este número. Use o mesmo WhatsApp da compra.');
+  await db.update(schema.memberUsers).set({ lastLoginAt: new Date() }).where(eq(schema.memberUsers.id, m.id));
+  res.json({ token: sign(m), member: memberView(m) });
+}));
+
 /** Link de primeiro acesso / nova senha: entra e pede para criar a senha. */
 membersAreaRouter.post('/:slug/magic', asyncHandler(async (req, res) => {
   const area = await areaOf(req.params.slug);
@@ -111,11 +150,11 @@ membersAreaRouter.post('/:slug/magic', asyncHandler(async (req, res) => {
   const [row] = await db.update(schema.memberTokens).set({ usedAt: new Date() })
     .where(and(eq(schema.memberTokens.tokenHash, hash), isNull(schema.memberTokens.usedAt), gt(schema.memberTokens.expiresAt, new Date())))
     .returning({ memberId: schema.memberTokens.memberId });
-  if (!row) throw new AppError(410, 'Este link já foi usado ou expirou. Peça um novo em “Esqueci minha senha”.');
+  if (!row) throw new AppError(410, 'Este link já foi usado ou expirou.');
   const [m] = await db.select().from(schema.memberUsers).where(and(eq(schema.memberUsers.id, row.memberId), eq(schema.memberUsers.accountId, area.accountId))).limit(1);
   if (!m) throw new AppError(410, 'Este link não é desta área de membros.');
   await db.update(schema.memberUsers).set({ lastLoginAt: new Date() }).where(eq(schema.memberUsers.id, m.id));
-  res.json({ token: sign(m), member: memberView(m), needsPassword: true });
+  res.json({ token: sign(m), member: memberView(m) });
 }));
 
 membersAreaRouter.post('/:slug/forgot', asyncHandler(async (req, res) => {

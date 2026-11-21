@@ -180,3 +180,5 @@
 .mbr-side-l.off:hover{background:transparent}
 .mbr-toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:9px;max-width:calc(100vw - 32px);background:#14231f;border:1px solid var(--mb-line);color:var(--mb-text);padding:12px 16px;border-radius:12px;box-shadow:0 14px 36px rgba(0,0,0,.5);font-size:14px}
 .mbr-toast .ic{color:#fbbf24;flex:none}
+
+.mbr-hint{color:var(--mb-faint);font-size:12.5px;margin-top:-6px;line-height:1.4}

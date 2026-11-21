@@ -184,7 +184,7 @@ function PeopleTab() {
             <tbody>
               {rows.map((p) => (
                 <tr key={p.id} data-testid="mbx-person">
-                  <td><b>{p.name || 'Sem nome'}</b><small className="faint">{[p.email, p.phone ? `+${p.phone}` : null].filter(Boolean).join(' · ')}</small>{!p.hasPassword && <small className="mbx-tag">ainda não criou a senha</small>}</td>
+                  <td><b>{p.name || 'Sem nome'}</b><small className="faint">{[p.email, p.phone ? `+${p.phone}` : null].filter(Boolean).join(' · ')}</small></td>
                   <td>{p.courses.map((c) => (
                     <div key={c.accessId} className="mbx-pc">
                       <span>{c.title}</span><span className="mbx-mini"><i style={{ width: `${c.total ? Math.round((c.done / c.total) * 100) : 0}%` }} /></span><small>{c.done}/{c.total}</small>

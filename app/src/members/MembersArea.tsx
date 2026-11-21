@@ -114,56 +114,38 @@ function AuthShell({ info, children }: { info: Info; children: ReactNode }) {
 
 function Login({ slug, info, api }: { slug: string; info: Info; api: Api }) {
   const nav = useNavigate();
-  const [login, setLogin] = useState('');
-  const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [forgot, setForgot] = useState(false);
-  const [sent, setSent] = useState(false);
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setBusy(true); setErr(null);
-    try {
-      if (forgot) { await api.call('POST', '/forgot', { login }); setSent(true); }
-      else { const r = await api.call<{ token: string }>('POST', '/login', { login, password }); api.setToken(r.token); nav(`/m/${slug}`, { replace: true }); }
-    } catch (e2) { setErr((e2 as Error).message); }
+    try { const r = await api.call<{ token: string }>('POST', '/enter', { phone }); api.setToken(r.token); nav(`/m/${slug}`, { replace: true }); }
+    catch (e2) { setErr((e2 as Error).message); }
     setBusy(false);
   }
 
   return (
     <AuthShell info={info}>
-      <h2>{forgot ? 'Recuperar acesso' : 'Entrar'}</h2>
-      <p className="mbr-muted">{forgot ? 'Informe o e-mail ou o WhatsApp da sua compra. Mandamos um link para você entrar e criar uma nova senha.' : 'Use o e-mail ou o WhatsApp da sua compra.'}</p>
-      {sent ? (
-        <div className="mbr-ok" data-testid="mbr-forgot-sent"><Icon name="checkCircle" size={18} /><span>Se esse contato tem acesso, o link chega em instantes pelo WhatsApp ou e-mail.</span></div>
-      ) : (
-        <form onSubmit={submit} className="mbr-form">
-          <label><span>E-mail ou WhatsApp</span>
-            <input className="mbr-input" value={login} onChange={(e) => setLogin(e.target.value)} autoComplete="username" placeholder="voce@email.com ou (11) 99999-9999" required data-testid="mbr-login" /></label>
-          {!forgot && <label><span>Senha</span>
-            <input className="mbr-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required data-testid="mbr-password" /></label>}
-          {err && <div className="mbr-err" data-testid="mbr-err">{err}</div>}
-          <button className="mbr-btn primary" disabled={busy} data-testid="mbr-submit">{busy ? 'Aguarde…' : forgot ? 'Enviar link' : 'Entrar'}</button>
-        </form>
-      )}
-      <button type="button" className="mbr-link" onClick={() => { setForgot(!forgot); setErr(null); setSent(false); }} data-testid="mbr-forgot">
-        {forgot ? 'Voltar para o login' : 'Esqueci minha senha / primeiro acesso'}
-      </button>
+      <h2>Entrar</h2>
+      <p className="mbr-muted">Digite o número de WhatsApp que você usou na compra.</p>
+      <form onSubmit={submit} className="mbr-form">
+        <label><span>WhatsApp com DDD</span>
+          <input className="mbr-input" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" placeholder="(11) 99999-9999" required autoFocus data-testid="mbr-login" /></label>
+        <small className="mbr-hint">Número de fora do Brasil: digite com o código do país (ex.: +52 55 1234 5678).</small>
+        {err && <div className="mbr-err" data-testid="mbr-err">{err}</div>}
+        <button className="mbr-btn primary" disabled={busy || phone.replace(/\D/g, '').length < 8} data-testid="mbr-submit">{busy ? 'Entrando…' : 'Entrar'}</button>
+      </form>
     </AuthShell>
   );
 }
 
-/** Link de primeiro acesso: entra e pede para criar a senha. */
+/** Link que chega pelo WhatsApp ou e-mail: entra direto. */
 function Enter({ slug, info, api }: { slug: string; info: Info; api: Api }) {
   const [params] = useSearchParams();
   const nav = useNavigate();
   const t = params.get('t') ?? '';
-  const [state, setState] = useState<'checking' | 'password' | 'error'>('checking');
   const [err, setErr] = useState<string | null>(null);
-  const [member, setMember] = useState<Member | null>(null);
-  const [name, setName] = useState('');
-  const [pw, setPw] = useState('');
-  const [busy, setBusy] = useState(false);
   const started = useRef(false);
 
   useEffect(() => {
@@ -174,37 +156,21 @@ function Enter({ slug, info, api }: { slug: string; info: Info; api: Api }) {
         const r = await fetch(`${API_BASE}/m/${slug}/magic`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: t }) });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error ?? 'Link inválido');
-        api.setToken(d.token); setMember(d.member); setName(d.member.name ?? ''); setState('password');
-      } catch (e) { setErr((e as Error).message); setState('error'); }
+        api.setToken(d.token); nav(`/m/${slug}`, { replace: true });
+      } catch (e) {
+        // link já usado: quem já entrou neste aparelho segue direto
+        if (api.token) { nav(`/m/${slug}`, { replace: true }); return; }
+        setErr((e as Error).message);
+      }
     })();
-  }, [slug, t, api]);
-
-  async function save(e: FormEvent) {
-    e.preventDefault(); setBusy(true); setErr(null);
-    try {
-      const r = await api.call<{ token: string }>('POST', '/password', { password: pw, ...(name.trim() ? { name: name.trim() } : {}) });
-      api.setToken(r.token); nav(`/m/${slug}`, { replace: true });
-    } catch (e2) { setErr((e2 as Error).message); }
-    setBusy(false);
-  }
+  }, [slug, t, api, nav]);
 
   return (
     <AuthShell info={info}>
-      {state === 'checking' && <div className="mbr-loading inline"><span className="mbr-spin" /></div>}
-      {state === 'error' && <>
+      {!err ? <div className="mbr-loading inline"><span className="mbr-spin" /></div> : <>
         <h2>Link indisponível</h2>
-        <div className="mbr-err" data-testid="mbr-enter-err">{err}</div>
-        <Link className="mbr-btn" to={`/m/${slug}`}>Ir para o login</Link>
-      </>}
-      {state === 'password' && <>
-        <h2>{member?.hasPassword ? 'Crie uma nova senha' : 'Boas-vindas! Crie sua senha'}</h2>
-        <p className="mbr-muted">Você vai usar {member?.email ? <b>{member.email}</b> : 'seu WhatsApp'} e esta senha para entrar das próximas vezes.</p>
-        <form onSubmit={save} className="mbr-form">
-          <label><span>Seu nome</span><input className="mbr-input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" data-testid="mbr-name" /></label>
-          <label><span>Senha (mínimo 6 caracteres)</span><input className="mbr-input" type="password" minLength={6} value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" required data-testid="mbr-new-password" /></label>
-          {err && <div className="mbr-err">{err}</div>}
-          <button className="mbr-btn primary" disabled={busy || pw.length < 6} data-testid="mbr-save-password">{busy ? 'Salvando…' : 'Salvar e entrar'}</button>
-        </form>
+        <div className="mbr-err" data-testid="mbr-enter-err">{err.replace(/ Peça um novo em “Esqueci minha senha”\./, '')} Entre com o seu número de WhatsApp.</div>
+        <Link className="mbr-btn primary" to={`/m/${slug}`}>Entrar com o WhatsApp</Link>
       </>}
     </AuthShell>
   );

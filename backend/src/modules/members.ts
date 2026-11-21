@@ -97,9 +97,9 @@ export async function sendMemberAccess(accountId: string, memberId: string, opts
   const first = (m.name ?? '').trim().split(/\s+/)[0] || '';
   const courses = opts.courseTitles?.length ? opts.courseTitles.map((t) => `“${t}”`).join(', ') : '';
   const intro = opts.reason === 'forgot'
-    ? 'Aqui está o link para entrar na área de membros e criar uma nova senha'
+    ? 'Aqui está o link para entrar na área de membros'
     : opts.reason === 'sale' && courses ? `Seu acesso a ${courses} está liberado` : 'Seu acesso à área de membros está liberado';
-  const text = `${first ? `Olá, ${first}! ` : ''}${intro} 🎉\n\nEntre por este link (vale 7 dias) e crie sua senha:\n${link}\n\nDepois é só acessar ${appBase()}/m/${slug}`;
+  const text = `${first ? `Olá, ${first}! ` : ''}${intro} 🎉\n\nToque no link para entrar:\n${link}\n\nDas próximas vezes, acesse ${appBase()}/m/${slug} e digite este número de WhatsApp.`;
   let whatsapp = false;
   let email = false;
   let error: string | undefined;
@@ -120,7 +120,7 @@ export async function sendMemberAccess(accountId: string, memberId: string, opts
   }
   if (m.email && emailConfigured()) {
     const title = opts.reason === 'forgot' ? 'Entrar na área de membros' : 'Seu acesso está liberado';
-    const paras = [first ? `Olá, ${escapeHtml(first)}!` : 'Olá!', `${escapeHtml(intro)}${courses ? '' : ''} em <b>${escapeHtml(look.title)}</b>.`, 'Clique no botão para entrar e criar sua senha. O link vale 7 dias.'];
+    const paras = [first ? `Olá, ${escapeHtml(first)}!` : 'Olá!', `${escapeHtml(intro)}${courses ? '' : ''} em <b>${escapeHtml(look.title)}</b>.`, `Clique no botão para entrar. Das próximas vezes, acesse ${escapeHtml(`${appBase()}/m/${slug}`)} e digite o seu número de WhatsApp.`];
     const r = await sendMail({ to: m.email, subject: `${title} · ${look.title}`, html: layout(title, paras, { label: 'Entrar na área de membros', url: link }), text: plainText(title, paras.map((p) => p.replace(/<[^>]+>/g, '')), { label: 'Entrar na área de membros', url: link }) });
     email = r.sent;
     if (!r.sent && !error) error = r.error;
