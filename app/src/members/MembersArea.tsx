@@ -424,17 +424,21 @@ function LessonPage({ slug, api, cat, onChange }: { slug: string; api: Api; cat:
             <div className="mbr-fsbar" data-testid="mbr-fsbar">
               <button type="button" className="mbr-ibtn" onClick={() => setFsToc(!fsToc)} aria-label="Conteúdo do curso" data-testid="mbr-fs-toc"><Icon name="list" size={18} /></button>
               <div className="mbr-fsbar-t"><small>{modLabel}</small><b>{d.lesson.title}</b></div>
-              <button type="button" className="mbr-ibtn" disabled={!d.prevId || loading} onClick={() => goLesson(d.prevId)} aria-label="Aula anterior" title={prevT ? `Anterior: ${prevT}` : 'Anterior'} data-testid="mbr-fs-prev"><Icon name="chevronLeft" size={18} /></button>
-              {d.lesson.done
-                ? <button type="button" className="mbr-btn sm done" disabled={busy || loading || !d.nextId} onClick={() => goLesson(d.nextId)} data-testid="mbr-fs-next-done">{d.nextId ? <>Próxima<Icon name="chevronRight" size={15} /></> : <><Icon name="checkCircle" size={15} />Concluída</>}</button>
-                : <button type="button" className={`mbr-btn sm primary${atEnd ? ' pulse' : ''}`} disabled={busy || loading} onClick={() => void toggle(true, true)} data-testid="mbr-fs-complete"><Icon name="check" size={15} /><span className="mbr-fs-lbl">{d.nextId ? 'Concluir e avançar' : 'Concluir'}</span><span className="mbr-fs-sh">Concluir</span></button>}
-              <button type="button" className="mbr-ibtn" disabled={!d.nextId || loading} onClick={() => goLesson(d.nextId)} aria-label="Próxima aula" title={nextT ? `Próxima: ${nextT}` : 'Próxima'} data-testid="mbr-fs-next"><Icon name="chevronRight" size={18} /></button>
             </div>
           )}
           {loading ? <div className="mbr-reader mbr-reader-wait"><div className="mbr-reader-msg"><span className="mbr-spin" /><p>Abrindo a aula…</p></div></div>
             : d.hasPdf
               ? <PdfReader url={`${API_BASE}/m/${slug}/lessons/${d.lesson.id}/pdf`} token={api.token} storeKey={`cz.member.pos.${d.lesson.id}`} onEnd={setAtEnd} full={fs.full} onToggleFull={fs.toggle} />
               : <div className="mbr-reader mbr-reader-wait"><div className="mbr-reader-msg"><Icon name="file" size={28} /><p>O material desta aula ainda não foi publicado.</p>{fs.full && <button type="button" className="mbr-btn sm" onClick={fs.toggle}>Sair da tela cheia</button>}</div></div>}
+          {fs.full && (
+            <div className="mbr-fsnav" data-testid="mbr-fsnav">
+              <button type="button" className="mbr-fsnav-btn" disabled={!d.prevId || loading} onClick={() => goLesson(d.prevId)} aria-label="Aula anterior" title={prevT ? `Anterior: ${prevT}` : 'Anterior'} data-testid="mbr-fs-prev"><Icon name="chevronLeft" size={18} /></button>
+              {d.lesson.done
+                ? <button type="button" className="mbr-btn sm done" disabled={busy || loading || !d.nextId} onClick={() => goLesson(d.nextId)} data-testid="mbr-fs-next-done">{d.nextId ? <>Próxima<Icon name="chevronRight" size={15} /></> : <><Icon name="checkCircle" size={15} />Concluída</>}</button>
+                : <button type="button" className={`mbr-btn sm primary${atEnd ? ' pulse' : ''}`} disabled={busy || loading} onClick={() => void toggle(true, true)} data-testid="mbr-fs-complete"><Icon name="check" size={15} /><span className="mbr-fs-lbl">{d.nextId ? 'Concluir e avançar' : 'Concluir'}</span><span className="mbr-fs-sh">Concluir</span></button>}
+              <button type="button" className="mbr-fsnav-btn" disabled={!d.nextId || loading} onClick={() => goLesson(d.nextId)} aria-label="Próxima aula" title={nextT ? `Próxima: ${nextT}` : 'Próxima'} data-testid="mbr-fs-next"><Icon name="chevronRight" size={18} /></button>
+            </div>
+          )}
           {fs.full && fsToc && course && (
             <>
               <div className="mbr-fs-scrim" onClick={() => setFsToc(false)} />
