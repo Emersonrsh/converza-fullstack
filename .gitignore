@@ -6,3 +6,6 @@ npm-debug.log*
 .DS_Store
 .vite/
 dump.rdb
+
+# arquivos locais da área de membros (modo de desenvolvimento)
+.object-store/

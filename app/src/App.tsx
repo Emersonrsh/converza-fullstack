@@ -30,10 +30,14 @@ import { DispatchRoute } from './dispatch/CampaignView';
 
 // o editor de fluxos (React Flow) só é baixado quando alguém abre um fluxo
 const FlowBuilder = lazy(() => import('./pages/FlowBuilder').then((m) => ({ default: m.FlowBuilder })));
+const MembersArea = lazy(() => import('./members/MembersArea'));
+const MembersAdmin = lazy(() => import('./pages/Members'));
 
 export default function App() {
   const { user, accounts, loading, offline, retry } = useAuth();
   const loc = useLocation();
+  // Converza Members: área do aluno, com login próprio
+  if (loc.pathname.startsWith('/m/')) return <Suspense fallback={<div style={{ height: '100vh', background: '#070d0e' }} />}><MembersArea /></Suspense>;
   // página de pagamento da Paddle: pública (o link pode ser aberto sem login)
   if (loc.pathname === '/pagamento') return <PaddleCheckout />;
   // Termos, Privacidade e Exclusão de dados: públicas (a Meta e os clientes abrem sem login)
@@ -94,6 +98,7 @@ export default function App() {
         <Route path="/webhooks" element={<Webhooks />} />
         <Route path="/webhooks/:id" element={<WebhookEditor />} />
         <Route path="/meta/*" element={<Meta />} />
+        <Route path="/members/*" element={<Suspense fallback={<Spinner />}><MembersAdmin /></Suspense>} />
         <Route path="/team" element={<Navigate to="/settings/equipe" replace />} />
         <Route path="/billing/*" element={<Billing />} />
         <Route path="/settings" element={<SettingsLayout />} />

@@ -44,6 +44,8 @@ export const accounts = pgTable('accounts', {
   suspendedReason: text('suspended_reason'),
   /** limite de anexos (respostas rápidas e fluxos) em MB, definido no painel da plataforma; vazio = 200 MB */
   attachmentsLimitMb: integer('attachments_limit_mb'),
+  /** endereço da área de membros (converza.pro/m/<slug>) */
+  membersSlug: text('members_slug'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -1323,6 +1325,77 @@ export const mcpCalls = pgTable('mcp_calls', {
   byAccount: index('mcp_calls_account_idx').on(t.accountId, t.createdAt),
 }));
 
+/* ---------- Converza Members (área de membros com cursos em PDF) ---------- */
+export const memberCourses = pgTable('member_courses', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  description: text('description'),
+  coverKey: text('cover_key'),
+  productId: uuid('product_id').references(() => products.id, { onDelete: 'set null' }),
+  published: boolean('published').notNull().default(false),
+  sort: integer('sort').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+export const memberModules = pgTable('member_modules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  courseId: uuid('course_id').notNull().references(() => memberCourses.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  coverKey: text('cover_key'),
+  sort: integer('sort').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+export const memberLessons = pgTable('member_lessons', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  courseId: uuid('course_id').notNull().references(() => memberCourses.id, { onDelete: 'cascade' }),
+  moduleId: uuid('module_id').notNull().references(() => memberModules.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  description: text('description'),
+  fileKey: text('file_key'),
+  fileName: text('file_name'),
+  fileSize: integer('file_size'),
+  sort: integer('sort').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+export const memberUsers = pgTable('member_users', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  email: text('email'),
+  phone: text('phone'),
+  name: text('name'),
+  contactId: uuid('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
+  passwordHash: text('password_hash'),
+  passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }),
+  lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+export const memberAccess = pgTable('member_access', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  memberId: uuid('member_id').notNull().references(() => memberUsers.id, { onDelete: 'cascade' }),
+  courseId: uuid('course_id').notNull().references(() => memberCourses.id, { onDelete: 'cascade' }),
+  source: text('source').notNull().default('sale'),
+  saleId: uuid('sale_id').references(() => sales.id, { onDelete: 'set null' }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ uniq: uniqueIndex('member_access_unique_idx').on(t.memberId, t.courseId) }));
+export const memberProgress = pgTable('member_progress', {
+  memberId: uuid('member_id').notNull().references(() => memberUsers.id, { onDelete: 'cascade' }),
+  lessonId: uuid('lesson_id').notNull().references(() => memberLessons.id, { onDelete: 'cascade' }),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  openedAt: timestamp('opened_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ pk: primaryKey({ columns: [t.memberId, t.lessonId] }) }));
+export const memberTokens = pgTable('member_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  memberId: uuid('member_id').notNull().references(() => memberUsers.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const schema = {
   accounts, users, userTokens, memberships, connections, contacts, conversations, messages, quickReplies,
   tags, flowFolders, flows, flowRuns, flowNodeStats, voices, knowledgeBases, agents, agentRuns, campaigns, webhooks, products, sales, adSpend, subscriptions,
@@ -1331,4 +1404,5 @@ export const schema = {
   departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, platformAudit, storedFiles, storedFileChunks, storedFileMedia,
   globalVariables, flowTranslations, aiUsage, trackingLinks, trackingClicks, apiKeys, mcpCalls, flowDistributions,
   waWebAuth, waWebMedia, accessLogs,
+  memberCourses, memberModules, memberLessons, memberUsers, memberAccess, memberProgress, memberTokens,
 };

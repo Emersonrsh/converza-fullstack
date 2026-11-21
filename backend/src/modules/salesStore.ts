@@ -123,5 +123,7 @@ export async function recordSale(input: SaleInput) {
   if (row.status === 'approved') void firePixels(input.accountId, 'sale', { saleId: row.id, contactId: row.contactId });
   // celular: "Venda aprovada" (uma vez por venda)
   if (row.status === 'approved') void notifySaleApproved(row.id);
+  // Converza Members: produto ligado a curso libera o acesso do comprador
+  if (row.status === 'approved' && row.productId) void import('./members').then((m) => m.grantFromSale(row.id)).catch(() => {});
   return row;
 }

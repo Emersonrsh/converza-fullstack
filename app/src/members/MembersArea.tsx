@@ -1,0 +1,435 @@
+/**
+ * Converza Members — área do aluno de cada empresa (/m/<slug>).
+ * Login próprio do membro, vitrine dos cursos liberados, página do curso e leitor de PDF.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { Link, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { API_BASE } from '../api';
+import { Icon } from '../icons';
+import './members.css';
+
+/* ============================================================ API do aluno */
+
+interface Info { title: string; subtitle: string; color: string; company: string; bannerUrl: string | null }
+interface Member { id: string; name: string | null; email: string | null; phone: string | null; hasPassword: boolean }
+interface LessonLite { id: string; title: string; hasFile: boolean; done: boolean }
+interface ModuleT { id: string; title: string; coverUrl: string | null; lessons: LessonLite[]; done: number; total: number }
+interface CourseT { id: string; title: string; description: string | null; coverUrl: string | null; modules: ModuleT[]; done: number; total: number }
+interface Catalog { member: Member; courses: CourseT[]; continue: { lessonId: string; title: string; moduleTitle: string; courseId: string } | null }
+interface LessonFull {
+  lesson: { id: string; title: string; description: string | null; fileName: string | null; fileSize: number | null; moduleTitle: string; courseTitle: string; courseId: string; done: boolean };
+  pdfUrl: string | null; downloadUrl: string | null; prevId: string | null; nextId: string | null;
+}
+
+const tokenKey = (slug: string) => `cz.member.${slug}`;
+class MErr extends Error { status: number; constructor(s: number, m: string) { super(m); this.status = s; } }
+
+function useMemberApi(slug: string) {
+  const [token, setTok] = useState<string | null>(() => { try { return localStorage.getItem(tokenKey(slug)); } catch { return null; } });
+  const setToken = useCallback((t: string | null) => {
+    try { t ? localStorage.setItem(tokenKey(slug), t) : localStorage.removeItem(tokenKey(slug)); } catch { /* sem storage */ }
+    setTok(t);
+  }, [slug]);
+  const call = useCallback(async <T,>(method: string, path: string, body?: unknown): Promise<T> => {
+    const res = await fetch(`${API_BASE}/m/${slug}${path}`, {
+      method, headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 401 && token) setToken(null);
+      throw new MErr(res.status, (data as { error?: string }).error ?? `Erro ${res.status}`);
+    }
+    return data as T;
+  }, [slug, token, setToken]);
+  return useMemo(() => ({ token, setToken, call }), [token, setToken, call]);
+}
+
+/* ============================================================ casca */
+
+export default function MembersArea() {
+  return (
+    <Routes>
+      <Route path="/m/:slug/*" element={<Area />} />
+    </Routes>
+  );
+}
+
+function Area() {
+  const { slug = '' } = useParams();
+  const [info, setInfo] = useState<Info | null>(null);
+  const [missing, setMissing] = useState(false);
+  const api = useMemberApi(slug);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/m/${slug}/info`).then(async (r) => { if (!r.ok) throw new Error(); setInfo(await r.json()); }).catch(() => setMissing(true));
+  }, [slug]);
+  useEffect(() => { if (info) document.title = info.title; }, [info]);
+
+  const style = useMemo(() => ({ '--mb-accent': info?.color ?? '#19b3a4' }) as CSSProperties, [info]);
+  if (missing) return <div className="mbr" style={style}><div className="mbr-empty"><Brand /><h1>Área de membros não encontrada</h1><p>Confira o endereço que você recebeu.</p></div></div>;
+  if (!info) return <div className="mbr" style={style}><div className="mbr-loading"><span className="mbr-spin" /></div></div>;
+
+  return (
+    <div className="mbr" style={style} data-testid="mbr">
+      <Routes>
+        <Route path="entrar" element={<Enter slug={slug} info={info} api={api} />} />
+        <Route path="*" element={api.token ? <Signed slug={slug} info={info} api={api} /> : <Login slug={slug} info={info} api={api} />} />
+      </Routes>
+    </div>
+  );
+}
+
+type Api = ReturnType<typeof useMemberApi>;
+
+function Brand({ small }: { small?: boolean }) {
+  return (
+    <span className={`mbr-brand${small ? ' sm' : ''}`}>
+      <img src="/icon-192.png?v=2" alt="" />
+      <span><b>Converza</b> Members</span>
+    </span>
+  );
+}
+
+/* ============================================================ login */
+
+function AuthShell({ info, children }: { info: Info; children: ReactNode }) {
+  return (
+    <div className="mbr-auth">
+      <div className="mbr-auth-art" style={info.bannerUrl ? { backgroundImage: `linear-gradient(180deg, rgba(5,10,11,.35), rgba(5,10,11,.92)), url("${info.bannerUrl}")` } : undefined}>
+        <Brand />
+        <div>
+          <span className="mbr-kicker">Área de membros</span>
+          <h1>{info.title}</h1>
+          <p>{info.subtitle}</p>
+        </div>
+        <small>{info.company}</small>
+      </div>
+      <div className="mbr-auth-side">
+        <div className="mbr-auth-card">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Login({ slug, info, api }: { slug: string; info: Info; api: Api }) {
+  const nav = useNavigate();
+  const [login, setLogin] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [forgot, setForgot] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault(); setBusy(true); setErr(null);
+    try {
+      if (forgot) { await api.call('POST', '/forgot', { login }); setSent(true); }
+      else { const r = await api.call<{ token: string }>('POST', '/login', { login, password }); api.setToken(r.token); nav(`/m/${slug}`, { replace: true }); }
+    } catch (e2) { setErr((e2 as Error).message); }
+    setBusy(false);
+  }
+
+  return (
+    <AuthShell info={info}>
+      <h2>{forgot ? 'Recuperar acesso' : 'Entrar'}</h2>
+      <p className="mbr-muted">{forgot ? 'Informe o e-mail ou o WhatsApp da sua compra. Mandamos um link para você entrar e criar uma nova senha.' : 'Use o e-mail ou o WhatsApp da sua compra.'}</p>
+      {sent ? (
+        <div className="mbr-ok" data-testid="mbr-forgot-sent"><Icon name="checkCircle" size={18} /><span>Se esse contato tem acesso, o link chega em instantes pelo WhatsApp ou e-mail.</span></div>
+      ) : (
+        <form onSubmit={submit} className="mbr-form">
+          <label><span>E-mail ou WhatsApp</span>
+            <input className="mbr-input" value={login} onChange={(e) => setLogin(e.target.value)} autoComplete="username" placeholder="voce@email.com ou (11) 99999-9999" required data-testid="mbr-login" /></label>
+          {!forgot && <label><span>Senha</span>
+            <input className="mbr-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required data-testid="mbr-password" /></label>}
+          {err && <div className="mbr-err" data-testid="mbr-err">{err}</div>}
+          <button className="mbr-btn primary" disabled={busy} data-testid="mbr-submit">{busy ? 'Aguarde…' : forgot ? 'Enviar link' : 'Entrar'}</button>
+        </form>
+      )}
+      <button type="button" className="mbr-link" onClick={() => { setForgot(!forgot); setErr(null); setSent(false); }} data-testid="mbr-forgot">
+        {forgot ? 'Voltar para o login' : 'Esqueci minha senha / primeiro acesso'}
+      </button>
+    </AuthShell>
+  );
+}
+
+/** Link de primeiro acesso: entra e pede para criar a senha. */
+function Enter({ slug, info, api }: { slug: string; info: Info; api: Api }) {
+  const [params] = useSearchParams();
+  const nav = useNavigate();
+  const t = params.get('t') ?? '';
+  const [state, setState] = useState<'checking' | 'password' | 'error'>('checking');
+  const [err, setErr] = useState<string | null>(null);
+  const [member, setMember] = useState<Member | null>(null);
+  const [name, setName] = useState('');
+  const [pw, setPw] = useState('');
+  const [busy, setBusy] = useState(false);
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/m/${slug}/magic`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: t }) });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error ?? 'Link inválido');
+        api.setToken(d.token); setMember(d.member); setName(d.member.name ?? ''); setState('password');
+      } catch (e) { setErr((e as Error).message); setState('error'); }
+    })();
+  }, [slug, t, api]);
+
+  async function save(e: FormEvent) {
+    e.preventDefault(); setBusy(true); setErr(null);
+    try {
+      const r = await api.call<{ token: string }>('POST', '/password', { password: pw, ...(name.trim() ? { name: name.trim() } : {}) });
+      api.setToken(r.token); nav(`/m/${slug}`, { replace: true });
+    } catch (e2) { setErr((e2 as Error).message); }
+    setBusy(false);
+  }
+
+  return (
+    <AuthShell info={info}>
+      {state === 'checking' && <div className="mbr-loading inline"><span className="mbr-spin" /></div>}
+      {state === 'error' && <>
+        <h2>Link indisponível</h2>
+        <div className="mbr-err" data-testid="mbr-enter-err">{err}</div>
+        <Link className="mbr-btn" to={`/m/${slug}`}>Ir para o login</Link>
+      </>}
+      {state === 'password' && <>
+        <h2>{member?.hasPassword ? 'Crie uma nova senha' : 'Boas-vindas! Crie sua senha'}</h2>
+        <p className="mbr-muted">Você vai usar {member?.email ? <b>{member.email}</b> : 'seu WhatsApp'} e esta senha para entrar das próximas vezes.</p>
+        <form onSubmit={save} className="mbr-form">
+          <label><span>Seu nome</span><input className="mbr-input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" data-testid="mbr-name" /></label>
+          <label><span>Senha (mínimo 6 caracteres)</span><input className="mbr-input" type="password" minLength={6} value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" required data-testid="mbr-new-password" /></label>
+          {err && <div className="mbr-err">{err}</div>}
+          <button className="mbr-btn primary" disabled={busy || pw.length < 6} data-testid="mbr-save-password">{busy ? 'Salvando…' : 'Salvar e entrar'}</button>
+        </form>
+      </>}
+    </AuthShell>
+  );
+}
+
+/* ============================================================ logado */
+
+function Signed({ slug, info, api }: { slug: string; info: Info; api: Api }) {
+  const [cat, setCat] = useState<Catalog | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const loc = useLocation();
+  const load = useCallback(() => { api.call<Catalog>('GET', '/catalog').then(setCat).catch((e) => setErr((e as Error).message)); }, [api]);
+  useEffect(() => { load(); }, [load, loc.pathname]);
+
+  if (err && !cat) return <div className="mbr-empty"><Brand /><p>{err}</p><button className="mbr-btn" onClick={load}>Tentar de novo</button></div>;
+  if (!cat) return <div className="mbr-loading"><span className="mbr-spin" /></div>;
+  return (
+    <>
+      <TopBar slug={slug} member={cat.member} onLogout={() => api.setToken(null)} />
+      <Routes>
+        <Route path="curso/:courseId" element={<CoursePage slug={slug} cat={cat} />} />
+        <Route path="aula/:lessonId" element={<LessonPage slug={slug} api={api} cat={cat} onChange={load} />} />
+        <Route path="*" element={<Home slug={slug} info={info} cat={cat} />} />
+      </Routes>
+      <footer className="mbr-foot"><Brand small /><span>{info.company} · área de membros</span></footer>
+    </>
+  );
+}
+
+function TopBar({ slug, member, onLogout }: { slug: string; member: Member; onLogout: () => void }) {
+  const [open, setOpen] = useState(false);
+  const initials = (member.name || member.email || 'M').trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+  return (
+    <header className="mbr-top">
+      <Link to={`/m/${slug}`} className="mbr-home-link"><Brand /></Link>
+      <div className="mbr-me">
+        <button type="button" className="mbr-avatar" onClick={() => setOpen(!open)} aria-label="Minha conta" data-testid="mbr-avatar">{initials}</button>
+        {open && (
+          <div className="mbr-menu" onMouseLeave={() => setOpen(false)}>
+            <div className="mbr-menu-hd"><b>{member.name || 'Membro'}</b><small>{member.email || member.phone}</small></div>
+            <button type="button" onClick={onLogout} data-testid="mbr-logout"><Icon name="logout" size={15} />Sair</button>
+          </div>
+        )}
+      </div>
+    </header>
+  );
+}
+
+const pct = (d: number, t: number) => (t ? Math.round((d / t) * 100) : 0);
+
+function Home({ slug, info, cat }: { slug: string; info: Info; cat: Catalog }) {
+  const nav = useNavigate();
+  const first = cat.courses[0];
+  const firstLesson = first?.modules.flatMap((m) => m.lessons).find((l) => !l.done) ?? first?.modules[0]?.lessons[0];
+  const go = cat.continue ? cat.continue.lessonId : firstLesson?.id;
+  return (
+    <main className="mbr-main">
+      <section className="mbr-hero" style={info.bannerUrl ? { backgroundImage: `linear-gradient(90deg, rgba(6,12,13,.94) 0%, rgba(6,12,13,.7) 45%, rgba(6,12,13,.15) 100%), url("${info.bannerUrl}")` } : undefined} data-testid="mbr-hero">
+        <div className="mbr-hero-in">
+          <span className="mbr-kicker">{cat.member.name ? `Olá, ${cat.member.name.split(/\s+/)[0]}` : 'Bem-vindo(a)'}</span>
+          <h1>{info.title}</h1>
+          <p>{info.subtitle}</p>
+          {go && <button type="button" className="mbr-btn white" onClick={() => nav(`/m/${slug}/aula/${go}`)} data-testid="mbr-hero-go"><Icon name="play" size={16} />{cat.continue ? 'Continuar' : 'Começar agora'}</button>}
+        </div>
+      </section>
+
+      {cat.continue && (
+        <section className="mbr-sec">
+          <h2>Continue de onde parou</h2>
+          <button type="button" className="mbr-continue" onClick={() => nav(`/m/${slug}/aula/${cat.continue!.lessonId}`)} data-testid="mbr-continue">
+            <span className="mbr-continue-ic"><Icon name="file" size={22} /></span>
+            <span><small>{cat.continue.moduleTitle}</small><b>{cat.continue.title}</b></span>
+            <Icon name="chevronRight" size={18} />
+          </button>
+        </section>
+      )}
+
+      {!cat.courses.length && (
+        <div className="mbr-empty in" data-testid="mbr-no-courses"><Icon name="book" size={30} /><h2>Nenhum curso liberado ainda</h2><p>Quando sua compra for confirmada, os cursos aparecem aqui.</p></div>
+      )}
+
+      {cat.courses.map((c) => (
+        <section className="mbr-sec" key={c.id} data-testid="mbr-course-row">
+          <div className="mbr-sec-hd">
+            <div>
+              <h2><Link to={`/m/${slug}/curso/${c.id}`}>{c.title}</Link></h2>
+              <small>{c.modules.length} módulo(s) · {c.total} aula(s) · {pct(c.done, c.total)}% concluído</small>
+            </div>
+            <Link to={`/m/${slug}/curso/${c.id}`} className="mbr-btn ghost sm">Ver curso</Link>
+          </div>
+          <Rail>
+            {c.modules.map((m, i) => (
+              <button type="button" key={m.id} className="mbr-poster" onClick={() => { const l = m.lessons.find((x) => !x.done) ?? m.lessons[0]; if (l) nav(`/m/${slug}/aula/${l.id}`); else nav(`/m/${slug}/curso/${c.id}`); }} data-testid="mbr-module">
+                {m.coverUrl ? <img src={m.coverUrl} alt="" loading="lazy" /> : <span className="mbr-poster-fill" style={{ '--h': `${(i * 47) % 360}` } as CSSProperties}><span>{m.title}</span></span>}
+                <span className="mbr-poster-info">
+                  <small>Módulo {i + 1}</small>
+                  <b>{m.title}</b>
+                  <span className="mbr-bar"><i style={{ width: `${pct(m.done, m.total)}%` }} /></span>
+                  <em>{m.total ? (m.done ? `${m.done} de ${m.total} aulas` : `${m.total} aula(s)`) : 'Em breve'}</em>
+                </span>
+              </button>
+            ))}
+          </Rail>
+        </section>
+      ))}
+    </main>
+  );
+}
+
+/** Fileira horizontal com setas (no celular, arrasta com o dedo). */
+function Rail({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const by = (dir: number) => ref.current?.scrollBy({ left: dir * (ref.current.clientWidth * 0.85), behavior: 'smooth' });
+  return (
+    <div className="mbr-rail-wrap">
+      <button type="button" className="mbr-rail-btn l" onClick={() => by(-1)} aria-label="Anteriores"><Icon name="chevronLeft" size={18} /></button>
+      <div className="mbr-rail" ref={ref}>{children}</div>
+      <button type="button" className="mbr-rail-btn r" onClick={() => by(1)} aria-label="Próximos"><Icon name="chevronRight" size={18} /></button>
+    </div>
+  );
+}
+
+function CoursePage({ slug, cat }: { slug: string; cat: Catalog }) {
+  const { courseId } = useParams();
+  const c = cat.courses.find((x) => x.id === courseId);
+  const nav = useNavigate();
+  if (!c) return <div className="mbr-empty in"><h2>Curso não encontrado</h2><Link className="mbr-btn" to={`/m/${slug}`}>Voltar</Link></div>;
+  const next = c.modules.flatMap((m) => m.lessons).find((l) => !l.done) ?? c.modules[0]?.lessons[0];
+  return (
+    <main className="mbr-main narrow">
+      <Link to={`/m/${slug}`} className="mbr-back"><Icon name="arrowLeft" size={15} />Início</Link>
+      <section className="mbr-course-hd">
+        {c.coverUrl && <img src={c.coverUrl} alt="" className="mbr-course-cover" />}
+        <div>
+          <h1>{c.title}</h1>
+          {c.description && <p className="mbr-muted">{c.description}</p>}
+          <div className="mbr-progress"><span className="mbr-bar big"><i style={{ width: `${pct(c.done, c.total)}%` }} /></span><b>{pct(c.done, c.total)}%</b><small>{c.done} de {c.total} aulas</small></div>
+          {next && <button type="button" className="mbr-btn primary" onClick={() => nav(`/m/${slug}/aula/${next.id}`)}><Icon name="play" size={15} />{c.done ? 'Continuar' : 'Começar'}</button>}
+        </div>
+      </section>
+      {c.modules.map((m, i) => (
+        <section className="mbr-mod" key={m.id}>
+          <div className="mbr-mod-hd"><small>Módulo {i + 1}</small><b>{m.title}</b><span>{m.done}/{m.total}</span></div>
+          {m.lessons.length ? m.lessons.map((l, j) => (
+            <Link key={l.id} to={`/m/${slug}/aula/${l.id}`} className={`mbr-lesson${l.done ? ' done' : ''}`} data-testid="mbr-lesson-link">
+              <span className="mbr-lesson-n">{l.done ? <Icon name="check" size={14} /> : j + 1}</span>
+              <span>{l.title}</span>
+              {!l.hasFile && <em>em breve</em>}
+              <Icon name="chevronRight" size={16} />
+            </Link>
+          )) : <div className="mbr-muted pad">Aulas em breve.</div>}
+        </section>
+      ))}
+    </main>
+  );
+}
+
+function LessonPage({ slug, api, cat, onChange }: { slug: string; api: Api; cat: Catalog; onChange: () => void }) {
+  const { lessonId = '' } = useParams();
+  const nav = useNavigate();
+  const [d, setD] = useState<LessonFull | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const narrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 820px)').matches;
+  useEffect(() => {
+    setD(null); setErr(null);
+    api.call<LessonFull>('GET', `/lessons/${lessonId}`).then(setD).catch((e) => setErr((e as Error).message));
+    window.scrollTo(0, 0);
+  }, [api, lessonId]);
+
+  async function toggle(done: boolean, goNext = false) {
+    if (!d) return;
+    setBusy(true);
+    try {
+      await api.call('POST', `/lessons/${d.lesson.id}/complete`, { done });
+      setD({ ...d, lesson: { ...d.lesson, done } }); onChange();
+      if (goNext && d.nextId) nav(`/m/${slug}/aula/${d.nextId}`);
+    } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  }
+
+  const course = d ? cat.courses.find((c) => c.id === d.lesson.courseId) : null;
+  if (err) return <div className="mbr-empty in"><h2>Não foi possível abrir a aula</h2><p>{err}</p><Link className="mbr-btn" to={`/m/${slug}`}>Voltar</Link></div>;
+  if (!d) return <div className="mbr-loading"><span className="mbr-spin" /></div>;
+  return (
+    <main className="mbr-lessonpage">
+      <div className="mbr-viewer">
+        <div className="mbr-viewer-hd">
+          <Link to={`/m/${slug}/curso/${d.lesson.courseId}`} className="mbr-back"><Icon name="arrowLeft" size={15} />{d.lesson.courseTitle}</Link>
+          <small>{d.lesson.moduleTitle}</small>
+          <h1 data-testid="mbr-lesson-title">{d.lesson.title}</h1>
+          {d.lesson.description && <p className="mbr-muted">{d.lesson.description}</p>}
+        </div>
+        {d.pdfUrl ? (
+          narrow ? (
+            <a className="mbr-pdf-open" href={d.pdfUrl} target="_blank" rel="noreferrer" data-testid="mbr-pdf-open">
+              <Icon name="file" size={30} /><b>Abrir o material em PDF</b><small>{d.lesson.fileName}{d.lesson.fileSize ? ` · ${d.lesson.fileSize < 1048576 ? `${Math.max(1, Math.round(d.lesson.fileSize / 1024))} KB` : `${(d.lesson.fileSize / 1048576).toFixed(1)} MB`}` : ''}</small>
+            </a>
+          ) : <iframe className="mbr-pdf" src={`${d.pdfUrl}#view=FitH`} title={d.lesson.title} data-testid="mbr-pdf" />
+        ) : <div className="mbr-empty in"><Icon name="file" size={28} /><p>O material desta aula ainda não foi publicado.</p></div>}
+        <div className="mbr-lesson-acts">
+          <button type="button" className="mbr-btn ghost" disabled={!d.prevId} onClick={() => d.prevId && nav(`/m/${slug}/aula/${d.prevId}`)} data-testid="mbr-prev"><Icon name="chevronLeft" size={16} />Anterior</button>
+          {d.downloadUrl && <a className="mbr-btn ghost" href={d.downloadUrl} data-testid="mbr-download"><Icon name="download" size={15} />Baixar PDF</a>}
+          {d.lesson.done
+            ? <button type="button" className="mbr-btn done" disabled={busy} onClick={() => void toggle(false)} data-testid="mbr-undone"><Icon name="checkCircle" size={16} />Concluída</button>
+            : <button type="button" className="mbr-btn primary" disabled={busy} onClick={() => void toggle(true, true)} data-testid="mbr-complete"><Icon name="check" size={16} />Concluir{d.nextId ? ' e avançar' : ''}</button>}
+          <button type="button" className="mbr-btn ghost" disabled={!d.nextId} onClick={() => d.nextId && nav(`/m/${slug}/aula/${d.nextId}`)} data-testid="mbr-next">Próxima<Icon name="chevronRight" size={16} /></button>
+        </div>
+      </div>
+      {course && (
+        <aside className="mbr-side">
+          <b className="mbr-side-t">{course.title}</b>
+          <div className="mbr-progress sm"><span className="mbr-bar"><i style={{ width: `${pct(course.done, course.total)}%` }} /></span><small>{pct(course.done, course.total)}%</small></div>
+          {course.modules.map((m, i) => (
+            <div key={m.id} className="mbr-side-mod">
+              <small>Módulo {i + 1} · {m.title}</small>
+              {m.lessons.map((l) => (
+                <Link key={l.id} to={`/m/${slug}/aula/${l.id}`} className={`mbr-side-l${l.id === d.lesson.id ? ' on' : ''}${l.done ? ' done' : ''}`}>
+                  <span>{l.done ? <Icon name="check" size={12} /> : null}</span>{l.title}
+                </Link>
+              ))}
+            </div>
+          ))}
+        </aside>
+      )}
+    </main>
+  );
+}

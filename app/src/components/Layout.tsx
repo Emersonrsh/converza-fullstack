@@ -25,6 +25,7 @@ const NAV: [string, [string, string, string][]][] = [
     ['webhook', 'Webhooks de entrada', '/webhooks'],
     ['send', 'Disparos em massa', '/dispatch'],
     ['megaphone', 'Facebook', '/meta'],
+    ['book', 'Converza Members', '/members'],
   ]],
   ['Gestão', [
     ['card', 'Cobranças e assinaturas', '/billing'],
@@ -36,6 +37,7 @@ const NAV: [string, [string, string, string][]][] = [
 const TITLES: Record<string, [string, string]> = {
   '/': ['Dashboards', 'Visão geral da operação'],
   '/inbox': ['Chats ao vivo', 'Atendimento em tempo real'],
+  '/members': ['Converza Members', 'Área de membros com os seus cursos em PDF'],
   '/kanban': ['Kanbans', 'Pipeline de vendas e gestão visual'],
   '/contacts': ['Contatos', 'Sua base de leads e clientes'],
   '/flows': ['Fluxos', 'Automações de conversa'],
