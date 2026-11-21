@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { Link, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { API_BASE } from '../api';
 import { Icon } from '../icons';
+import PdfReader from './PdfReader';
 import './members.css';
 
 /* ============================================================ API do aluno */
@@ -18,7 +19,7 @@ interface CourseT { id: string; title: string; description: string | null; cover
 interface Catalog { member: Member; courses: CourseT[]; continue: { lessonId: string; title: string; moduleTitle: string; courseId: string } | null }
 interface LessonFull {
   lesson: { id: string; title: string; description: string | null; fileName: string | null; fileSize: number | null; moduleTitle: string; courseTitle: string; courseId: string; done: boolean };
-  pdfUrl: string | null; downloadUrl: string | null; prevId: string | null; nextId: string | null;
+  hasPdf: boolean; position: number | null; count: number; prevId: string | null; nextId: string | null;
 }
 
 const tokenKey = (slug: string) => `cz.member.${slug}`;
@@ -325,7 +326,7 @@ function CoursePage({ slug, cat }: { slug: string; cat: Catalog }) {
       </section>
       {c.modules.map((m, i) => (
         <section className={`mbr-mod${m.locked ? ' locked' : ''}`} key={m.id}>
-          <div className="mbr-mod-hd"><small>Módulo {i + 1}</small><b>{m.title}</b>{m.locked ? <span className="mbr-lock-tag" data-testid="mbr-course-lock"><Icon name="lock" size={13} />{lockText(m)}</span> : <span>{m.done}/{m.total}</span>}</div>
+          <div className="mbr-mod-hd">{!/^\s*m[óo]dulo\b/i.test(m.title) && <small>Módulo {i + 1}</small>}<b>{m.title}</b>{m.locked ? <span className="mbr-lock-tag" data-testid="mbr-course-lock"><Icon name="lock" size={13} />{lockText(m)}</span> : <span>{m.done}/{m.total}</span>}</div>
           {m.locked ? m.lessons.map((l, j) => (
             <div key={l.id} className="mbr-lesson off"><span className="mbr-lesson-n">{j + 1}</span><span>{l.title}</span><Icon name="lock" size={14} /></div>
           )) : m.lessons.length ? m.lessons.map((l, j) => (
@@ -342,15 +343,18 @@ function CoursePage({ slug, cat }: { slug: string; cat: Catalog }) {
   );
 }
 
+const modName = (m: { title: string }, i: number) => (/^\s*m[óo]dulo\b/i.test(m.title) ? m.title : `Módulo ${i + 1} · ${m.title}`);
+
 function LessonPage({ slug, api, cat, onChange }: { slug: string; api: Api; cat: Catalog; onChange: () => void }) {
   const { lessonId = '' } = useParams();
   const nav = useNavigate();
   const [d, setD] = useState<LessonFull | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const narrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 820px)').matches;
+  const [atEnd, setAtEnd] = useState(false);
+  const [drawer, setDrawer] = useState(false);
   useEffect(() => {
-    setD(null); setErr(null);
+    setD(null); setErr(null); setAtEnd(false); setDrawer(false);
     api.call<LessonFull>('GET', `/lessons/${lessonId}`).then(setD).catch((e) => setErr((e as Error).message));
     window.scrollTo(0, 0);
   }, [api, lessonId]);
@@ -367,51 +371,85 @@ function LessonPage({ slug, api, cat, onChange }: { slug: string; api: Api; cat:
   }
 
   const course = d ? cat.courses.find((c) => c.id === d.lesson.courseId) : null;
+  const titleOf = (id: string | null) => (id && course ? course.modules.flatMap((m) => m.lessons).find((l) => l.id === id)?.title ?? null : null);
   if (err) return <div className="mbr-empty in" data-testid="mbr-lesson-err"><Icon name={/bloqueado/i.test(err) ? 'lock' : 'alert'} size={28} /><h2>{/bloqueado/i.test(err) ? 'Módulo bloqueado' : 'Não foi possível abrir a aula'}</h2><p>{err}</p><Link className="mbr-btn" to={`/m/${slug}`}>Voltar</Link></div>;
   if (!d) return <div className="mbr-loading"><span className="mbr-spin" /></div>;
+  const prevT = titleOf(d.prevId), nextT = titleOf(d.nextId);
+  const modIdx = course ? course.modules.findIndex((m) => m.lessons.some((l) => l.id === d.lesson.id)) : -1;
+  const modLabel = course && modIdx >= 0 ? modName(course.modules[modIdx], modIdx) : d.lesson.moduleTitle;
   return (
     <main className="mbr-lessonpage">
       <div className="mbr-viewer">
-        <div className="mbr-viewer-hd">
-          <Link to={`/m/${slug}/curso/${d.lesson.courseId}`} className="mbr-back"><Icon name="arrowLeft" size={15} />{d.lesson.courseTitle}</Link>
-          <small>{d.lesson.moduleTitle}</small>
-          <h1 data-testid="mbr-lesson-title">{d.lesson.title}</h1>
+        <header className="mbr-viewer-hd">
+          <nav className="mbr-crumbs" aria-label="Caminho">
+            <Link to={`/m/${slug}/curso/${d.lesson.courseId}`} className="mbr-back"><Icon name="arrowLeft" size={15} />{d.lesson.courseTitle}</Link>
+            <Icon name="chevronRight" size={13} />
+            <span>{modLabel}</span>
+          </nav>
+          <div className="mbr-title-row">
+            <h1 data-testid="mbr-lesson-title">{d.lesson.title}</h1>
+            <div className="mbr-title-meta">
+              {d.position && <span className="mbr-chip">Aula {d.position} de {d.count}</span>}
+              {d.lesson.done && <span className="mbr-chip ok"><Icon name="check" size={12} />Concluída</span>}
+              {course && <button type="button" className="mbr-chip btn mbr-toc-btn" onClick={() => setDrawer(true)} data-testid="mbr-toc-open"><Icon name="list" size={13} />Conteúdo</button>}
+            </div>
+          </div>
           {d.lesson.description && <p className="mbr-muted">{d.lesson.description}</p>}
-        </div>
-        {d.pdfUrl ? (
-          narrow ? (
-            <a className="mbr-pdf-open" href={d.pdfUrl} target="_blank" rel="noreferrer" data-testid="mbr-pdf-open">
-              <Icon name="file" size={30} /><b>Abrir o material em PDF</b><small>{d.lesson.fileName}{d.lesson.fileSize ? ` · ${d.lesson.fileSize < 1048576 ? `${Math.max(1, Math.round(d.lesson.fileSize / 1024))} KB` : `${(d.lesson.fileSize / 1048576).toFixed(1)} MB`}` : ''}</small>
-            </a>
-          ) : <iframe className="mbr-pdf" src={`${d.pdfUrl}#view=FitH`} title={d.lesson.title} data-testid="mbr-pdf" />
-        ) : <div className="mbr-empty in"><Icon name="file" size={28} /><p>O material desta aula ainda não foi publicado.</p></div>}
+        </header>
+        {d.hasPdf
+          ? <PdfReader url={`${API_BASE}/m/${slug}/lessons/${d.lesson.id}/pdf`} token={api.token} storeKey={`cz.member.pos.${d.lesson.id}`} onEnd={setAtEnd} />
+          : <div className="mbr-empty in"><Icon name="file" size={28} /><p>O material desta aula ainda não foi publicado.</p></div>}
         <div className="mbr-lesson-acts">
-          <button type="button" className="mbr-btn ghost" disabled={!d.prevId} onClick={() => d.prevId && nav(`/m/${slug}/aula/${d.prevId}`)} data-testid="mbr-prev"><Icon name="chevronLeft" size={16} />Anterior</button>
-          {d.downloadUrl && <a className="mbr-btn ghost" href={d.downloadUrl} data-testid="mbr-download"><Icon name="download" size={15} />Baixar PDF</a>}
+          <button type="button" className="mbr-navbtn" disabled={!d.prevId} onClick={() => d.prevId && nav(`/m/${slug}/aula/${d.prevId}`)} data-testid="mbr-prev">
+            <Icon name="chevronLeft" size={18} /><span><small>Anterior</small>{prevT && <b>{prevT}</b>}</span>
+          </button>
           {d.lesson.done
-            ? <button type="button" className="mbr-btn done" disabled={busy} onClick={() => void toggle(false)} data-testid="mbr-undone"><Icon name="checkCircle" size={16} />Concluída</button>
-            : <button type="button" className="mbr-btn primary" disabled={busy} onClick={() => void toggle(true, true)} data-testid="mbr-complete"><Icon name="check" size={16} />Concluir{d.nextId ? ' e avançar' : ''}</button>}
-          <button type="button" className="mbr-btn ghost" disabled={!d.nextId} onClick={() => d.nextId && nav(`/m/${slug}/aula/${d.nextId}`)} data-testid="mbr-next">Próxima<Icon name="chevronRight" size={16} /></button>
+            ? <button type="button" className="mbr-btn done" disabled={busy} onClick={() => void toggle(false)} data-testid="mbr-undone" title="Marcar como não concluída"><Icon name="checkCircle" size={16} />Concluída</button>
+            : <button type="button" className={`mbr-btn primary${atEnd ? ' pulse' : ''}`} disabled={busy} onClick={() => void toggle(true, true)} data-testid="mbr-complete"><Icon name="check" size={16} />{d.nextId ? 'Concluir e avançar' : 'Concluir aula'}</button>}
+          <button type="button" className="mbr-navbtn r" disabled={!d.nextId} onClick={() => d.nextId && nav(`/m/${slug}/aula/${d.nextId}`)} data-testid="mbr-next">
+            <span><small>Próxima</small>{nextT && <b>{nextT}</b>}</span><Icon name="chevronRight" size={18} />
+          </button>
         </div>
       </div>
       {course && (
-        <aside className="mbr-side">
-          <b className="mbr-side-t">{course.title}</b>
-          <div className="mbr-progress sm"><span className="mbr-bar"><i style={{ width: `${pct(course.done, course.total)}%` }} /></span><small>{pct(course.done, course.total)}%</small></div>
-          {course.modules.map((m, i) => (
-            <div key={m.id} className="mbr-side-mod">
-              <small>Módulo {i + 1} · {m.title}</small>
-              {m.lessons.map((l) => m.locked ? (
-                <span key={l.id} className="mbr-side-l off" title={lockText(m)}><span><Icon name="lock" size={10} /></span>{l.title}</span>
-              ) : (
-                <Link key={l.id} to={`/m/${slug}/aula/${l.id}`} className={`mbr-side-l${l.id === d.lesson.id ? ' on' : ''}${l.done ? ' done' : ''}`}>
-                  <span>{l.done ? <Icon name="check" size={12} /> : null}</span>{l.title}
-                </Link>
-              ))}
+        <>
+          {drawer && <div className="mbr-scrim" onClick={() => setDrawer(false)} />}
+          <aside className={`mbr-side${drawer ? ' open' : ''}`} data-testid="mbr-side">
+            <div className="mbr-side-hd">
+              <div>
+                <b className="mbr-side-t">{course.title}</b>
+                <small>{course.done} de {course.total} aulas · {pct(course.done, course.total)}%</small>
+              </div>
+              <button type="button" className="mbr-ibtn mbr-side-x" onClick={() => setDrawer(false)} aria-label="Fechar"><Icon name="close" size={16} /></button>
             </div>
-          ))}
-        </aside>
+            <span className="mbr-bar"><i style={{ width: `${pct(course.done, course.total)}%` }} /></span>
+            <div className="mbr-side-list">
+              {course.modules.map((m, i) => <SideModule key={m.id} slug={slug} m={m} i={i} current={d.lesson.id} />)}
+            </div>
+          </aside>
+        </>
       )}
     </main>
+  );
+}
+
+function SideModule({ slug, m, i, current }: { slug: string; m: ModuleT; i: number; current: string }) {
+  const has = m.lessons.some((l) => l.id === current);
+  const [open, setOpen] = useState(has || !m.locked);
+  useEffect(() => { if (has) setOpen(true); }, [has]);
+  return (
+    <div className={`mbr-side-mod${open ? ' open' : ''}`}>
+      <button type="button" className="mbr-side-mh" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span><b>{modName(m, i)}</b><small>{m.locked ? lockText(m) : `${m.done}/${m.total} concluídas`}</small></span>
+        {m.locked ? <span className="mbr-mh-ic"><Icon name="lock" size={14} /></span> : <span className="mbr-mh-ic chev"><Icon name="chevronDown" size={16} /></span>}
+      </button>
+      {open && m.lessons.map((l, j) => m.locked ? (
+        <span key={l.id} className="mbr-side-l off" title={lockText(m)}><span className="mbr-dot"><Icon name="lock" size={10} /></span><em>{l.title}</em></span>
+      ) : (
+        <Link key={l.id} to={`/m/${slug}/aula/${l.id}`} className={`mbr-side-l${l.id === current ? ' on' : ''}${l.done ? ' done' : ''}`} aria-current={l.id === current ? 'page' : undefined}>
+          <span className="mbr-dot">{l.done ? <Icon name="check" size={11} /> : l.id === current ? <i /> : j + 1}</span><em>{l.title}</em>
+        </Link>
+      ))}
+    </div>
   );
 }

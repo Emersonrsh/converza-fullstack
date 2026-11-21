@@ -87,6 +87,24 @@ export async function deleteObject(key: string | null | undefined) {
   } catch (err) { console.error('[arquivos] não apagou', key, (err as Error).message); }
 }
 
+/** Lê um arquivo guardado como stream (para o leitor de PDF, que recebe o arquivo pelo servidor). */
+export async function readObject(key: string): Promise<{ body: Readable; size: number | null; type: string }> {
+  safeKey(key);
+  const drv = storeDriver();
+  if (drv === 'r2') {
+    const r = await s3().send(new GetObjectCommand({ Bucket: R2.bucket, Key: key }));
+    return { body: r.Body as Readable, size: r.ContentLength ?? null, type: r.ContentType ?? 'application/octet-stream' };
+  }
+  if (drv === 'local') {
+    const file = path.join(LOCAL_DIR, key);
+    const st = await fs.stat(file).catch(() => null);
+    if (!st) throw new AppError(404, 'Arquivo não encontrado');
+    const type = await fs.readFile(`${file}.type`, 'utf8').catch(() => 'application/octet-stream');
+    return { body: createReadStream(file), size: st.size, type };
+  }
+  throw new AppError(404, 'Arquivo não encontrado');
+}
+
 const sign = (payload: string) => createHmac('sha256', `${config.jwtSecret}:objects`).update(payload).digest('base64url');
 
 /**

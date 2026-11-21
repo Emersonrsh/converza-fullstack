@@ -14,9 +14,9 @@ import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { config } from '../config';
 import { asyncHandler, AppError, isUuid } from '../utils/http';
-import { signedUrl } from '../storage/objects';
+import { readObject } from '../storage/objects';
 import { assertUnderLimits, clientIp, countAttempt, clearAttempts } from '../auth/throttle';
-import { apiBase, coverUrl, membersLook, normEmail, normPhone, sendMemberAccess } from './members';
+import { coverUrl, membersLook, normEmail, normPhone, sendMemberAccess } from './members';
 
 export const membersAreaRouter = Router();
 
@@ -252,11 +252,28 @@ membersAreaRouter.get('/:slug/lessons/:id', memberAuth, asyncHandler(async (req:
   const [p] = await db.select().from(schema.memberProgress).where(and(eq(schema.memberProgress.memberId, req.member!.id), eq(schema.memberProgress.lessonId, l.id))).limit(1);
   res.json({
     lesson: { id: l.id, title: l.title, description: l.description, fileName: l.file_name, fileSize: l.file_size, moduleTitle: l.module_title, courseTitle: l.course_title, courseId: l.course_id, done: !!p?.completedAt },
-    pdfUrl: l.file_key ? await signedUrl(l.file_key, { seconds: 1800, fileName: l.file_name, apiBase: apiBase(req) }) : null,
-    downloadUrl: l.file_key ? await signedUrl(l.file_key, { seconds: 1800, fileName: l.file_name, inline: false, apiBase: apiBase(req) }) : null,
+    hasPdf: !!l.file_key,
+    position: i >= 0 ? i + 1 : null,
+    count: seq.length,
     prevId: i > 0 ? seq[i - 1].id : null,
     nextId: i >= 0 && i < seq.length - 1 ? seq[i + 1].id : null,
   });
+}));
+
+/**
+ * O PDF da aula, só para o aluno logado (o token vai no cabeçalho, então o endereço sozinho não abre).
+ * A área mostra o arquivo no próprio leitor, sem botão de baixar nem de imprimir.
+ */
+membersAreaRouter.get('/:slug/lessons/:id/pdf', memberAuth, asyncHandler(async (req: MemberReq, res) => {
+  const l = await lessonFor(req, req.params.id);
+  if (!l.file_key) throw new AppError(404, 'Esta aula ainda não tem material');
+  const f = await readObject(l.file_key);
+  res.setHeader('Content-Type', 'application/pdf');
+  if (f.size != null) res.setHeader('Content-Length', String(f.size));
+  res.setHeader('Content-Disposition', 'inline');
+  res.setHeader('Cache-Control', 'private, no-store');
+  f.body.on('error', () => res.destroy());
+  f.body.pipe(res);
 }));
 
 membersAreaRouter.post('/:slug/lessons/:id/complete', memberAuth, asyncHandler(async (req: MemberReq, res) => {
