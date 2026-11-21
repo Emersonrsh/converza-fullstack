@@ -53,6 +53,16 @@ const memberAuth = asyncHandler(async (req: MemberReq, _res: Response, next: Nex
   next();
 });
 
+/** Módulo bloqueado para este aluno? Com prazo, libera N dias depois do acesso dele ao curso. */
+export function moduleLock(m: { locked: boolean; unlockAfterDays: number | null }, since: Date | string, now = Date.now()): { locked: boolean; unlockAt: string | null } {
+  if (!m.locked) return { locked: false, unlockAt: null };
+  if (m.unlockAfterDays && m.unlockAfterDays > 0) {
+    const at = new Date(since).getTime() + m.unlockAfterDays * 86_400_000;
+    return now >= at ? { locked: false, unlockAt: null } : { locked: true, unlockAt: new Date(at).toISOString() };
+  }
+  return { locked: true, unlockAt: null };
+}
+
 const memberView = (m: typeof schema.memberUsers.$inferSelect) => ({ id: m.id, name: m.name, email: m.email, phone: m.phone, hasPassword: !!m.passwordHash });
 
 /* ============================================================ público */
@@ -138,20 +148,24 @@ membersAreaRouter.get('/:slug/catalog', memberAuth, asyncHandler(async (req: Mem
   const { accountId } = req.area!;
   const mid = req.member!.id;
   const courses = (await db.execute(sql`
-    select c.id, c.title, c.description, c.cover_key as "coverKey" from member_courses c
+    select c.id, c.title, c.description, c.cover_key as "coverKey", a.created_at as since from member_courses c
     join member_access a on a.course_id = c.id and a.member_id = ${mid} and a.revoked_at is null
-    where c.account_id = ${accountId} and c.published order by c.sort, c.created_at`)).rows as { id: string; title: string; description: string | null; coverKey: string | null }[];
+    where c.account_id = ${accountId} and c.published order by c.sort, c.created_at`)).rows as { id: string; title: string; description: string | null; coverKey: string | null; since: string }[];
   const ids = courses.map((c) => c.id);
   const modules = ids.length ? await db.select().from(schema.memberModules).where(sql`${schema.memberModules.courseId} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`).orderBy(asc(schema.memberModules.sort), asc(schema.memberModules.createdAt)) : [];
   const lessons = ids.length ? await db.select({ id: schema.memberLessons.id, moduleId: schema.memberLessons.moduleId, title: schema.memberLessons.title, hasFile: sql<boolean>`${schema.memberLessons.fileKey} is not null` })
     .from(schema.memberLessons).where(sql`${schema.memberLessons.courseId} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`).orderBy(asc(schema.memberLessons.sort), asc(schema.memberLessons.createdAt)) : [];
   const prog = await db.select().from(schema.memberProgress).where(eq(schema.memberProgress.memberId, mid));
   const done = new Set(prog.filter((p) => p.completedAt).map((p) => p.lessonId));
-  const last = prog.sort((a, b) => +new Date(b.openedAt) - +new Date(a.openedAt)).find((p) => lessons.some((l) => l.id === p.lessonId));
+  const sinceOf = new Map(courses.map((c) => [c.id, c.since]));
+  const lockOf = new Map(modules.map((m) => [m.id, moduleLock(m, sinceOf.get(m.courseId) ?? new Date())]));
+  const last = prog.sort((a, b) => +new Date(b.openedAt) - +new Date(a.openedAt))
+    .find((p) => lessons.some((l) => l.id === p.lessonId && !lockOf.get(l.moduleId)?.locked));
   const out = await Promise.all(courses.map(async (c) => {
     const mods = await Promise.all(modules.filter((m) => m.courseId === c.id).map(async (m) => {
       const ls = lessons.filter((l) => l.moduleId === m.id).map((l) => ({ id: l.id, title: l.title, hasFile: l.hasFile, done: done.has(l.id) }));
-      return { id: m.id, title: m.title, coverUrl: await coverUrl(m.coverKey, req), lessons: ls, done: ls.filter((l) => l.done).length, total: ls.length };
+      const lk = lockOf.get(m.id)!;
+      return { id: m.id, title: m.title, coverUrl: await coverUrl(m.coverKey, req), locked: lk.locked, unlockAt: lk.unlockAt, lessons: ls, done: ls.filter((l) => l.done).length, total: ls.length };
     }));
     const total = mods.reduce((s, m) => s + m.total, 0);
     const dn = mods.reduce((s, m) => s + m.done, 0);
@@ -169,21 +183,28 @@ membersAreaRouter.get('/:slug/catalog', memberAuth, asyncHandler(async (req: Mem
 async function lessonFor(req: MemberReq, id: string) {
   if (!isUuid(id)) throw new AppError(404, 'Aula não encontrada');
   const rows = (await db.execute(sql`
-    select l.*, m.title as module_title, c.title as course_title from member_lessons l
+    select l.*, m.title as module_title, m.locked as module_locked, m.unlock_after_days as module_days, a.created_at as since, c.title as course_title from member_lessons l
     join member_modules m on m.id = l.module_id
     join member_courses c on c.id = l.course_id and c.published
     join member_access a on a.course_id = c.id and a.member_id = ${req.member!.id} and a.revoked_at is null
     where l.id = ${id} and l.account_id = ${req.area!.accountId} limit 1`)).rows as any[];
   if (!rows[0]) throw new AppError(404, 'Aula não encontrada ou sem acesso');
+  const lk = moduleLock({ locked: rows[0].module_locked, unlockAfterDays: rows[0].module_days }, rows[0].since);
+  if (lk.locked) {
+    const when = lk.unlockAt ? ` Ele libera em ${new Date(lk.unlockAt).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.` : '';
+    throw new AppError(403, `O módulo “${rows[0].module_title}” está bloqueado.${when}`, { code: 'module_locked', unlockAt: lk.unlockAt });
+  }
   return rows[0];
 }
 
 membersAreaRouter.get('/:slug/lessons/:id', memberAuth, asyncHandler(async (req: MemberReq, res) => {
   const l = await lessonFor(req, req.params.id);
   // ordem do curso inteiro (módulo, depois aula) para "anterior" e "próxima"
-  const seq = (await db.execute(sql`
-    select l.id from member_lessons l join member_modules m on m.id = l.module_id
-    where l.course_id = ${l.course_id} order by m.sort, m.created_at, l.sort, l.created_at`)).rows as { id: string }[];
+  // módulos bloqueados para este aluno ficam de fora da sequência
+  const seq = ((await db.execute(sql`
+    select l.id, m.locked, m.unlock_after_days as days from member_lessons l join member_modules m on m.id = l.module_id
+    where l.course_id = ${l.course_id} order by m.sort, m.created_at, l.sort, l.created_at`)).rows as { id: string; locked: boolean; days: number | null }[])
+    .filter((x) => !moduleLock({ locked: x.locked, unlockAfterDays: x.days }, l.since).locked);
   const i = seq.findIndex((s) => s.id === l.id);
   await db.insert(schema.memberProgress).values({ memberId: req.member!.id, lessonId: l.id })
     .onConflictDoUpdate({ target: [schema.memberProgress.memberId, schema.memberProgress.lessonId], set: { openedAt: new Date() } });

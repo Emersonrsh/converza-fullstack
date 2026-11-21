@@ -13,7 +13,7 @@ import './members.css';
 interface Info { title: string; subtitle: string; color: string; company: string; bannerUrl: string | null }
 interface Member { id: string; name: string | null; email: string | null; phone: string | null; hasPassword: boolean }
 interface LessonLite { id: string; title: string; hasFile: boolean; done: boolean }
-interface ModuleT { id: string; title: string; coverUrl: string | null; lessons: LessonLite[]; done: number; total: number }
+interface ModuleT { id: string; title: string; coverUrl: string | null; locked: boolean; unlockAt: string | null; lessons: LessonLite[]; done: number; total: number }
 interface CourseT { id: string; title: string; description: string | null; coverUrl: string | null; modules: ModuleT[]; done: number; total: number }
 interface Catalog { member: Member; courses: CourseT[]; continue: { lessonId: string; title: string; moduleTitle: string; courseId: string } | null }
 interface LessonFull {
@@ -254,11 +254,17 @@ function TopBar({ slug, member, onLogout }: { slug: string; member: Member; onLo
 }
 
 const pct = (d: number, t: number) => (t ? Math.round((d / t) * 100) : 0);
+const dayMonth = (s: string) => new Date(s).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+const lockText = (m: ModuleT) => (m.unlockAt ? `Libera em ${dayMonth(m.unlockAt)}` : 'Bloqueado');
+/** aulas que o aluno pode abrir agora (fora dos módulos bloqueados) */
+const openLessons = (c: CourseT) => c.modules.filter((m) => !m.locked).flatMap((m) => m.lessons);
 
 function Home({ slug, info, cat }: { slug: string; info: Info; cat: Catalog }) {
   const nav = useNavigate();
   const first = cat.courses[0];
-  const firstLesson = first?.modules.flatMap((m) => m.lessons).find((l) => !l.done) ?? first?.modules[0]?.lessons[0];
+  const firstLesson = first ? (openLessons(first).find((l) => !l.done) ?? openLessons(first)[0]) : undefined;
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 3500); return () => clearTimeout(t); }, [notice]);
   const go = cat.continue ? cat.continue.lessonId : firstLesson?.id;
   return (
     <main className="mbr-main">
@@ -297,8 +303,13 @@ function Home({ slug, info, cat }: { slug: string; info: Info; cat: Catalog }) {
           </div>
           <Rail>
             {c.modules.map((m, i) => (
-              <button type="button" key={m.id} className="mbr-poster" onClick={() => { const l = m.lessons.find((x) => !x.done) ?? m.lessons[0]; if (l) nav(`/m/${slug}/aula/${l.id}`); else nav(`/m/${slug}/curso/${c.id}`); }} data-testid="mbr-module">
+              <button type="button" key={m.id} className={`mbr-poster${m.locked ? ' locked' : ''}`} data-testid="mbr-module"
+                onClick={() => {
+                  if (m.locked) { setNotice(`“${m.title}” está bloqueado${m.unlockAt ? ` e libera em ${dayMonth(m.unlockAt)}` : ' por enquanto'}.`); return; }
+                  const l = m.lessons.find((x) => !x.done) ?? m.lessons[0]; if (l) nav(`/m/${slug}/aula/${l.id}`); else nav(`/m/${slug}/curso/${c.id}`);
+                }}>
                 {m.coverUrl ? <img src={m.coverUrl} alt="" loading="lazy" /> : <span className="mbr-poster-fill" style={{ '--h': `${(i * 47) % 360}` } as CSSProperties}><span>{m.title}</span></span>}
+                {m.locked && <span className="mbr-lock" data-testid="mbr-module-lock"><Icon name="lock" size={22} /><b>{lockText(m)}</b></span>}
                 <span className="mbr-poster-info">
                   <small>Módulo {i + 1}</small>
                   <b>{m.title}</b>
@@ -310,6 +321,7 @@ function Home({ slug, info, cat }: { slug: string; info: Info; cat: Catalog }) {
           </Rail>
         </section>
       ))}
+      {notice && <div className="mbr-toast" data-testid="mbr-toast"><Icon name="lock" size={15} />{notice}</div>}
     </main>
   );
 }
@@ -332,7 +344,7 @@ function CoursePage({ slug, cat }: { slug: string; cat: Catalog }) {
   const c = cat.courses.find((x) => x.id === courseId);
   const nav = useNavigate();
   if (!c) return <div className="mbr-empty in"><h2>Curso não encontrado</h2><Link className="mbr-btn" to={`/m/${slug}`}>Voltar</Link></div>;
-  const next = c.modules.flatMap((m) => m.lessons).find((l) => !l.done) ?? c.modules[0]?.lessons[0];
+  const next = openLessons(c).find((l) => !l.done) ?? openLessons(c)[0];
   return (
     <main className="mbr-main narrow">
       <Link to={`/m/${slug}`} className="mbr-back"><Icon name="arrowLeft" size={15} />Início</Link>
@@ -346,9 +358,11 @@ function CoursePage({ slug, cat }: { slug: string; cat: Catalog }) {
         </div>
       </section>
       {c.modules.map((m, i) => (
-        <section className="mbr-mod" key={m.id}>
-          <div className="mbr-mod-hd"><small>Módulo {i + 1}</small><b>{m.title}</b><span>{m.done}/{m.total}</span></div>
-          {m.lessons.length ? m.lessons.map((l, j) => (
+        <section className={`mbr-mod${m.locked ? ' locked' : ''}`} key={m.id}>
+          <div className="mbr-mod-hd"><small>Módulo {i + 1}</small><b>{m.title}</b>{m.locked ? <span className="mbr-lock-tag" data-testid="mbr-course-lock"><Icon name="lock" size={13} />{lockText(m)}</span> : <span>{m.done}/{m.total}</span>}</div>
+          {m.locked ? m.lessons.map((l, j) => (
+            <div key={l.id} className="mbr-lesson off"><span className="mbr-lesson-n">{j + 1}</span><span>{l.title}</span><Icon name="lock" size={14} /></div>
+          )) : m.lessons.length ? m.lessons.map((l, j) => (
             <Link key={l.id} to={`/m/${slug}/aula/${l.id}`} className={`mbr-lesson${l.done ? ' done' : ''}`} data-testid="mbr-lesson-link">
               <span className="mbr-lesson-n">{l.done ? <Icon name="check" size={14} /> : j + 1}</span>
               <span>{l.title}</span>
@@ -387,7 +401,7 @@ function LessonPage({ slug, api, cat, onChange }: { slug: string; api: Api; cat:
   }
 
   const course = d ? cat.courses.find((c) => c.id === d.lesson.courseId) : null;
-  if (err) return <div className="mbr-empty in"><h2>Não foi possível abrir a aula</h2><p>{err}</p><Link className="mbr-btn" to={`/m/${slug}`}>Voltar</Link></div>;
+  if (err) return <div className="mbr-empty in" data-testid="mbr-lesson-err"><Icon name={/bloqueado/i.test(err) ? 'lock' : 'alert'} size={28} /><h2>{/bloqueado/i.test(err) ? 'Módulo bloqueado' : 'Não foi possível abrir a aula'}</h2><p>{err}</p><Link className="mbr-btn" to={`/m/${slug}`}>Voltar</Link></div>;
   if (!d) return <div className="mbr-loading"><span className="mbr-spin" /></div>;
   return (
     <main className="mbr-lessonpage">
@@ -421,7 +435,9 @@ function LessonPage({ slug, api, cat, onChange }: { slug: string; api: Api; cat:
           {course.modules.map((m, i) => (
             <div key={m.id} className="mbr-side-mod">
               <small>Módulo {i + 1} · {m.title}</small>
-              {m.lessons.map((l) => (
+              {m.lessons.map((l) => m.locked ? (
+                <span key={l.id} className="mbr-side-l off" title={lockText(m)}><span><Icon name="lock" size={10} /></span>{l.title}</span>
+              ) : (
                 <Link key={l.id} to={`/m/${slug}/aula/${l.id}`} className={`mbr-side-l${l.id === d.lesson.id ? ' on' : ''}${l.done ? ' done' : ''}`}>
                   <span>{l.done ? <Icon name="check" size={12} /> : null}</span>{l.title}
                 </Link>

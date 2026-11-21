@@ -1343,6 +1343,9 @@ export const memberModules = pgTable('member_modules', {
   courseId: uuid('course_id').notNull().references(() => memberCourses.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   coverKey: text('cover_key'),
+  /** bloqueado para os alunos; com unlockAfterDays, libera sozinho N dias depois do acesso de cada aluno */
+  locked: boolean('locked').notNull().default(false),
+  unlockAfterDays: integer('unlock_after_days'),
   sort: integer('sort').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -253,6 +253,13 @@
       "when": 1795100000000,
       "tag": "0035_members_area",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1795110000000,
+      "tag": "0036_member_module_lock",
+      "breakpoints": true
     }
   ]
 }

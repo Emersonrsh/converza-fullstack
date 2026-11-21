@@ -15,7 +15,7 @@ interface CourseRow {
 }
 interface Settings { slug: string; url: string; title: string; subtitle: string; color: string; bannerUrl: string | null; storage: 'r2' | 'local' | null }
 interface LessonT { id: string; title: string; description: string | null; fileName: string | null; fileSize: number | null; hasFile: boolean; sort: number }
-interface ModuleT { id: string; title: string; sort: number; coverUrl: string | null; lessons: LessonT[] }
+interface ModuleT { id: string; title: string; sort: number; coverUrl: string | null; locked: boolean; unlockAfterDays: number | null; lessons: LessonT[] }
 interface CourseFull { course: CourseRow & { members: number }; modules: ModuleT[] }
 interface Person {
   id: string; name: string | null; email: string | null; phone: string | null; createdAt: string; lastLoginAt: string | null; hasPassword: boolean;
@@ -401,6 +401,7 @@ function ModuleCard({ m, index, count, canEdit, storage, onReload, onMove, onMov
   const [title, setTitle] = useState(m.title);
   const [newLesson, setNewLesson] = useState('');
   const [coverUp, setCoverUp] = useState<number | null>(null);
+  const [lockOpen, setLockOpen] = useState(false);
   const coverRef = useRef<HTMLInputElement>(null);
   useEffect(() => setTitle(m.title), [m.title]);
   async function rename() {
@@ -425,10 +426,11 @@ function ModuleCard({ m, index, count, canEdit, storage, onReload, onMove, onMov
         </div>
         <input ref={coverRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => { const x = e.target.files?.[0]; if (x) void cover(x); e.target.value = ''; }} />
         <div className="mbx-mod-title">
-          <small>Módulo {index + 1}</small>
+          <small>Módulo {index + 1}{m.locked && <span className="mbx-locked" data-testid="mbx-module-locked"><Icon name="lock" size={11} />{m.unlockAfterDays ? `libera ${m.unlockAfterDays} dia(s) após a compra` : 'bloqueado'}</span>}</small>
           <input className="input bare" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => void rename()} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} disabled={!canEdit} data-testid="mbx-module-title" />
         </div>
         {canEdit && <div className="mbx-row-acts">
+          <button type="button" className={cx('btn sm', m.locked ? 'mbx-lockbtn on' : 'ghost')} onClick={() => setLockOpen(true)} data-testid="mbx-lock"><Icon name="lock" size={13} />{m.locked ? 'Bloqueado' : 'Bloquear'}</button>
           <button type="button" className="btn icon sm ghost" disabled={index === 0} onClick={() => onMove(-1)} aria-label="Subir módulo"><Icon name="chevronUp" size={14} /></button>
           <button type="button" className="btn icon sm ghost" disabled={index === count - 1} onClick={() => onMove(1)} aria-label="Descer módulo"><Icon name="chevron" size={14} /></button>
           <button type="button" className="btn icon sm ghost danger" onClick={onDelete} aria-label="Excluir módulo"><Icon name="trash" size={14} /></button>
@@ -441,6 +443,7 @@ function ModuleCard({ m, index, count, canEdit, storage, onReload, onMove, onMov
         ))}
         {!m.lessons.length && <div className="faint mbx-none">Nenhuma aula neste módulo.</div>}
       </div>
+      {lockOpen && <LockModal m={m} onClose={() => setLockOpen(false)} onDone={async () => { setLockOpen(false); await onReload(); }} />}
       {canEdit && (
         <div className="mbx-addlesson">
           <input className="input" placeholder="Nome da nova aula" value={newLesson} onChange={(e) => setNewLesson(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addLesson(); }} data-testid="mbx-new-lesson" />
@@ -448,6 +451,40 @@ function ModuleCard({ m, index, count, canEdit, storage, onReload, onMove, onMov
         </div>
       )}
     </div>
+  );
+}
+
+/** Bloquear ou liberar um módulo para os alunos (na hora, ou N dias depois da compra de cada um). */
+function LockModal({ m, onClose, onDone }: { m: ModuleT; onClose: () => void; onDone: () => Promise<void> }) {
+  const [mode, setMode] = useState<'open' | 'locked' | 'drip'>(!m.locked ? 'open' : m.unlockAfterDays ? 'drip' : 'locked');
+  const [days, setDays] = useState(m.unlockAfterDays ?? 7);
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    setBusy(true);
+    try {
+      await api.patch(`/members/modules/${m.id}`, mode === 'open' ? { locked: false } : { locked: true, unlockAfterDays: mode === 'drip' ? Math.max(1, Math.round(days)) : null });
+      toast(mode === 'open' ? 'Módulo liberado para os alunos' : mode === 'drip' ? `Módulo libera ${days} dia(s) após a compra` : 'Módulo bloqueado');
+      await onDone();
+    } catch (e) { toast((e as Error).message); setBusy(false); }
+  }
+  const opt = (k: typeof mode, title: string, desc: string) => (
+    <label className={cx('mbx-opt', mode === k && 'on')} data-testid={`mbx-lock-${k}`}>
+      <input type="radio" name="lock" checked={mode === k} onChange={() => setMode(k)} />
+      <span><b>{title}</b><small>{desc}</small></span>
+    </label>
+  );
+  return (
+    <Modal title={`Acesso ao “${m.title}”`} icon="lock" width={480} onClose={onClose} footer={<>
+      <button type="button" className="btn" onClick={onClose}>Cancelar</button>
+      <button type="button" className="btn primary" disabled={busy || (mode === 'drip' && !(days >= 1))} onClick={() => void save()} data-testid="mbx-lock-save">{busy ? 'Salvando…' : 'Salvar'}</button>
+    </>}>
+      <div className="mbx-opts">
+        {opt('open', 'Liberado', 'Todos os alunos com acesso ao curso veem e abrem as aulas.')}
+        {opt('locked', 'Bloqueado', 'Os alunos veem o módulo com um cadeado, mas não abrem as aulas até você liberar.')}
+        {opt('drip', 'Liberar depois de alguns dias', 'Cada aluno ganha o módulo alguns dias depois da compra dele.')}
+        {mode === 'drip' && <div className="mbx-days"><input className="input" type="number" min={1} max={3650} value={days} onChange={(e) => setDays(Number(e.target.value))} data-testid="mbx-lock-days" /><span>dia(s) depois da compra</span></div>}
+      </div>
+    </Modal>
   );
 }
 

@@ -314,7 +314,7 @@ membersRouter.get('/courses/:id', asyncHandler(async (req, res) => {
   res.json({
     course: { ...c, coverKey: undefined, coverUrl: await coverUrl(c.coverKey, req), members },
     modules: await Promise.all(modules.map(async (m) => ({
-      id: m.id, title: m.title, sort: m.sort, coverUrl: await coverUrl(m.coverKey, req),
+      id: m.id, title: m.title, sort: m.sort, coverUrl: await coverUrl(m.coverKey, req), locked: m.locked, unlockAfterDays: m.unlockAfterDays,
       lessons: lessons.filter((l) => l.moduleId === m.id).map((l) => ({ id: l.id, title: l.title, description: l.description, fileName: l.fileName, fileSize: l.fileSize, hasFile: !!l.fileKey, sort: l.sort })),
     }))),
   });
@@ -382,15 +382,24 @@ membersRouter.post('/courses/:id/modules', asyncHandler(async (req, res) => {
   if (!p.success) throw new AppError(422, p.error.issues[0]?.message ?? 'Dados inválidos');
   const [{ n }] = (await db.execute(sql`select coalesce(max(sort), -1)::int + 1 as n from member_modules where course_id = ${c.id}`)).rows as { n: number }[];
   const [m] = await db.insert(schema.memberModules).values({ accountId: req.accountId!, courseId: c.id, title: p.data.title, sort: n }).returning();
-  res.status(201).json({ module: { id: m.id, title: m.title, sort: m.sort, coverUrl: null, lessons: [] } });
+  res.status(201).json({ module: { id: m.id, title: m.title, sort: m.sort, coverUrl: null, locked: false, unlockAfterDays: null, lessons: [] } });
 }));
 
 membersRouter.patch('/modules/:id', asyncHandler(async (req, res) => {
   managerOnly(req);
   const m = await ownModule(req, req.params.id);
-  const p = z.object({ title: z.string().trim().min(1).max(120) }).safeParse(req.body ?? {});
-  if (!p.success) throw new AppError(422, 'Dê um nome ao módulo');
-  await db.update(schema.memberModules).set({ title: p.data.title }).where(eq(schema.memberModules.id, m.id));
+  const p = z.object({
+    title: z.string().trim().min(1, 'Dê um nome ao módulo').max(120).optional(),
+    locked: z.boolean().optional(),
+    unlockAfterDays: z.number().int().min(1, 'Mínimo de 1 dia').max(3650).nullable().optional(),
+  }).safeParse(req.body ?? {});
+  if (!p.success) throw new AppError(422, p.error.issues[0]?.message ?? 'Dados inválidos');
+  const patch: Partial<typeof schema.memberModules.$inferInsert> = {};
+  if (p.data.title !== undefined) patch.title = p.data.title;
+  if (p.data.locked !== undefined) patch.locked = p.data.locked;
+  if (p.data.unlockAfterDays !== undefined) patch.unlockAfterDays = p.data.unlockAfterDays;
+  if (patch.locked === false) patch.unlockAfterDays = null;
+  if (Object.keys(patch).length) await db.update(schema.memberModules).set(patch).where(eq(schema.memberModules.id, m.id));
   res.json({ ok: true });
 }));
 

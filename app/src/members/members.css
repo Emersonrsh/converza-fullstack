@@ -165,3 +165,18 @@
   .mbr-hero{min-height:auto;padding:46px 16px 40px}
   .mbr-hero p{font-size:15px}
 }
+
+/* módulos bloqueados */
+.mbr-poster.locked img,.mbr-poster.locked .mbr-poster-fill{filter:grayscale(.85) brightness(.45)}
+.mbr-poster.locked:hover{transform:none;border-color:var(--mb-line)}
+.mbr-lock{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;z-index:1;color:#fff;text-align:center;padding:0 12px;padding-bottom:30%}
+.mbr-lock .ic{width:46px;height:46px;padding:12px;border-radius:50%;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.2)}
+.mbr-lock b{font-size:13px;background:rgba(0,0,0,.55);padding:3px 10px;border-radius:999px}
+.mbr-lock-tag{display:inline-flex;align-items:center;gap:5px;font-size:12.5px!important;color:#fbbf24!important;background:rgba(251,191,36,.12);padding:3px 9px;border-radius:999px}
+.mbr-mod.locked .mbr-mod-hd b{color:var(--mb-muted)}
+.mbr-lesson.off{color:var(--mb-faint);cursor:default}
+.mbr-lesson.off:hover{background:transparent}
+.mbr-side-l.off{color:var(--mb-faint);cursor:default}
+.mbr-side-l.off:hover{background:transparent}
+.mbr-toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:9px;max-width:calc(100vw - 32px);background:#14231f;border:1px solid var(--mb-line);color:var(--mb-text);padding:12px 16px;border-radius:12px;box-shadow:0 14px 36px rgba(0,0,0,.5);font-size:14px}
+.mbr-toast .ic{color:#fbbf24;flex:none}
