@@ -29,6 +29,11 @@ a{color:inherit;text-decoration:none}
 button{font-family:inherit}
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:20px;border:3px solid transparent;background-clip:content-box}
+/* celular e tablet (toque): sem barra de rolagem visível; a rolagem continua igual */
+@media (hover:none) and (pointer:coarse), (max-width:760px){
+  *{scrollbar-width:none}
+  *::-webkit-scrollbar{display:none;width:0;height:0;background:transparent}
+}
 
 .shell{display:grid;grid-template-columns:256px 1fr;height:100%}
 .sidebar{background:var(--sidebar);color:var(--sidebar-text);display:flex;flex-direction:column;padding:16px 12px;gap:4px;overflow-y:auto}
