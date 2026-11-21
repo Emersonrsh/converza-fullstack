@@ -66,6 +66,13 @@ function Area() {
     fetch(`${API_BASE}/m/${slug}/info`).then(async (r) => { if (!r.ok) throw new Error(); setInfo(await r.json()); }).catch(() => setMissing(true));
   }, [slug]);
   useEffect(() => { if (info) document.title = info.title; }, [info]);
+  // iPhone ignora user-scalable=no: a pinça só amplia o PDF (o leitor trata os dois dedos), não a página
+  useEffect(() => {
+    const stop = (e: Event) => e.preventDefault();
+    document.addEventListener('gesturestart', stop);
+    document.addEventListener('gesturechange', stop);
+    return () => { document.removeEventListener('gesturestart', stop); document.removeEventListener('gesturechange', stop); };
+  }, []);
 
   const style = useMemo(() => ({ '--mb-accent': info?.color ?? '#19b3a4' }) as CSSProperties, [info]);
   if (missing) return <div className="mbr" style={style}><div className="mbr-empty"><Brand /><h1>Área de membros não encontrada</h1><p>Confira o endereço que você recebeu.</p></div></div>;

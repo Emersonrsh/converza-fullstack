@@ -1,6 +1,6 @@
 /* Converza Members — área do aluno. Tema escuro próprio; a cor de destaque vem da empresa (--mb-accent). */
 .mbr{--mb-bg:#070d0e;--mb-s1:#0e1719;--mb-s2:#132024;--mb-line:#1e3034;--mb-text:#eef5f4;--mb-muted:#93a8a5;--mb-faint:#5f7672;--mb-accent:#19b3a4;
-  min-height:100vh;background:var(--mb-bg);color:var(--mb-text);font-family:var(--font, Inter, system-ui, sans-serif);font-size:15px;-webkit-font-smoothing:antialiased}
+  min-height:100vh;touch-action:pan-x pan-y;background:var(--mb-bg);color:var(--mb-text);font-family:var(--font, Inter, system-ui, sans-serif);font-size:15px;-webkit-font-smoothing:antialiased}
 .mbr *{box-sizing:border-box}
 .mbr a{color:inherit;text-decoration:none}
 .mbr h1,.mbr h2{margin:0;letter-spacing:-.02em}
@@ -168,7 +168,7 @@
 .mbr-fsbar-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding:0 4px}
 .mbr-fsbar-t small{font-size:11px;color:var(--mb-accent);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mbr-fsbar-t b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mbr-stage.full .mbr-reader-pages{padding-bottom:calc(110px + env(safe-area-inset-bottom))}
+.mbr-stage.full .mbr-reader-inner{padding-bottom:calc(110px + env(safe-area-inset-bottom))}
 .mbr-fsnav{position:absolute;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:4;display:flex;align-items:center;gap:6px;padding:6px;border-radius:999px;background:rgba(9,16,17,.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--mb-line);box-shadow:0 14px 34px rgba(0,0,0,.5);max-width:calc(100% - 24px)}
 .mbr-fsnav-btn{width:46px;height:46px;flex:none;display:grid;place-items:center;border-radius:50%;border:0;background:var(--mb-s2);color:var(--mb-text);cursor:pointer;transition:filter .15s}
 .mbr-fsnav-btn:hover:not(:disabled){filter:brightness(1.2)}
@@ -190,7 +190,8 @@
 .mbr-zoom:hover{background:var(--mb-s2)}
 .mbr-reader-sep{width:1px;height:20px;background:var(--mb-line);margin:0 4px}
 .mbr-reader-prog{position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--mb-accent);transform-origin:left;transition:transform .12s linear}
-.mbr-reader-pages{flex:1;overflow:auto;overscroll-behavior:contain;padding:22px 0 40px;display:flex;flex-direction:column;align-items:center;gap:18px;scrollbar-width:thin;scrollbar-color:#2a3b3f transparent}
+.mbr-reader-pages{position:relative;flex:1;overflow:auto;overscroll-behavior:contain;touch-action:pan-x pan-y;scrollbar-width:thin;scrollbar-color:#2a3b3f transparent}
+.mbr-reader-inner{display:flex;flex-direction:column;align-items:center;gap:18px;width:max-content;min-width:100%;padding:22px 12px 40px;box-sizing:border-box;will-change:transform}
 .mbr-page{position:relative;flex:none;background:#fff;border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.35),0 14px 34px rgba(0,0,0,.35);overflow:hidden}
 .mbr-page canvas{display:block}
 .mbr-page-ph{position:absolute;inset:0;background:linear-gradient(100deg,#f1f4f4 30%,#fafbfb 50%,#f1f4f4 70%);background-size:300% 100%;animation:mbshine 1.4s ease-in-out infinite}

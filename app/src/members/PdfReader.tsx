@@ -3,7 +3,7 @@
  * sem a barra do navegador — então não há botão de baixar nem de imprimir.
  * O arquivo vem de um endereço que só responde com o token do aluno.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import { Icon } from '../icons';
 
@@ -54,7 +54,9 @@ export function useFullscreen(ref: React.RefObject<HTMLElement | null>) {
   return { full: real || pseudo, pseudo, toggle };
 }
 
-const ZOOMS = [0.6, 0.75, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2];
+const ZOOMS = [0.6, 0.75, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5, 3, 4];
+const ZMIN = ZOOMS[0], ZMAX = ZOOMS[ZOOMS.length - 1];
+const clampZoom = (z: number) => Math.min(ZMAX, Math.max(ZMIN, z));
 
 let lib: Promise<typeof import('pdfjs-dist')> | null = null;
 function pdfjs() {
@@ -151,7 +153,59 @@ export default function PdfReader({ url, token, storeKey, onEnd, full, onToggleF
   // documento curto que cabe sem rolar
   useEffect(() => { if (doc && scroller.current && scroller.current.scrollHeight <= scroller.current.clientHeight + 4) onEnd?.(true); });
 
-  const zi = ZOOMS.findIndex((z) => Math.abs(z - zoom) < 0.001);
+  const lower = [...ZOOMS].reverse().find((z) => z < zoom - 0.001);
+  const higher = ZOOMS.find((z) => z > zoom + 0.001);
+
+  /* ---- pinça com dois dedos: só dentro do leitor ---- */
+  const inner = useRef<HTMLDivElement>(null);
+  const pinch = useRef<{ d0: number; z0: number; fx: number; fy: number; cx: number; cy: number; r: number } | null>(null);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const pending = useRef<{ k: number; cx: number; cy: number; fx: number; fy: number } | null>(null);
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const dist = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const start = (e: TouchEvent) => {
+      if (e.touches.length !== 2) return;
+      e.preventDefault();
+      const box = el.getBoundingClientRect();
+      const fx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - box.left;
+      const fy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - box.top;
+      pinch.current = { d0: dist(e.touches), z0: zoomRef.current, fx, fy, cx: el.scrollLeft + fx, cy: el.scrollTop + fy, r: 1 };
+      if (inner.current) inner.current.style.transformOrigin = `${pinch.current.cx}px ${pinch.current.cy}px`;
+    };
+    const move = (e: TouchEvent) => {
+      const p = pinch.current;
+      if (!p || e.touches.length !== 2) return;
+      e.preventDefault();
+      p.r = clampZoom(p.z0 * (dist(e.touches) / p.d0)) / p.z0;
+      if (inner.current) inner.current.style.transform = `scale(${p.r})`;
+    };
+    const end = (e: TouchEvent) => {
+      const p = pinch.current;
+      if (!p || e.touches.length >= 2) return;
+      pinch.current = null;
+      const z = clampZoom(p.z0 * p.r);
+      if (inner.current) inner.current.style.transform = '';
+      if (Math.abs(z - p.z0) < 0.01) return;
+      pending.current = { k: z / p.z0, cx: p.cx, cy: p.cy, fx: p.fx, fy: p.fy };
+      setZoom(z);
+    };
+    el.addEventListener('touchstart', start, { passive: false });
+    el.addEventListener('touchmove', move, { passive: false });
+    el.addEventListener('touchend', end);
+    el.addEventListener('touchcancel', end);
+    return () => { el.removeEventListener('touchstart', start); el.removeEventListener('touchmove', move); el.removeEventListener('touchend', end); el.removeEventListener('touchcancel', end); };
+  }, []);
+  // depois do zoom pela pinça, mantém embaixo dos dedos o mesmo ponto do PDF
+  useLayoutEffect(() => {
+    const p = pending.current, el = scroller.current;
+    if (!p || !el) return;
+    pending.current = null;
+    el.scrollLeft = p.cx * p.k - p.fx;
+    el.scrollTop = p.cy * p.k - p.fy;
+  }, [zoom]);
   const n = boxes.length;
 
   return (
@@ -166,18 +220,20 @@ export default function PdfReader({ url, token, storeKey, onEnd, full, onToggleF
           <button type="button" className="mbr-ibtn" onClick={() => goTo(page + 1)} disabled={!n || page >= n} aria-label="Próxima página"><Icon name="chevronDown" size={16} /></button>
         </div>
         <div className="mbr-reader-grp">
-          <button type="button" className="mbr-ibtn" onClick={() => zi > 0 && setZoom(ZOOMS[zi - 1])} disabled={zi <= 0} aria-label="Diminuir"><Icon name="minus" size={16} /></button>
+          <button type="button" className="mbr-ibtn" onClick={() => lower && setZoom(lower)} disabled={!lower} aria-label="Diminuir"><Icon name="minus" size={16} /></button>
           <button type="button" className="mbr-zoom" onClick={() => setZoom(1)} title="Ajustar à largura" data-testid="mbr-zoom">{Math.round(zoom * 100)}%</button>
-          <button type="button" className="mbr-ibtn" onClick={() => zi < ZOOMS.length - 1 && setZoom(ZOOMS[zi + 1])} disabled={zi >= ZOOMS.length - 1} aria-label="Aumentar"><Icon name="plus" size={16} /></button>
+          <button type="button" className="mbr-ibtn" onClick={() => higher && setZoom(higher)} disabled={!higher} aria-label="Aumentar"><Icon name="plus" size={16} /></button>
           <span className="mbr-reader-sep" />
           <button type="button" className="mbr-ibtn" onClick={onToggleFull} aria-label={full ? 'Sair da tela cheia' : 'Tela cheia'} title={full ? 'Sair da tela cheia' : 'Tela cheia'} data-testid="mbr-fullscreen"><Icon name={full ? 'minimize' : 'maximize'} size={16} /></button>
         </div>
         <i className="mbr-reader-prog" style={{ transform: `scaleX(${progress})` }} />
       </div>
-      <div className="mbr-reader-pages" ref={scroller} onScroll={onScroll}>
+      <div className="mbr-reader-pages" ref={scroller} onScroll={onScroll} data-testid="mbr-pages">
+        <div className="mbr-reader-inner" ref={inner}>
         {err ? <div className="mbr-reader-msg"><Icon name="alert" size={24} /><p>{err}</p></div>
           : !doc || !width ? <div className="mbr-reader-msg"><span className="mbr-spin" /><p>Abrindo o material…</p></div>
             : boxes.map((b, i) => <Page key={i} doc={doc} n={i + 1} box={b} scale={scale} root={scroller} />)}
+        </div>
       </div>
     </div>
   );
@@ -205,7 +261,8 @@ function Page({ doc, n, box, scale, root }: { doc: PDFDocumentProxy; n: number; 
     let alive = true;
     doc.getPage(n).then(async (p: PDFPageProxy) => {
       if (!alive || !canvas.current) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      const want = Math.min(window.devicePixelRatio || 1, 2.5);
+      const dpr = Math.min(want, Math.sqrt(16e6 / Math.max(1, box.w * scale * box.h * scale)));
       const v = p.getViewport({ scale: scale * dpr });
       const c = canvas.current;
       c.width = Math.floor(v.width); c.height = Math.floor(v.height);
