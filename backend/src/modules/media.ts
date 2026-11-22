@@ -78,10 +78,28 @@ function send(req: { headers: { range?: string } }, res: Response, data: Buffer,
 mediaRouter.get('/files/:id', asyncHandler(async (req, res) => {
   const id = req.params.id;
   if (!isUuid(id) || !verifyFileSig(id, req.query.e, req.query.s)) throw new AppError(403, 'Link de arquivo inválido ou expirado');
+  const w = Math.round(Number(req.query.w));
+  if (w >= 64 && w <= 1200) {
+    // miniatura (canvas do fluxo): imagem grande decodificada várias vezes derruba o Safari do celular
+    const key = `${id}:${w}`;
+    const hit = thumbs.get(key);
+    if (hit) { res.setHeader('Cache-Control', 'private, max-age=3600'); return send(req, res, hit, 'image/webp', null); }
+  }
   const f = await readStoredFile(id);
   if (!f) throw new AppError(404, 'Arquivo não encontrado');
+  if (w >= 64 && w <= 1200 && /^image\/(jpeg|png|webp|heic|heif|avif)$/i.test(f.mime)) {
+    try {
+      const sharp = (await import('sharp')).default;
+      const out = await sharp(f.data, { failOn: 'none' }).rotate().resize({ width: w, withoutEnlargement: true }).webp({ quality: 72 }).toBuffer();
+      thumbs.set(`${id}:${w}`, out);
+      if (thumbs.size > 300) thumbs.delete(thumbs.keys().next().value as string);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      return send(req, res, out, 'image/webp', null);
+    } catch { /* não deu para reduzir: manda o original */ }
+  }
   send(req, res, f.data, f.mime, f.fileName);
 }));
+const thumbs = new Map<string, Buffer>();
 
 mediaRouter.get('/:id', asyncHandler(async (req, res) => {
   const id = req.params.id;

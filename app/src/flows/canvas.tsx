@@ -97,14 +97,15 @@ function ImagePreview({ part }: { part: Extract<PreviewPart, { k: 'img' }> }) {
     setBroken(false);
     if (!part.fileId) { setSrc(part.url ?? null); return; }
     let on = true;
-    void cachedSignedUrl(part.fileId).then((u) => { if (on) setSrc(u); });
+    // miniatura do servidor: o canvas não precisa da foto em tamanho cheio (pesa demais no celular)
+    void cachedSignedUrl(part.fileId).then((u) => { if (on) setSrc(u ? `${u}${u.includes('?') ? '&' : '?'}w=480` : u); });
     return () => { on = false; };
   }, [part.fileId, part.url]);
   return (
     <div className="pv-img" data-testid="pv-img">
       <div className="pv-img-frame">
         {src && !broken
-          ? <img src={src} alt={part.name} loading="lazy" draggable={false} onError={() => setBroken(true)} />
+          ? <img src={src} alt={part.name} loading="lazy" decoding="async" draggable={false} onError={() => setBroken(true)} />
           : <span className="pv-img-ph"><Icon name="image" size={20} />{broken ? 'Não foi possível carregar' : 'Carregando…'}</span>}
       </div>
       {part.caption ? <small className="pv-img-cap">{part.caption}</small> : null}

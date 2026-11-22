@@ -143,6 +143,14 @@ function Builder({ flowId }: { flowId: string }) {
   const edgesRef = useRef(edges); edgesRef.current = edges;
   const [name, setName] = useState('');
   const [lookups, setLookups] = useState<Lookups>(emptyLookups);
+  // celular: sem minimapa (ele desenha o fluxo inteiro de novo)
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 760px)');
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
   const [folders, setFolders] = useState<FlowFolder[]>([]);
   const [stats, setStats] = useState<Record<string, NodeStat>>({});
   const [totals, setTotals] = useState({ runs: 0, active: 0, done: 0 });
@@ -844,12 +852,13 @@ function Builder({ flowId }: { flowId: string }) {
                 fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
                 minZoom={0.15}
                 maxZoom={2}
+                onlyRenderVisibleElements={narrow}
                 zoomOnDoubleClick={false}
                 proOptions={{ hideAttribution: true }}
               >
                 <Background variant={BackgroundVariant.Dots} gap={22} size={1.6} />
-                <MiniMap pannable zoomable nodeStrokeWidth={0} nodeBorderRadius={10} style={{ width: 180, height: 120 }}
-                  nodeColor={(n) => BLOCKS[n.type as BlockType]?.color ?? '#94a3b8'} ariaLabel="Mini mapa" />
+                {!narrow && <MiniMap pannable zoomable nodeStrokeWidth={0} nodeBorderRadius={10} style={{ width: 180, height: 120 }}
+                  nodeColor={(n) => BLOCKS[n.type as BlockType]?.color ?? '#94a3b8'} ariaLabel="Mini mapa" />}
                 <ZoomControls />
               </ReactFlow>
             </EdgeHoverContext.Provider>
