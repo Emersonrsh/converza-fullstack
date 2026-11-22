@@ -15,7 +15,7 @@ interface CourseRow {
 }
 interface Settings { slug: string; url: string; title: string; subtitle: string; color: string; bannerUrl: string | null; storage: 'r2' | 'local' | null }
 interface LessonT { id: string; title: string; description: string | null; fileName: string | null; fileSize: number | null; hasFile: boolean; sort: number }
-interface ModuleT { id: string; title: string; sort: number; coverUrl: string | null; locked: boolean; unlockAfterDays: number | null; isBonus?: boolean; lessons: LessonT[] }
+interface ModuleT { id: string; title: string; sort: number; coverUrl: string | null; locked: boolean; unlockAfterDays: number | null; isBonus?: boolean; unlockRules?: { id: string; productId: string; productName: string }[]; lessons: LessonT[] }
 interface CourseFull { course: CourseRow & { members: number }; modules: ModuleT[] }
 interface Person {
   id: string; name: string | null; email: string | null; phone: string | null; createdAt: string; lastLoginAt: string | null; hasPassword: boolean;
@@ -164,6 +164,7 @@ function PeopleTab() {
   const [q, setQ] = useState('');
   const [revoke, setRevoke] = useState<{ p: Person; c: Person['courses'][number] } | null>(null);
   const [revokeAll, setRevokeAll] = useState<Person | null>(null);
+  const [mods, setMods] = useState<Person | null>(null);
   const [adding, setAdding] = useState(false);
   const load = useCallback(() => { api.get<{ members: Person[] }>(`/members/people${q ? `?q=${encodeURIComponent(q)}` : ''}`).then((r) => setRows(r.members)).catch((e) => toast(e.message)); }, [q]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
@@ -199,6 +200,7 @@ function PeopleTab() {
                   <td>{dt(p.createdAt)}</td>
                   <td>{p.lastLoginAt ? dt(p.lastLoginAt) : <span className="faint">nunca entrou</span>}</td>
                   <td>{canEdit && <div className="mbx-person-acts">
+                    <button type="button" className="btn sm" onClick={() => setMods(p)} data-testid="mbx-person-modules"><Icon name="layers" size={13} />Módulos</button>
                     <button type="button" className="btn sm" onClick={() => void resend(p)} data-testid="mbx-resend"><Icon name="send" size={13} />Reenviar acesso</button>
                     <button type="button" className="btn sm ghost danger" onClick={() => setRevokeAll(p)} data-testid="mbx-revoke-all"><Icon name="lock" size={13} />Bloquear acesso</button>
                   </div>}</td>
@@ -208,6 +210,7 @@ function PeopleTab() {
           </table>
         </div>
       )}
+      {mods && <MemberModulesModal person={mods} onClose={() => setMods(null)} />}
       {adding && <GrantModal onClose={() => setAdding(false)} onDone={() => { setAdding(false); load(); }} />}
       {revokeAll && (
         <ConfirmModal title="Bloquear o acesso?" confirm="Bloquear acesso" danger onClose={() => setRevokeAll(null)}
@@ -222,6 +225,53 @@ function PeopleTab() {
         </ConfirmModal>
       )}
     </>
+  );
+}
+
+interface MemberModule {
+  id: string; title: string; isBonus: boolean; defaultLocked: boolean; defaultUnlockAt: string | null; ruleLocked: boolean; unlockAfterDays: number | null;
+  override: 'unlocked' | 'locked' | null; overrideSource: 'manual' | 'sale' | null; saleProduct: string | null; locked: boolean; unlockAt: string | null;
+}
+const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+
+/** Liberar ou bloquear módulos só para um aluno. */
+function MemberModulesModal({ person, onClose }: { person: Person; onClose: () => void }) {
+  const [data, setData] = useState<{ courses: { id: string; title: string; modules: MemberModule[] }[] } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const load = useCallback(() => api.get<{ courses: { id: string; title: string; modules: MemberModule[] }[] }>(`/members/people/${person.id}/modules`).then(setData).catch((e) => toast(e.message)), [person.id]);
+  useEffect(() => { void load(); }, [load]);
+  async function set(m: MemberModule, state: 'unlocked' | 'locked' | null) {
+    setBusy(m.id);
+    try { await api.put(`/members/people/${person.id}/modules/${m.id}`, { state }); await load(); } catch (e) { toast((e as Error).message); }
+    setBusy(null);
+  }
+  const ruleText = (m: MemberModule) => !m.ruleLocked ? 'liberado' : m.unlockAfterDays ? (m.defaultLocked && m.defaultUnlockAt ? `libera em ${fmtDay(m.defaultUnlockAt)}` : 'já liberado pelos dias') : 'bloqueado';
+  const who = person.name || (person.phone ? `+${person.phone}` : person.email);
+  return (
+    <Modal title={`Módulos de ${who}`} icon="layers" width={620} onClose={onClose} footer={<button type="button" className="btn primary" onClick={onClose}>Pronto</button>}>
+      <p className="muted" style={{ marginTop: 0 }}>O que você escolher aqui vale só para este aluno e vence a regra do módulo. “Seguir regra” volta ao que vale para todos.</p>
+      {!data ? <Spinner /> : !data.courses.length ? <p className="faint">Este aluno não tem cursos.</p> : data.courses.map((c) => (
+        <div key={c.id} className="mbx-mm-course">
+          <h4>{c.title}</h4>
+          {c.modules.map((m) => (
+            <div key={m.id} className={cx('mbx-mm', m.locked ? 'is-locked' : 'is-open')} data-testid="mbx-mm">
+              <div className="mbx-mm-t">
+                <b>{m.isBonus && <span className="mbx-bonus-tag"><Icon name="gift" size={11} />Bônus</span>} {m.title}</b>
+                <small>
+                  {m.locked ? <span className="mbx-mm-st off"><Icon name="lock" size={11} />Bloqueado{m.unlockAt ? ` até ${fmtDay(m.unlockAt)}` : ''}</span> : <span className="mbx-mm-st on"><Icon name="check" size={11} />Liberado</span>}
+                  {m.override ? (m.overrideSource === 'sale' ? ` · pela venda de ${m.saleProduct ?? 'um produto'}` : ' · escolha para este aluno') : ` · regra do módulo: ${ruleText(m)}`}
+                </small>
+              </div>
+              <div className="mbx-seg" role="group" aria-label="Acesso ao módulo">
+                <button type="button" className={cx(!m.override && 'on')} disabled={busy === m.id} onClick={() => void set(m, null)} data-testid="mbx-mm-rule">Seguir regra</button>
+                <button type="button" className={cx(m.override === 'unlocked' && 'on')} disabled={busy === m.id} onClick={() => void set(m, 'unlocked')} data-testid="mbx-mm-open"><Icon name="check" size={12} />Liberar</button>
+                <button type="button" className={cx(m.override === 'locked' && 'on')} disabled={busy === m.id} onClick={() => void set(m, 'locked')} data-testid="mbx-mm-lock"><Icon name="lock" size={12} />Bloquear</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </Modal>
   );
 }
 
@@ -494,7 +544,7 @@ function ModuleCard({ m, index, count, canEdit, storage, onReload, onMove, onMov
         </div>
         <input ref={coverRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => { const x = e.target.files?.[0]; if (x) void cover(x); e.target.value = ''; }} />
         <div className="mbx-mod-title">
-          <small>{m.isBonus ? <span className="mbx-bonus-tag" data-testid="mbx-bonus-tag"><Icon name="gift" size={11} />Bônus</span> : `Módulo ${index + 1}`}{m.locked && <span className="mbx-locked" data-testid="mbx-module-locked"><Icon name="lock" size={11} />{m.unlockAfterDays ? `libera ${m.unlockAfterDays} dia(s) após a compra` : 'bloqueado'}</span>}</small>
+          <small>{m.isBonus ? <span className="mbx-bonus-tag" data-testid="mbx-bonus-tag"><Icon name="gift" size={11} />Bônus</span> : `Módulo ${index + 1}`}{m.locked && <span className="mbx-locked" data-testid="mbx-module-locked"><Icon name="lock" size={11} />{m.unlockAfterDays ? `libera ${m.unlockAfterDays} dia(s) após a compra` : 'bloqueado'}</span>}{!!m.unlockRules?.length && <span className="mbx-rule-tag" data-testid="mbx-rule-tag"><Icon name="cart" size={11} />libera na venda de {m.unlockRules.map((r) => r.productName).join(', ')}</span>}</small>
           <input className="input bare" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => void rename()} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} disabled={!canEdit} data-testid="mbx-module-title" />
         </div>
         {canEdit && <div className="mbx-row-acts">
@@ -512,7 +562,7 @@ function ModuleCard({ m, index, count, canEdit, storage, onReload, onMove, onMov
         ))}
         {!m.lessons.length && <div className="faint mbx-none">Nenhuma aula neste módulo.</div>}
       </div>
-      {lockOpen && <LockModal m={m} onClose={() => setLockOpen(false)} onDone={async () => { setLockOpen(false); await onReload(); }} />}
+      {lockOpen && <LockModal m={m} onClose={() => setLockOpen(false)} onReload={onReload} onDone={async () => { setLockOpen(false); await onReload(); }} />}
       {canEdit && (
         <div className="mbx-addlesson">
           <input className="input" placeholder="Nome da nova aula" value={newLesson} onChange={(e) => setNewLesson(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addLesson(); }} data-testid="mbx-new-lesson" />
@@ -524,7 +574,26 @@ function ModuleCard({ m, index, count, canEdit, storage, onReload, onMove, onMov
 }
 
 /** Bloquear ou liberar um módulo para os alunos (na hora, ou N dias depois da compra de cada um). */
-function LockModal({ m, onClose, onDone }: { m: ModuleT; onClose: () => void; onDone: () => Promise<void> }) {
+function LockModal({ m, onClose, onDone, onReload }: { m: ModuleT; onClose: () => void; onDone: () => Promise<void>; onReload: () => Promise<void> }) {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [prod, setProd] = useState('');
+  const [past, setPast] = useState(true);
+  const [ruleBusy, setRuleBusy] = useState(false);
+  useEffect(() => { api.get<{ products: Product[] }>('/settings/products').then((r) => setProducts(r.products)).catch(() => {}); }, []);
+  const rules = m.unlockRules ?? [];
+  async function addRule() {
+    if (!prod) return;
+    setRuleBusy(true);
+    try {
+      const r = await api.post<{ applied: number }>(`/members/modules/${m.id}/rules`, { productId: prod, applyPast: past });
+      setProd(''); await onReload();
+      toast(r.applied ? `Regra criada. ${r.applied} comprador(es) antigo(s) já ganharam o módulo.` : 'Regra criada: a próxima venda aprovada libera o módulo');
+    } catch (e) { toast((e as Error).message); }
+    setRuleBusy(false);
+  }
+  async function delRule(id: string) {
+    try { await api.del(`/members/rules/${id}`); await onReload(); toast('Regra removida. Quem já ganhou o módulo continua com ele.'); } catch (e) { toast((e as Error).message); }
+  }
   const [mode, setMode] = useState<'open' | 'locked' | 'drip'>(!m.locked ? 'open' : m.unlockAfterDays ? 'drip' : 'locked');
   const [days, setDays] = useState(m.unlockAfterDays ?? 7);
   const [busy, setBusy] = useState(false);
@@ -543,7 +612,7 @@ function LockModal({ m, onClose, onDone }: { m: ModuleT; onClose: () => void; on
     </label>
   );
   return (
-    <Modal title={`Acesso ao “${m.title}”`} icon="lock" width={480} onClose={onClose} footer={<>
+    <Modal title={`Acesso ao “${m.title}”`} icon="lock" width={520} onClose={onClose} footer={<>
       <button type="button" className="btn" onClick={onClose}>Cancelar</button>
       <button type="button" className="btn primary" disabled={busy || (mode === 'drip' && !(days >= 1))} onClick={() => void save()} data-testid="mbx-lock-save">{busy ? 'Salvando…' : 'Salvar'}</button>
     </>}>
@@ -552,6 +621,22 @@ function LockModal({ m, onClose, onDone }: { m: ModuleT; onClose: () => void; on
         {opt('locked', 'Bloqueado', 'Os alunos veem o módulo com um cadeado, mas não abrem as aulas até você liberar.')}
         {opt('drip', 'Liberar depois de alguns dias', 'Cada aluno ganha o módulo alguns dias depois da compra dele.')}
         {mode === 'drip' && <div className="mbx-days"><input className="input" type="number" min={1} max={3650} value={days} onChange={(e) => setDays(Number(e.target.value))} data-testid="mbx-lock-days" /><span>dia(s) depois da compra</span></div>}
+      </div>
+      <div className="mbx-rules" data-testid="mbx-rules">
+        <b>Liberar quando houver venda aprovada</b>
+        <small className="faint">Assim que a venda de um destes produtos for aprovada, o módulo libera para o comprador, mesmo que esteja bloqueado para os outros. Se ele ainda não tiver o curso, ganha o acesso também. Bom para upsell e order bump.</small>
+        {rules.map((r) => (
+          <div className="mbx-rule" key={r.id} data-testid="mbx-rule"><Icon name="cart" size={14} /><span>Venda aprovada de <b>{r.productName}</b></span><button type="button" className="btn sm ghost danger" onClick={() => void delRule(r.id)} aria-label="Remover regra" data-testid="mbx-rule-del"><Icon name="trash" size={13} /></button></div>
+        ))}
+        <div className="mbx-rule-add">
+          <select className="input" value={prod} onChange={(e) => setProd(e.target.value)} data-testid="mbx-rule-product">
+            <option value="">Escolha o produto…</option>
+            {products.filter((p) => !rules.some((r) => r.productId === p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <button type="button" className="btn" disabled={!prod || ruleBusy} onClick={() => void addRule()} data-testid="mbx-rule-add"><Icon name="plus" size={14} />Adicionar</button>
+        </div>
+        {!!prod && <label className="mbx-check plain"><input type="checkbox" checked={past} onChange={(e) => setPast(e.target.checked)} data-testid="mbx-rule-past" /><span>Liberar também para quem já comprou esse produto (sem mandar mensagem)</span></label>}
+        {!products.length && <small className="faint">Cadastre produtos em Configurações → Produtos para usar esta regra.</small>}
       </div>
     </Modal>
   );

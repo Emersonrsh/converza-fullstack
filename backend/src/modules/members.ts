@@ -88,7 +88,7 @@ export async function issueMemberLink(memberId: string, slug: string): Promise<s
  * Manda o link de acesso pelo WhatsApp (na última conversa do contato, dentro da janela da Meta) e por e-mail.
  * Devolve por onde saiu.
  */
-export async function sendMemberAccess(accountId: string, memberId: string, opts: { courseTitles?: string[]; reason: 'sale' | 'resend' | 'forgot' }): Promise<{ whatsapp: boolean; email: boolean; error?: string }> {
+export async function sendMemberAccess(accountId: string, memberId: string, opts: { courseTitles?: string[]; moduleTitles?: string[]; reason: 'sale' | 'resend' | 'forgot' }): Promise<{ whatsapp: boolean; email: boolean; error?: string }> {
   const [m] = await db.select().from(schema.memberUsers).where(and(eq(schema.memberUsers.id, memberId), eq(schema.memberUsers.accountId, accountId))).limit(1);
   if (!m) return { whatsapp: false, email: false, error: 'Membro não encontrado' };
   const slug = await ensureSlug(accountId);
@@ -96,9 +96,12 @@ export async function sendMemberAccess(accountId: string, memberId: string, opts
   const link = await issueMemberLink(memberId, slug);
   const first = (m.name ?? '').trim().split(/\s+/)[0] || '';
   const courses = opts.courseTitles?.length ? opts.courseTitles.map((t) => `“${t}”`).join(', ') : '';
+  const mods = opts.moduleTitles?.length ? opts.moduleTitles.map((t) => `“${t}”`).join(', ') : '';
   const intro = opts.reason === 'forgot'
     ? 'Aqui está o link para entrar na área de membros'
-    : opts.reason === 'sale' && courses ? `Seu acesso a ${courses} está liberado` : 'Seu acesso à área de membros está liberado';
+    : opts.reason === 'sale' && courses ? `Seu acesso a ${courses} está liberado${mods ? `, com ${mods}` : ''}`
+      : opts.reason === 'sale' && mods ? `${opts.moduleTitles!.length > 1 ? 'Novos módulos liberados' : 'Novo módulo liberado'} na área de membros: ${mods}`
+        : 'Seu acesso à área de membros está liberado';
   const text = `${first ? `Olá, ${first}! ` : ''}${intro} 🎉\n\nToque no link para entrar:\n${link}\n\nDas próximas vezes, acesse ${appBase()}/m/${slug} e digite este número de WhatsApp.`;
   let whatsapp = false;
   let email = false;
@@ -138,25 +141,62 @@ export async function grantFromSale(saleId: string): Promise<void> {
     if (!sale || sale.status !== 'approved' || !sale.productId) return;
     const courses = await db.select({ id: schema.memberCourses.id, title: schema.memberCourses.title }).from(schema.memberCourses)
       .where(and(eq(schema.memberCourses.accountId, sale.accountId), eq(schema.memberCourses.productId, sale.productId)));
-    if (!courses.length) return;
-    const [c] = sale.contactId ? await db.select().from(schema.contacts).where(eq(schema.contacts.id, sale.contactId)).limit(1) : [];
-    const email = normEmail(c?.email);
-    const phone = normPhone(c?.waId ?? c?.phone ?? sale.customerPhone);
-    const name = (c?.name ?? sale.customerName ?? '').trim() || null;
-    if (!email && !phone) { console.warn(`[membros] venda ${sale.id} sem e-mail nem telefone: acesso não liberado`); return; }
-    const member = await upsertMember(sale.accountId, { email, phone, name, contactId: c?.id ?? null });
+    const rules = await rulesForProduct(sale.accountId, sale.productId);
+    if (!courses.length && !rules.length) return;
+    const member = await buyerOf(sale);
+    if (!member) return;
     const fresh: string[] = [];
-    for (const course of courses) {
-      const [row] = await db.insert(schema.memberAccess).values({ accountId: sale.accountId, memberId: member.id, courseId: course.id, source: 'sale', saleId: sale.id })
-        .onConflictDoUpdate({ target: [schema.memberAccess.memberId, schema.memberAccess.courseId], set: { revokedAt: null, saleId: sale.id }, setWhere: sql`${schema.memberAccess.revokedAt} is not null` })
-        .returning({ id: schema.memberAccess.id });
-      if (row) fresh.push(course.title);
-    }
-    if (fresh.length) {
-      const r = await sendMemberAccess(sale.accountId, member.id, { courseTitles: fresh, reason: 'sale' });
+    for (const course of courses) if (await grantCourse(sale.accountId, member.id, course.id, sale.id)) fresh.push(course.title);
+    const mods = await unlockByRules(sale.accountId, member.id, rules, sale.id);
+    if (fresh.length || mods.length) {
+      const r = await sendMemberAccess(sale.accountId, member.id, { courseTitles: fresh, moduleTitles: mods, reason: 'sale' });
       if (!r.whatsapp && !r.email) console.warn(`[membros] acesso liberado para ${member.id}, mas o aviso não saiu: ${r.error ?? 'sem WhatsApp nem e-mail'}`);
     }
   } catch (err) { console.error('[membros] liberar acesso pela venda:', (err as Error).message); }
+}
+
+/** Quem comprou, como membro (cria se ainda não existir). */
+async function buyerOf(sale: typeof schema.sales.$inferSelect) {
+  const [c] = sale.contactId ? await db.select().from(schema.contacts).where(eq(schema.contacts.id, sale.contactId)).limit(1) : [];
+  const email = normEmail(c?.email);
+  const phone = normPhone(c?.waId ?? c?.phone ?? sale.customerPhone);
+  const name = (c?.name ?? sale.customerName ?? '').trim() || null;
+  if (!email && !phone) { console.warn(`[membros] venda ${sale.id} sem e-mail nem telefone: acesso não liberado`); return null; }
+  return upsertMember(sale.accountId, { email, phone, name, contactId: c?.id ?? null });
+}
+
+/** Dá acesso ao curso (ou devolve um acesso revogado). Retorna true se o acesso é novo. */
+async function grantCourse(accountId: string, memberId: string, courseId: string, saleId: string | null) {
+  const [row] = await db.insert(schema.memberAccess).values({ accountId, memberId, courseId, source: saleId ? 'sale' : 'manual', saleId })
+    .onConflictDoUpdate({ target: [schema.memberAccess.memberId, schema.memberAccess.courseId], set: { revokedAt: null, saleId }, setWhere: sql`${schema.memberAccess.revokedAt} is not null` })
+    .returning({ id: schema.memberAccess.id });
+  return !!row;
+}
+
+type Rule = { id: string; moduleId: string; moduleTitle: string; courseId: string };
+async function rulesForProduct(accountId: string, productId: string): Promise<Rule[]> {
+  return (await db.execute(sql`
+    select r.id, r.module_id as "moduleId", m.title as "moduleTitle", m.course_id as "courseId" from member_unlock_rules r
+    join member_modules m on m.id = r.module_id where r.account_id = ${accountId} and r.product_id = ${productId}`)).rows as Rule[];
+}
+
+/**
+ * Libera os módulos das regras para o aluno. Se ele ainda não tem o curso do módulo, ganha o acesso ao curso também.
+ * Uma escolha manual de "bloqueado" para o aluno é respeitada. Retorna os módulos que passaram a ficar liberados.
+ */
+async function unlockByRules(accountId: string, memberId: string, rules: Rule[], saleId: string | null): Promise<string[]> {
+  const out: string[] = [];
+  for (const r of rules) {
+    await grantCourse(accountId, memberId, r.courseId, saleId);
+    const [prev] = await db.select().from(schema.memberModuleOverrides)
+      .where(and(eq(schema.memberModuleOverrides.memberId, memberId), eq(schema.memberModuleOverrides.moduleId, r.moduleId))).limit(1);
+    if (prev?.state === 'unlocked') continue;
+    if (prev?.state === 'locked' && prev.source === 'manual') continue;
+    await db.insert(schema.memberModuleOverrides).values({ memberId, moduleId: r.moduleId, accountId, state: 'unlocked', source: 'sale', saleId })
+      .onConflictDoUpdate({ target: [schema.memberModuleOverrides.memberId, schema.memberModuleOverrides.moduleId], set: { state: 'unlocked', source: 'sale', saleId, createdAt: new Date() } });
+    out.push(r.moduleTitle);
+  }
+  return out;
 }
 
 export async function upsertMember(accountId: string, d: { email: string | null; phone: string | null; name: string | null; contactId: string | null }) {
@@ -311,10 +351,15 @@ membersRouter.get('/courses/:id', asyncHandler(async (req, res) => {
   const modules = await db.select().from(schema.memberModules).where(eq(schema.memberModules.courseId, c.id)).orderBy(asc(schema.memberModules.sort), asc(schema.memberModules.createdAt));
   const lessons = await db.select().from(schema.memberLessons).where(eq(schema.memberLessons.courseId, c.id)).orderBy(asc(schema.memberLessons.sort), asc(schema.memberLessons.createdAt));
   const [{ members }] = (await db.execute(sql`select count(*)::int as members from member_access where course_id = ${c.id} and revoked_at is null`)).rows as { members: number }[];
+  const rules = (await db.execute(sql`
+    select r.id, r.module_id as "moduleId", r.product_id as "productId", p.name as "productName" from member_unlock_rules r
+    join member_modules m on m.id = r.module_id join products p on p.id = r.product_id
+    where m.course_id = ${c.id} order by r.created_at`)).rows as { id: string; moduleId: string; productId: string; productName: string }[];
   res.json({
     course: { ...c, coverKey: undefined, coverUrl: await coverUrl(c.coverKey, req), members },
     modules: await Promise.all(modules.map(async (m) => ({
       id: m.id, title: m.title, sort: m.sort, coverUrl: await coverUrl(m.coverKey, req), locked: m.locked, unlockAfterDays: m.unlockAfterDays, isBonus: m.isBonus,
+      unlockRules: rules.filter((r) => r.moduleId === m.id).map(({ moduleId: _m, ...r }) => r),
       lessons: lessons.filter((l) => l.moduleId === m.id).map((l) => ({ id: l.id, title: l.title, description: l.description, fileName: l.fileName, fileSize: l.fileSize, hasFile: !!l.fileKey, sort: l.sort })),
     }))),
   });
@@ -497,6 +542,87 @@ membersRouter.get('/people', asyncHandler(async (req, res) => {
       ${q ? sql`and (lower(coalesce(u.name,'')) like ${`%${q}%`} or lower(coalesce(u.email,'')) like ${`%${q}%`} or coalesce(u.phone,'') like ${`%${q.replace(/\D/g, '') || q}%`})` : sql``}
     group by u.id order by max(a.created_at) desc limit 300`)).rows;
   res.json({ members: rows });
+}));
+
+/* ---------- regras: venda aprovada libera módulo ---------- */
+
+membersRouter.post('/modules/:id/rules', asyncHandler(async (req, res) => {
+  managerOnly(req);
+  const m = await ownModule(req, req.params.id);
+  const p = z.object({ productId: z.string(), applyPast: z.boolean().optional() }).safeParse(req.body ?? {});
+  if (!p.success) throw new AppError(422, 'Escolha o produto');
+  const productId = await ownProduct(req, p.data.productId);
+  if (!productId) throw new AppError(422, 'Escolha o produto');
+  const [rule] = await db.insert(schema.memberUnlockRules).values({ accountId: req.accountId!, moduleId: m.id, productId }).onConflictDoNothing().returning();
+  if (!rule) throw new AppError(409, 'Esse produto já libera este módulo');
+  // quem já comprou o produto também ganha o módulo (sem mandar mensagem para todo mundo)
+  let applied = 0;
+  if (p.data.applyPast) {
+    const sales = await db.select().from(schema.sales).where(and(eq(schema.sales.accountId, req.accountId!), eq(schema.sales.productId, productId), eq(schema.sales.status, 'approved')));
+    const r: Rule[] = [{ id: rule.id, moduleId: m.id, moduleTitle: m.title, courseId: m.courseId }];
+    for (const sale of sales) {
+      const member = await buyerOf(sale);
+      if (member && (await unlockByRules(req.accountId!, member.id, r, sale.id)).length) applied++;
+    }
+  }
+  const [prod] = await db.select({ name: schema.products.name }).from(schema.products).where(eq(schema.products.id, productId)).limit(1);
+  res.status(201).json({ rule: { id: rule.id, productId, productName: prod?.name ?? '' }, applied });
+}));
+
+membersRouter.delete('/rules/:id', asyncHandler(async (req, res) => {
+  managerOnly(req);
+  if (!isUuid(req.params.id)) throw new AppError(404, 'Regra não encontrada');
+  const [r] = await db.delete(schema.memberUnlockRules).where(and(eq(schema.memberUnlockRules.id, req.params.id), eq(schema.memberUnlockRules.accountId, req.accountId!))).returning();
+  if (!r) throw new AppError(404, 'Regra não encontrada');
+  // quem já recebeu o módulo por esta regra continua com ele
+  res.json({ ok: true });
+}));
+
+/* ---------- módulos de um aluno ---------- */
+
+async function ownMember(req: Request, id: string) {
+  if (!isUuid(id)) throw new AppError(404, 'Membro não encontrado');
+  const [m] = await db.select().from(schema.memberUsers).where(and(eq(schema.memberUsers.id, id), eq(schema.memberUsers.accountId, req.accountId!))).limit(1);
+  if (!m) throw new AppError(404, 'Membro não encontrado');
+  return m;
+}
+
+/** Cursos do aluno com cada módulo: a regra do módulo, a escolha para o aluno e como fica para ele. */
+membersRouter.get('/people/:id/modules', asyncHandler(async (req, res) => {
+  const mem = await ownMember(req, req.params.id);
+  const rows = (await db.execute(sql`
+    select c.id as "courseId", c.title as "courseTitle", a.created_at as since, m.id, m.title, m.locked, m.unlock_after_days as "unlockAfterDays", m.is_bonus as "isBonus",
+      o.state as override, o.source as "overrideSource", p.name as "saleProduct"
+    from member_access a join member_courses c on c.id = a.course_id
+    join member_modules m on m.course_id = c.id
+    left join member_module_overrides o on o.module_id = m.id and o.member_id = a.member_id
+    left join sales s on s.id = o.sale_id left join products p on p.id = s.product_id
+    where a.member_id = ${mem.id} and a.revoked_at is null
+    order by c.sort, c.created_at, m.is_bonus, m.sort, m.created_at`)).rows as any[];
+  const { moduleLock } = await import('./membersArea');
+  const courses: { id: string; title: string; modules: unknown[] }[] = [];
+  for (const r of rows) {
+    let c = courses.find((x) => x.id === r.courseId);
+    if (!c) { c = { id: r.courseId, title: r.courseTitle, modules: [] }; courses.push(c); }
+    const base = moduleLock(r, r.since);
+    const eff = moduleLock(r, r.since, Date.now(), r.override);
+    c.modules.push({ id: r.id, title: r.title, isBonus: r.isBonus, defaultLocked: base.locked, defaultUnlockAt: base.unlockAt, ruleLocked: r.locked, unlockAfterDays: r.unlockAfterDays, override: r.override, overrideSource: r.overrideSource, saleProduct: r.saleProduct, locked: eff.locked, unlockAt: eff.unlockAt });
+  }
+  res.json({ member: { id: mem.id, name: mem.name, phone: mem.phone, email: mem.email }, courses });
+}));
+
+/** Libera, bloqueia ou volta à regra do módulo (state null) só para este aluno. */
+membersRouter.put('/people/:id/modules/:moduleId', asyncHandler(async (req, res) => {
+  managerOnly(req);
+  const mem = await ownMember(req, req.params.id);
+  const mod = await ownModule(req, req.params.moduleId);
+  const p = z.object({ state: z.enum(['unlocked', 'locked']).nullable() }).safeParse(req.body ?? {});
+  if (!p.success) throw new AppError(422, 'Estado inválido');
+  const key = and(eq(schema.memberModuleOverrides.memberId, mem.id), eq(schema.memberModuleOverrides.moduleId, mod.id));
+  if (p.data.state === null) await db.delete(schema.memberModuleOverrides).where(key);
+  else await db.insert(schema.memberModuleOverrides).values({ memberId: mem.id, moduleId: mod.id, accountId: req.accountId!, state: p.data.state, source: 'manual' })
+    .onConflictDoUpdate({ target: [schema.memberModuleOverrides.memberId, schema.memberModuleOverrides.moduleId], set: { state: p.data.state, source: 'manual', saleId: null, createdAt: new Date() } });
+  res.json({ ok: true });
 }));
 
 /** Normaliza o número digitado pela empresa: sem código do país e com cara de brasileiro, ganha o 55. */

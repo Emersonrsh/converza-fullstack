@@ -1376,6 +1376,28 @@ export const memberUsers = pgTable('member_users', {
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+/** Módulo liberado ou bloqueado só para um aluno (vence a regra do módulo). */
+export const memberModuleOverrides = pgTable('member_module_overrides', {
+  memberId: uuid('member_id').notNull().references(() => memberUsers.id, { onDelete: 'cascade' }),
+  moduleId: uuid('module_id').notNull().references(() => memberModules.id, { onDelete: 'cascade' }),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  /** 'unlocked' | 'locked' */
+  state: text('state').notNull(),
+  /** 'manual' | 'sale' */
+  source: text('source').notNull().default('manual'),
+  saleId: uuid('sale_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ pk: primaryKey({ columns: [t.memberId, t.moduleId] }) }));
+
+/** Venda aprovada deste produto libera este módulo para o comprador. */
+export const memberUnlockRules = pgTable('member_unlock_rules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  moduleId: uuid('module_id').notNull().references(() => memberModules.id, { onDelete: 'cascade' }),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ uq: uniqueIndex('member_unlock_rules_uq').on(t.moduleId, t.productId) }));
+
 export const memberAccess = pgTable('member_access', {
   id: uuid('id').primaryKey().defaultRandom(),
   accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
@@ -1409,5 +1431,5 @@ export const schema = {
   departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, platformAudit, storedFiles, storedFileChunks, storedFileMedia,
   globalVariables, flowTranslations, aiUsage, trackingLinks, trackingClicks, apiKeys, mcpCalls, flowDistributions,
   waWebAuth, waWebMedia, accessLogs,
-  memberCourses, memberModules, memberLessons, memberUsers, memberAccess, memberProgress, memberTokens,
+  memberCourses, memberModules, memberLessons, memberUsers, memberAccess, memberProgress, memberTokens, memberModuleOverrides, memberUnlockRules,
 };

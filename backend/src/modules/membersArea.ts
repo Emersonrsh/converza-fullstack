@@ -54,13 +54,25 @@ const memberAuth = asyncHandler(async (req: MemberReq, _res: Response, next: Nex
 });
 
 /** Módulo bloqueado para este aluno? Com prazo, libera N dias depois do acesso dele ao curso. */
-export function moduleLock(m: { locked: boolean; unlockAfterDays: number | null }, since: Date | string, now = Date.now()): { locked: boolean; unlockAt: string | null } {
+/**
+ * O módulo está bloqueado para este aluno?
+ * A escolha feita para o aluno (liberado/bloqueado, à mão ou por uma venda) vence a regra do módulo.
+ */
+export function moduleLock(m: { locked: boolean; unlockAfterDays: number | null }, since: Date | string, now = Date.now(), override?: string | null): { locked: boolean; unlockAt: string | null } {
+  if (override === 'unlocked') return { locked: false, unlockAt: null };
+  if (override === 'locked') return { locked: true, unlockAt: null };
   if (!m.locked) return { locked: false, unlockAt: null };
   if (m.unlockAfterDays && m.unlockAfterDays > 0) {
     const at = new Date(since).getTime() + m.unlockAfterDays * 86_400_000;
     return now >= at ? { locked: false, unlockAt: null } : { locked: true, unlockAt: new Date(at).toISOString() };
   }
   return { locked: true, unlockAt: null };
+}
+
+async function overridesOf(memberId: string) {
+  const rows = await db.select({ moduleId: schema.memberModuleOverrides.moduleId, state: schema.memberModuleOverrides.state })
+    .from(schema.memberModuleOverrides).where(eq(schema.memberModuleOverrides.memberId, memberId));
+  return new Map(rows.map((r) => [r.moduleId, r.state]));
 }
 
 const memberView = (m: typeof schema.memberUsers.$inferSelect) => ({ id: m.id, name: m.name, email: m.email, phone: m.phone, hasPassword: !!m.passwordHash });
@@ -199,7 +211,8 @@ membersAreaRouter.get('/:slug/catalog', memberAuth, asyncHandler(async (req: Mem
   const prog = await db.select().from(schema.memberProgress).where(eq(schema.memberProgress.memberId, mid));
   const done = new Set(prog.filter((p) => p.completedAt).map((p) => p.lessonId));
   const sinceOf = new Map(courses.map((c) => [c.id, c.since]));
-  const lockOf = new Map(modules.map((m) => [m.id, moduleLock(m, sinceOf.get(m.courseId) ?? new Date())]));
+  const ov = await overridesOf(mid);
+  const lockOf = new Map(modules.map((m) => [m.id, moduleLock(m, sinceOf.get(m.courseId) ?? new Date(), Date.now(), ov.get(m.id))]));
   const last = prog.sort((a, b) => +new Date(b.openedAt) - +new Date(a.openedAt))
     .find((p) => lessons.some((l) => l.id === p.lessonId && !lockOf.get(l.moduleId)?.locked));
   const out = await Promise.all(courses.map(async (c) => {
@@ -224,13 +237,14 @@ membersAreaRouter.get('/:slug/catalog', memberAuth, asyncHandler(async (req: Mem
 async function lessonFor(req: MemberReq, id: string) {
   if (!isUuid(id)) throw new AppError(404, 'Aula não encontrada');
   const rows = (await db.execute(sql`
-    select l.*, m.title as module_title, m.locked as module_locked, m.unlock_after_days as module_days, a.created_at as since, c.title as course_title from member_lessons l
+    select l.*, m.title as module_title, m.locked as module_locked, m.unlock_after_days as module_days, a.created_at as since, c.title as course_title,
+      (select o.state from member_module_overrides o where o.member_id = ${req.member!.id} and o.module_id = m.id) as module_override from member_lessons l
     join member_modules m on m.id = l.module_id
     join member_courses c on c.id = l.course_id and c.published
     join member_access a on a.course_id = c.id and a.member_id = ${req.member!.id} and a.revoked_at is null
     where l.id = ${id} and l.account_id = ${req.area!.accountId} limit 1`)).rows as any[];
   if (!rows[0]) throw new AppError(404, 'Aula não encontrada ou sem acesso');
-  const lk = moduleLock({ locked: rows[0].module_locked, unlockAfterDays: rows[0].module_days }, rows[0].since);
+  const lk = moduleLock({ locked: rows[0].module_locked, unlockAfterDays: rows[0].module_days }, rows[0].since, Date.now(), rows[0].module_override);
   if (lk.locked) {
     const when = lk.unlockAt ? ` Ele libera em ${new Date(lk.unlockAt).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.` : '';
     throw new AppError(403, `O módulo “${rows[0].module_title}” está bloqueado.${when}`, { code: 'module_locked', unlockAt: lk.unlockAt });
@@ -243,9 +257,10 @@ membersAreaRouter.get('/:slug/lessons/:id', memberAuth, asyncHandler(async (req:
   // ordem do curso inteiro (módulo, depois aula) para "anterior" e "próxima"
   // módulos bloqueados para este aluno ficam de fora da sequência
   const seq = ((await db.execute(sql`
-    select l.id, m.locked, m.unlock_after_days as days from member_lessons l join member_modules m on m.id = l.module_id
-    where l.course_id = ${l.course_id} order by m.is_bonus, m.sort, m.created_at, l.sort, l.created_at`)).rows as { id: string; locked: boolean; days: number | null }[])
-    .filter((x) => !moduleLock({ locked: x.locked, unlockAfterDays: x.days }, l.since).locked);
+    select l.id, m.locked, m.unlock_after_days as days, o.state as override from member_lessons l join member_modules m on m.id = l.module_id
+    left join member_module_overrides o on o.module_id = m.id and o.member_id = ${req.member!.id}
+    where l.course_id = ${l.course_id} order by m.is_bonus, m.sort, m.created_at, l.sort, l.created_at`)).rows as { id: string; locked: boolean; days: number | null; override: string | null }[])
+    .filter((x) => !moduleLock({ locked: x.locked, unlockAfterDays: x.days }, l.since, Date.now(), x.override).locked);
   const i = seq.findIndex((s) => s.id === l.id);
   await db.insert(schema.memberProgress).values({ memberId: req.member!.id, lessonId: l.id })
     .onConflictDoUpdate({ target: [schema.memberProgress.memberId, schema.memberProgress.lessonId], set: { openedAt: new Date() } });
