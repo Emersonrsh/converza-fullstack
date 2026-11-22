@@ -2655,7 +2655,7 @@ html.dark .fbm-plat.tiktok{background:#333;outline:1px solid #555}
 .rule-sim-i{display:flex;align-items:center;gap:10px;justify-content:space-between}
 .rule-sim-i > span:first-child{display:flex;flex-direction:column;min-width:0}
 /* com o editor de campanha ou qualquer janela aberta, o botão do Discord sai da frente (o "Publicar" mora nesse canto) */
-body:has(.ed-shell, .modal-bg, [aria-modal="true"]:not(.dc-pop)) .dc-fab-wrap{display:none}
+body:has(.ed-shell, .modal-bg, .cd-bg, .st-drawer-bg, .kb-overlay, [aria-modal="true"]:not(.dc-pop)) .dc-fab-wrap{display:none}
 
 /* Filtro de contas de anúncios (Dashboard) */
 .aaf{position:relative}

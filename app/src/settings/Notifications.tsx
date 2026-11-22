@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Icon } from '../icons';
-import { Spinner, Switch, toast } from '../components/ui';
+import { Spinner, Switch, insertAtCaret, toast } from '../components/ui';
 import { EmptyBox, Head, LoadError, errMsg, relTime, useLoad } from './common';
 
 interface Device { id: string; endpoint: string; device: string | null; prefs: { sales: boolean; instances?: boolean }; createdAt: string; lastSentAt: string | null }
@@ -188,11 +188,7 @@ function SaleTemplateCard({ hasDevice }: { hasDevice: boolean }) {
 
   function insert(v: string) {
     const f = last.current; const el = refs[f].current;
-    const cur = t![f]; const tok = `{${v}}`;
-    const a = el?.selectionStart ?? cur.length; const b = el?.selectionEnd ?? cur.length;
-    const next = cur.slice(0, a) + tok + cur.slice(b);
-    setT({ ...t!, [f]: next });
-    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(a + tok.length, a + tok.length); });
+    setT({ ...t!, [f]: insertAtCaret(el, t![f], `{${v}}`) });
   }
   async function save(v: Tpl | null) {
     setBusy('save');

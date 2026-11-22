@@ -1,6 +1,6 @@
 import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Icon } from '../icons';
-import { Avatar, cx } from '../components/ui';
+import { Avatar, cx, insertAtCaret } from '../components/ui';
 import { api, mediaSrc } from '../api';
 import { EMOJIS, dayLabel, fillVars, fmtPhone, msgTime, quoteText } from './util';
 import { isTextOnly, quickPreview } from '../settings/QuickReplies';
@@ -384,11 +384,7 @@ function Composer({ detail, quickReplies, onSend, onNote, onUpload, onTemplate, 
   }
 
   function insertEmoji(e: string) {
-    const el = ta.current;
-    const s = el?.selectionStart ?? text.length;
-    const en = el?.selectionEnd ?? text.length;
-    setText(text.slice(0, s) + e + text.slice(en));
-    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(s + e.length, s + e.length); });
+    setText(insertAtCaret(ta.current, text, e));
   }
 
   async function startRec() {

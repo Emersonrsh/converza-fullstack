@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE, api, getAccountId, getToken } from '../api';
 import { useAuth } from '../auth';
 import { Icon } from '../icons';
-import { Field, Modal, Spinner, toast } from '../components/ui';
+import { Field, Modal, Spinner, insertAtCaret, toast } from '../components/ui';
 import { ConfirmModal } from '../kanban/modals';
 import { Badge, Drawer, EmptyBox, Head, LoadError, SearchBox, errMsg, relTime, useLoad } from './common';
 
@@ -79,10 +79,7 @@ function CreateModal({ waba, onClose, onCreated }: { waba: Waba; onClose: () => 
 
   function addVar() {
     const n = (vars[vars.length - 1] ?? 0) + 1;
-    const el = bodyRef.current; const token = `{{${n}}}`;
-    const s = el?.selectionStart ?? body.length; const e = el?.selectionEnd ?? body.length;
-    setBody(body.slice(0, s) + token + body.slice(e));
-    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(s + token.length, s + token.length); });
+    setBody(insertAtCaret(bodyRef.current, body, `{{${n}}}`));
   }
 
   async function uploadSample(f: File | undefined) {

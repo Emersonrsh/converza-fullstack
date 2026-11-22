@@ -311,6 +311,7 @@ export function validateFlow(nodes: N[], edges: E[], lk: Lookups): Issue[] {
         break;
       }
       case 'card': {
+        if (lk.payments?.infinitepay === false) add(n.id, 'error', `${nm}: a InfinitePay não está configurada. Ligue em Configurações › Pagamentos › InfinitePay, senão o link de cartão não é gerado.`);
         const p = lk.products.find((x) => x.id === d.productId);
         if (d.productId && !p) add(n.id, 'error', `${nm}: o produto escolhido não existe mais.`);
         else if (p && Number(p.price) < 1) add(n.id, 'error', `${nm}: o produto “${p.name}” precisa ter preço de pelo menos R$ 1,00.`);
@@ -318,6 +319,7 @@ export function validateFlow(nodes: N[], edges: E[], lk: Lookups): Issue[] {
         break;
       }
       case 'xpag': {
+        if (lk.payments?.xpag === false) add(n.id, 'error', `${nm}: a XPag não está configurada. Ligue em Configurações › Pagamentos › XPag, senão a cobrança não é criada.`);
         const p = lk.products.find((x) => x.id === d.productId);
         if (d.productId && !p) add(n.id, 'error', `${nm}: o produto escolhido não existe mais.`);
         else if (p && Number(p.price) <= 0) add(n.id, 'error', `${nm}: o produto “${p.name}” não tem preço.`);

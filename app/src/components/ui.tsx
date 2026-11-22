@@ -106,3 +106,13 @@ export function Toaster() {
   if (!msg) return null;
   return <div className="toast fade">{msg}</div>;
 }
+
+/** Insere `token` no cursor de um campo controlado e já deixa o cursor depois dele, na hora.
+ * O valor do DOM muda antes do setState: quando o React grava o mesmo texto, o cursor fica onde está
+ * (esperar um requestAnimationFrame deixava quem digita rápido com o texto embaralhado). Devolve o texto novo. */
+export function insertAtCaret(el: HTMLTextAreaElement | HTMLInputElement | null | undefined, current: string, token: string): string {
+  const s = el?.selectionStart ?? current.length; const e = el?.selectionEnd ?? current.length;
+  const next = current.slice(0, s) + token + current.slice(e);
+  if (el) { el.value = next; el.focus(); el.setSelectionRange(s + token.length, s + token.length); }
+  return next;
+}

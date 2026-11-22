@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { API_BASE, api, getAccountId, getToken, mediaSrc } from '../api';
 import { useAuth } from '../auth';
 import { Icon } from '../icons';
-import { Modal, Spinner, cx, toast } from '../components/ui';
+import { Modal, Spinner, cx, insertAtCaret, toast } from '../components/ui';
 import { ConfirmModal } from '../kanban/modals';
 import type { QuickAction, QuickActionType, QuickFile, QuickReply } from '../chats/types';
 import { Badge, EmptyBox, Head, LoadError, SearchBox, errMsg, useDebounced, useLoad } from './common';
@@ -67,10 +67,7 @@ function ActionEditor({ a, index, total, onChange, onRemove, onMove }: {
     setBusy(false);
   }
   const insertVar = (v: string) => {
-    const el = ta.current; const cur = a.text ?? ''; const token = `{{${v}}}`;
-    const s = el?.selectionStart ?? cur.length; const e = el?.selectionEnd ?? cur.length;
-    onChange({ ...a, text: cur.slice(0, s) + token + cur.slice(e) });
-    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(s + token.length, s + token.length); });
+    onChange({ ...a, text: insertAtCaret(ta.current, a.text ?? '', `{{${v}}}`) });
   };
   return (
     <div className="st-action" data-testid="qr-action">

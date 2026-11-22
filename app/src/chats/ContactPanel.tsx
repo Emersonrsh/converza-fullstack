@@ -19,6 +19,45 @@ const SALE: Record<ChatSale['status'], [string, string]> = {
 const dateBR = (iso: string) => new Date(iso).toLocaleDateString('pt-BR');
 const valueText = (v: string | number) => (Number(v) ? Number(v).toFixed(2).replace('.', ',') : '');
 
+/** Link de cartão avulso pela InfinitePay (só aparece se a conta configurou a InfinitePay). */
+function CardLink({ contactId, onCreated }: { contactId: string; onCreated: () => void }) {
+  const [on, setOn] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [desc, setDesc] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.get<{ configured: boolean }>('/payments/infinitepay').then((r) => alive && setOn(r.configured)).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  if (!on) return null;
+  async function create() {
+    const n = parsePrice(amount);
+    if (!n || Number.isNaN(n) || n < 1) { toast('Informe um valor de pelo menos R$ 1,00'); return; }
+    setBusy(true);
+    try {
+      const r = await api.post<{ url: string }>('/payments/infinitepay/links', { contactId, amount: n, description: desc.trim() || undefined });
+      setUrl(r.url); onCreated();
+      try { await navigator.clipboard.writeText(r.url); toast('Link copiado. Cole na conversa para enviar.'); } catch { toast('Link criado'); }
+    } catch (e) { toast(e instanceof Error ? e.message : 'Não foi possível gerar o link'); }
+    finally { setBusy(false); }
+  }
+  if (!open) return <button type="button" className="btn sm" style={{ marginTop: 8 }} onClick={() => setOpen(true)} data-testid="cp-card-link"><Icon name="plus" size={13} />Link de cartão (InfinitePay)</button>;
+  return (
+    <div style={{ display: 'grid', gap: 6, marginTop: 8 }} data-testid="cp-card-form">
+      <input className="input" placeholder="Valor (ex.: 197,00)" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="cp-card-amount" />
+      <input className="input" placeholder="Descrição (opcional)" maxLength={120} value={desc} onChange={(e) => setDesc(e.target.value)} />
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button type="button" className="btn sm primary" disabled={busy} onClick={() => void create()} data-testid="cp-card-create">{busy ? 'Gerando…' : 'Gerar link'}</button>
+        <button type="button" className="btn sm" onClick={() => { setOpen(false); setUrl(null); setAmount(''); setDesc(''); }}>Fechar</button>
+      </div>
+      {url && <a href={url} target="_blank" rel="noreferrer" className="faint" style={{ fontSize: 12, wordBreak: 'break-all' }} data-testid="cp-card-url">{url}</a>}
+    </div>
+  );
+}
+
 function Section({ title, children, right }: { title: string; children: ReactNode; right?: ReactNode }) {
   return (
     <section className="cp-sec">
@@ -300,6 +339,7 @@ export function ContactPanel({ detail, tags, refreshKey, onContact, onAutomation
                   ))}
                 </div>
               )}
+          <CardLink contactId={c.id} onCreated={() => void api.get<{ sales: ChatSale[] }>(`/conversations/${conv.id}/sales`).then((r) => setSales(r.sales)).catch(() => {})} />
         </Section>
       </div>
     </aside>

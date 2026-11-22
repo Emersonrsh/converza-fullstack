@@ -232,10 +232,12 @@ export interface Lookups {
   platforms: { id: string; label: string; events: string[] }[];
   wabas: { id: string; name: string; displayPhone: string | null }[];
   courses: { id: string; title: string; published: boolean; modules: { id: string; title: string; locked: boolean; isBonus: boolean }[] }[];
+  /** pagamentos configurados na conta (null = não deu para saber) */
+  payments: { infinitepay: boolean | null; xpag: boolean | null };
 }
 export const emptyLookups: Lookups = {
   connections: [], webhooks: [], team: [], products: [], flows: [], kanban: [], fields: [], departments: [], globals: [],
-  tags: [], agents: [], pixels: [], platforms: [], wabas: [], courses: [],
+  tags: [], agents: [], pixels: [], platforms: [], wabas: [], courses: [], payments: { infinitepay: null, xpag: null },
 };
 
 const UNITS: Record<string, [string, string]> = {
