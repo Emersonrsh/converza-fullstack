@@ -15,19 +15,19 @@ export function MembersEditor({ d, set, vars, lookups }: EditorProps) {
   const courses = lookups.courses;
   return (
     <>
-      <div className="fx-note" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, lineHeight: 1.5, padding: '10px 12px', borderRadius: 10, background: 'var(--primary-50)', color: 'var(--text)' }}>
-        <Icon name="book" size={15} />
+      <div className="fx-mb-note">
+        <Icon name="book" size={16} />
         <span>Usa o WhatsApp do contato como login na <b>Converza Members</b>. Ao liberar, o fluxo pode mandar na conversa um link que entra direto na área. Os cursos ficam em <Link to="/members">Converza Members</Link>.</span>
       </div>
 
-      <div className="mbx-seg-row" role="group" aria-label="Ação" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      <div className="fx-mb-actions" role="group" aria-label="Ação">
         <button type="button" className={cx('fx-choice', !revoke && 'on')} onClick={() => set({ action: 'grant', moduleIds: [] })} data-testid="mb-action-grant"><Icon name="unlock" size={15} />Liberar acesso</button>
         <button type="button" className={cx('fx-choice', revoke && 'on')} onClick={() => set({ action: 'revoke', moduleIds: [] })} data-testid="mb-action-revoke"><Icon name="lock" size={15} />Tirar acesso</button>
       </div>
 
       <Field label={revoke ? 'Tirar o acesso a' : 'Entregar'} required>
         {!courses.length ? (
-          <div className="faint" style={{ fontSize: 13 }}>Nenhum curso criado ainda. <Link to="/members">Criar curso</Link></div>
+          <div className="bm-hint">Nenhum curso criado ainda. <Link to="/members">Criar curso</Link></div>
         ) : (
           <div className="fx-mb-list">
             {courses.map((c) => {
@@ -50,28 +50,28 @@ export function MembersEditor({ d, set, vars, lookups }: EditorProps) {
                   {!revoke && whole && c.modules.length > 0 && (
                     <div className="fx-mb-mods" data-testid="mb-modules">
                       <div className="fx-mb-mods-hd">
-                        <small className="faint">Módulos liberados na entrega:</small>
+                        <small>Módulos liberados na entrega</small>
                         <span>
-                          <button type="button" className="linkbtn" onClick={() => setPicked(c.modules.map((m) => m.id))} data-testid="mb-all">Todos</button>
-                          <button type="button" className="linkbtn" onClick={() => setPicked([])} data-testid="mb-none">Nenhum</button>
+                          <button type="button" onClick={() => setPicked(c.modules.map((m) => m.id))} data-testid="mb-all">Todos</button>
+                          <button type="button" onClick={() => setPicked([])} data-testid="mb-none">Nenhum</button>
                         </span>
                       </div>
                       {c.modules.map((m) => (
                         <label key={m.id} className="fx-mb-row sm" data-testid="mb-module">
                           <input type="checkbox" checked={picked.includes(m.id)} onChange={(e) => setPicked(toggle(picked, m.id, e.target.checked))} />
-                          <span>{m.isBonus && <Icon name="gift" size={11} />} {m.title}{!picked.includes(m.id) && <Icon name="lock" size={11} />}</span>
+                          <span>{m.isBonus && <Icon name="gift" size={12} />}<em>{m.title}</em>{!picked.includes(m.id) && <Icon name="lock" size={12} />}</span>
                         </label>
                       ))}
-                      <small className="faint fx-mb-tip">Os desmarcados ficam bloqueados para este contato até você liberar (na aba Membros, com uma regra de venda ou com outro bloco).</small>
+                      <small className="fx-mb-tip">Os desmarcados ficam bloqueados para este contato até você liberar (na aba Membros, com uma regra de venda ou com outro bloco).</small>
                     </div>
                   )}
                   {revoke && c.modules.length > 0 && (
                     <div className="fx-mb-mods">
-                      <small className="faint">Ou bloquear só estes módulos:</small>
+                      <div className="fx-mb-mods-hd"><small>Ou bloquear só estes módulos</small></div>
                       {c.modules.map((m) => (
                         <label key={m.id} className="fx-mb-row sm" data-testid="mb-module">
                           <input type="checkbox" checked={moduleIds.includes(m.id)} onChange={(e) => set({ moduleIds: toggle(moduleIds, m.id, e.target.checked) })} />
-                          <span>{m.title}</span>
+                          <span><em>{m.title}</em></span>
                         </label>
                       ))}
                     </div>
@@ -91,10 +91,10 @@ export function MembersEditor({ d, set, vars, lookups }: EditorProps) {
               <RichText value={d.text ?? MEMBERS_TEXT} onChange={(text) => set({ text })} vars={[...vars, 'membros.link', 'membros.area', 'membros.cursos', 'membros.modulos']} rows={5} testId="mb-text" />
             </Field>
           )}
-          <small className="faint" style={{ display: 'block', marginTop: -4 }}>Depois deste bloco você pode usar {'{{membros.link}}'}, {'{{membros.area}}'}, {'{{membros.cursos}}'} e {'{{membros.modulos}}'} em outras mensagens.</small>
+          <div className="bm-hint fx-mb-after">Depois deste bloco você pode usar {'{{membros.link}}'}, {'{{membros.area}}'}, {'{{membros.cursos}}'} e {'{{membros.modulos}}'} em outras mensagens.</div>
         </>
       )}
-      {revoke && <small className="faint" style={{ display: 'block' }}>O cliente não recebe aviso. Para devolver, use outro bloco com “Liberar acesso”.</small>}
+      {revoke && <div className="bm-hint">O cliente não recebe aviso. Para devolver, use outro bloco com “Liberar acesso”.</div>}
     </>
   );
 }
