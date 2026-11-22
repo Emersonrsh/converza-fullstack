@@ -9,11 +9,13 @@ import { isUuid } from '../utils/http';
 import { normalizePhone } from '../utils/phone';
 import { findContactByPhone } from '../modules/contactStore';
 import { STAGE_LABEL } from '../flows/types';
+import { MORE_TOOLS } from './toolsMore';
 
-export type ToolGroup = 'contacts' | 'conversations' | 'messages' | 'tags' | 'flows' | 'sales';
+export type ToolGroup = 'contacts' | 'conversations' | 'messages' | 'tags' | 'flows' | 'sales' | 'members' | 'agents' | 'ads';
 
 export const GROUP_LABEL: Record<ToolGroup, string> = {
   contacts: 'Contatos', conversations: 'Conversas', messages: 'Enviar mensagens', tags: 'Etiquetas', flows: 'Fluxos', sales: 'Vendas e produtos',
+  members: 'Converza Members', agents: 'Agentes de IA', ads: 'Campanhas (Meta Ads)',
 };
 
 export interface ToolCtx { accountId: string; keyId: string }
@@ -408,6 +410,9 @@ export const TOOLS: ToolDef[] = [
     },
   },
 ];
+
+// configuração (Members, criar fluxos, agentes, campanhas): ferramentas em toolsMore.ts
+TOOLS.push(...MORE_TOOLS);
 
 export const TOOL_NAMES = TOOLS.map((t) => t.name);
 export const toolByName = (name: string) => TOOLS.find((t) => t.name === name);

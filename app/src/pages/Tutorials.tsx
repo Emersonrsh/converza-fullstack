@@ -187,8 +187,8 @@ const TUTORIALS: Tutorial[] = [
     id: 'mcp', icon: 'key', title: 'Conectar um assistente de IA (MCP)', module: 'Configurações', route: '/settings/mcp', minutes: 3,
     steps: [
       'Em **Configurações › Ferramentas MCP**, clique em **Nova chave**, dê um nome e marque o que o assistente pode fazer (só consultar, ou também mandar mensagens, etiquetar e iniciar fluxos).',
-      'Copie a chave na hora: ela aparece só uma vez. A própria tela mostra como colar no Claude Code, Cursor, Claude Desktop, n8n ou em clientes que pedem só a URL.',
-      'Pronto: o assistente consulta contatos, conversas, vendas e produtos e age dentro das regras do WhatsApp. As chamadas aparecem em **Últimas chamadas**; para cortar o acesso, revogue a chave.',
+      'Copie a chave na hora: ela aparece só uma vez. A própria tela mostra como colar no Claude (Configurações › Conectores › Adicionar conector personalizado, com a URL da aba “Só URL”), Claude Code, Cursor, Claude Desktop e n8n.',
+      'Pronto: o assistente consulta contatos, conversas, vendas e produtos e age dentro das regras do WhatsApp. Ele também pode configurar a Converza Members, criar e editar fluxos, montar agentes de IA e analisar e ajustar campanhas da Meta, se você marcar essas ferramentas. As chamadas aparecem em **Últimas chamadas**; para cortar o acesso, revogue a chave.',
     ],
     tip: 'Crie uma chave para cada assistente ou automação — assim dá para revogar um sem mexer nos outros.',
   },

@@ -171,6 +171,17 @@ function sanitizeData(type: string, raw: unknown): Dict {
     case 'set_var': return {
       name: sanitizeVar(d.name), op: ['set', 'add', 'subtract', 'multiply', 'divide', 'append', 'clear'].includes(d.op) ? d.op : 'set', value: str(d.value, 500),
     };
+    case 'members': {
+      const ids = (v: unknown) => (Array.isArray(v) ? v.map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 50) : []);
+      const cm: Dict = {};
+      if (d.courseModules && typeof d.courseModules === 'object') for (const [k, v] of Object.entries(d.courseModules as Dict)) if (/^[0-9a-f-]{36}$/i.test(k)) cm[k] = ids(v);
+      return {
+        action: d.action === 'revoke' ? 'revoke' : 'grant', courseIds: ids(d.courseIds), moduleIds: ids(d.moduleIds), courseModules: cm,
+        unlockRestOnSale: !!d.unlockRestOnSale, unlockRestProductId: typeof d.unlockRestProductId === 'string' && /^[0-9a-f-]{36}$/i.test(d.unlockRestProductId) ? d.unlockRestProductId : '',
+        unlockRestAfter: !!d.unlockRestAfter, unlockRestDays: Math.min(3650, Math.max(1, Math.round(Number(d.unlockRestDays ?? 7)) || 7)),
+        sendMessage: d.sendMessage !== false, text: str(d.text, 2000),
+      };
+    }
     default: return {};
   }
 }
@@ -207,14 +218,14 @@ const GENERATABLE = new Set([
   'media', 'action', 'handoff', 'ai_reply', 'ai_classify', 'payment',
 ]);
 
-export function sanitizeGeneratedGraph(raw: unknown): FlowGraph {
+export function sanitizeGeneratedGraph(raw: unknown, extra: string[] = []): FlowGraph {
   const g = (raw ?? {}) as Dict;
   const nodes: FlowNode[] = [];
   const idMap = new Map<string, string>();
   for (const n of (Array.isArray(g.nodes) ? g.nodes : []).slice(0, 60)) {
     if (!n || typeof n !== 'object') continue;
     const type = String(n.type);
-    if (!(BLOCK_TYPES as readonly string[]).includes(type) || !GENERATABLE.has(type)) continue;
+    if (!(BLOCK_TYPES as readonly string[]).includes(type) || (!GENERATABLE.has(type) && !extra.includes(type))) continue;
     if (type === 'trigger' && nodes.some((x) => x.type === 'trigger')) continue;
     const id = type === 'trigger' ? 'trigger' : `${type}_${rid()}`;
     idMap.set(String(n.id ?? id), id);

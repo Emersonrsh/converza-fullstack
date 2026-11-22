@@ -24,7 +24,7 @@ export interface RpcResponse { jsonrpc: '2.0'; id: Id; result?: unknown; error?:
 export interface RpcCtx extends ToolCtx { tools: string[] }
 export interface CallLog { tool: string; ok: boolean; error: string | null; summary: string; durationMs: number }
 
-const INSTRUCTIONS = 'Ferramentas da Converza (CRM e atendimento no WhatsApp). Antes de mandar mensagem, leia a conversa com get_messages: o WhatsApp só aceita texto livre até 24h depois da última mensagem do cliente. Use list_tags e list_flows para ver os nomes e ids válidos.';
+const INSTRUCTIONS = 'Ferramentas da Converza (CRM e atendimento no WhatsApp). Antes de mandar mensagem, leia a conversa com get_messages: o WhatsApp só aceita texto livre até 24h depois da última mensagem do cliente. Use list_tags e list_flows para ver os nomes e ids válidos. Para montar um fluxo, leia flow_blocks_reference antes de create_flow. Pausar campanhas, mudar orçamento, ligar um agente (enabled) e ativar um fluxo afetam clientes e dinheiro de verdade: confirme com o usuário antes de fazer.';
 
 const err = (id: Id, code: number, message: string, data?: unknown): RpcResponse => ({ jsonrpc: '2.0', id, error: { code, message, ...(data !== undefined ? { data } : {}) } });
 const ok = (id: Id, result: unknown): RpcResponse => ({ jsonrpc: '2.0', id, result });
