@@ -25,10 +25,10 @@ export function SalesView({ data, query, currency: cur, refreshKey, products, co
   const kpis = [
     { icon: 'users', tone: 'blue', label: 'Leads novos', value: fmtNum(k.leads), t: trend(k.leads, p.leads), info: 'Contatos que falaram com você pela primeira vez no período.' },
     { icon: 'dollar', tone: 'teal', valueTone: 'teal', label: 'Faturamento', value: money(k.revenue), t: trend(k.revenue, p.revenue), info: 'Soma das vendas aprovadas no período (sem pendentes, recusadas e reembolsos).' },
-    { icon: 'bag', tone: 'purple', label: 'Vendas', value: fmtNum(k.sales), t: trend(k.sales, p.sales), info: 'Quantidade de vendas aprovadas no período.' },
+    { icon: 'bag', tone: 'purple', label: 'Vendas', value: fmtNum(k.sales), t: trend(k.sales, p.sales), info: 'Quantidade de pedidos aprovados no período. Compras do mesmo cliente no mesmo fluxo (produto + upsell, order bump, fluxo aberto por “ir para fluxo”) contam como 1 venda; o faturamento soma todas.' },
     { icon: 'trophy', tone: 'amber', valueTone: 'amber', label: 'ROAS', value: fmtDec(k.roas), t: trend(k.roas, p.roas), info: 'Retorno sobre o investimento em anúncios: faturamento ÷ gasto com anúncios. ROAS 3 = cada R$ 1 investido voltou R$ 3.' },
-    { icon: 'checkCircle', tone: 'green', label: 'Taxa de conversão', value: fmtPct(k.conversion), t: trend(k.conversion, p.conversion), info: 'Vendas aprovadas ÷ leads novos do período.' },
-    { icon: 'cart', tone: 'purple', label: 'Ticket médio', value: money(k.ticket), t: trend(k.ticket, p.ticket), info: 'Faturamento ÷ número de vendas aprovadas.' },
+    { icon: 'checkCircle', tone: 'green', label: 'Taxa de conversão', value: fmtPct(k.conversion), t: trend(k.conversion, p.conversion), info: 'Vendas (pedidos) aprovadas ÷ leads novos do período. O upsell não conta como uma venda a mais.' },
+    { icon: 'cart', tone: 'purple', label: 'Ticket médio', value: money(k.ticket), t: trend(k.ticket, p.ticket), info: 'Faturamento ÷ número de vendas (pedidos): quanto cada cliente gastou, somando produto e upsell.' },
     { icon: 'gem', tone: 'green', valueTone: k.profit < 0 ? 'red' : 'green', label: 'Lucro', value: money(k.profit), t: trend(k.profit, p.profit), info: `Faturamento − custo dos produtos (${money(k.cost)}) − taxas e impostos (${money(k.fees)}) − gasto com anúncios. Ajuste as taxas na engrenagem.` },
     { icon: 'megaphone', tone: 'red', valueTone: 'red', label: 'Gasto Meta (Ad)', value: money(k.adSpend), t: trend(k.adSpend, p.adSpend), invert: true, info: 'Investimento em anúncios no período. Clique no ícone de filtro para lançar ou ver os gastos.', action: { icon: 'filter', title: 'Lançar / ver gastos com anúncios', onClick: onAdSpend } },
   ] as const;
@@ -189,7 +189,7 @@ function SalesTable({ query, refreshKey, products, connections, currency, onChan
                 <td className="nowrap">{s.connectionPhone ?? <span className="faint">—</span>}</td>
                 <td className="nowrap">{fmtPhone(s.customerPhone)}</td>
                 <td><b>{s.customerName ?? '—'}</b></td>
-                <td>{s.productName ?? <span className="faint">—</span>}</td>
+                <td>{s.productName ?? <span className="faint">—</span>}{s.orderId && s.orderId !== s.id && <span className="pill mini" title="Comprado depois, no mesmo fluxo: soma no faturamento e não conta como venda nova" style={{ marginLeft: 6 }}>+ no mesmo pedido</span>}</td>
                 <td className="mono" title={s.id}>{s.externalId ?? s.id.slice(0, 8)}</td>
                 <td className="nowrap"><b>{fmtMoney(s.amount, s.currency)}</b><span className={cx('pill mini', SALE_STATUS[s.status][0])}>{SALE_STATUS[s.status][1]}</span></td>
                 <td>{s.currency}</td>

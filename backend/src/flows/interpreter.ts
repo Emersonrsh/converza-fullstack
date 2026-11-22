@@ -40,7 +40,7 @@ export interface TemplateSpec {
   replyButtons?: { id: string; title: string }[];
 }
 export interface NotifySpec { name: string; phone: string; text: string; template: { name: string; language: string; withText: boolean; paramName?: string } | null }
-export interface SaleSpec { productId: string | null; customerName: string; amount: number | null; currency: string }
+export interface SaleSpec { productId: string | null; customerName: string; amount: number | null; currency: string; nodeId?: string; journeyFlowId?: string | null }
 export interface SaleResult { productName: string; amount: number; currency: string }
 export interface PixelSpec { pixelId: string; event: string; value: number | null; currency: string; nodeId: string; pageId?: string | null }
 
@@ -150,6 +150,8 @@ export interface RunState {
   mediaMsgId: string | null;
   /** a próxima mensagem do fluxo sai citando esta mensagem do cliente */
   quoteNext: string | null;
+  /** fluxo de entrada da jornada: o fluxo aberto por "ir para fluxo" herda (vendas da jornada viram um pedido só) */
+  journeyFlowId?: string | null;
   /** identifica a espera atual (o tempo limite de uma espera antiga não vale para a nova) */
   waitToken: string | null;
   /** mensagens juntadas pelo "buffer" do Aguarda Resposta */
@@ -210,6 +212,7 @@ export function normalizeState(raw: unknown): RunState {
     // "digitando/gravando já mostrado" — sem isto, ao voltar da espera o fluxo mostra de novo e nunca envia
     typed: obj(r.typed),
     ...(r.held && typeof r.held === 'object' ? { held: { ...(r.held as Dict) } } : {}),
+    journeyFlowId: r.journeyFlowId ? String(r.journeyFlowId) : null,
   };
 }
 
@@ -867,6 +870,7 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
       const r = await exec.recordSale({
         productId: d.productId ? String(d.productId) : null, customerName: customer,
         amount: Number.isFinite(amount) && amount > 0 ? amount : null, currency: /^[A-Z]{3}$/.test(currency) ? currency : '',
+        nodeId: node.id, journeyFlowId: state.journeyFlowId ?? null,
       });
       const venda = { cliente: customer, valor: formatBRL(r.amount, r.currency), valor_numero: r.amount.toFixed(2), moeda: r.currency, produto: r.productName };
       state.vars.venda = venda;

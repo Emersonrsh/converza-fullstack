@@ -144,7 +144,7 @@ trackingRouter.get('/', asyncHandler(async (req, res) => {
     select l.id as link_id,
       (select count(*)::int from tracking_clicks k where k.link_id = l.id and k.created_at >= ${since}) as clicks30,
       (select count(*)::int from contacts c where c.tracking_link_id = l.id) as contacts,
-      (select count(*)::int from sales s join contacts c on c.id = s.contact_id
+      (select count(distinct coalesce(s.order_id, s.id))::int from sales s join contacts c on c.id = s.contact_id
         where c.tracking_link_id = l.id and s.status = 'approved' and s.created_at >= c.tracked_at) as sales,
       (select coalesce(sum(s.amount), 0)::float from sales s join contacts c on c.id = s.contact_id
         where c.tracking_link_id = l.id and s.status = 'approved' and s.created_at >= c.tracked_at) as revenue
@@ -232,7 +232,7 @@ trackingRouter.get('/:id', asyncHandler(async (req, res) => {
       from contacts where tracking_link_id = ${l.id} and tracked_at >= ${since} group by 1 order by 1`);
   const contacts = await rows<{ id: string; name: string; phone: string; tracked_at: Date; sales: number; revenue: number }>(sql`
     select c.id, c.name, c.phone, c.tracked_at,
-      (select count(*)::int from sales s where s.contact_id = c.id and s.status = 'approved' and s.created_at >= c.tracked_at) as sales,
+      (select count(distinct coalesce(s.order_id, s.id))::int from sales s where s.contact_id = c.id and s.status = 'approved' and s.created_at >= c.tracked_at) as sales,
       (select coalesce(sum(s.amount), 0)::float from sales s where s.contact_id = c.id and s.status = 'approved' and s.created_at >= c.tracked_at) as revenue
       from contacts c where c.account_id = ${accountId} and c.tracking_link_id = ${l.id}
      order by c.tracked_at desc nulls last limit 200`);

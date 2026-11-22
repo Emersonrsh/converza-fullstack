@@ -25,6 +25,39 @@ export interface SaleInput {
   createdAt?: Date | null;
   customerName?: string | null;
   customerPhone?: string | null;
+  /** fluxo da venda e da jornada (sem isso, usa o fluxo que o contato estava fazendo nos últimos 7 dias) */
+  flowId?: string | null;
+  journeyFlowId?: string | null;
+}
+
+/** Janela em que compras do mesmo contato na mesma jornada viram um pedido só. */
+const ORDER_WINDOW = sql`interval '7 days'`;
+
+/** Fluxo que o contato estava fazendo quando comprou (execução começada até 7 dias antes). */
+async function flowContextOf(contactId: string, at: Date) {
+  const [r] = (await db.execute(sql`select flow_id as "flowId", coalesce(nullif(context->>'journeyFlowId', '')::uuid, flow_id) as "journeyFlowId"
+    from flow_runs where contact_id = ${contactId} and started_at <= ${at} and started_at > ${at}::timestamptz - ${ORDER_WINDOW}
+    order by started_at desc limit 1`)).rows as { flowId: string; journeyFlowId: string }[];
+  return r ?? null;
+}
+
+/**
+ * Pedido da venda aprovada: a primeira compra do contato nessa jornada (7 dias) é o pedido;
+ * as seguintes (upsell, order bump, outro produto no mesmo fluxo) entram nele.
+ */
+export async function assignOrder(row: typeof schema.sales.$inferSelect) {
+  if (row.orderId || row.status !== 'approved') return row;
+  let orderId = row.id;
+  if (row.contactId && row.journeyFlowId) {
+    const [first] = (await db.execute(sql`select coalesce(order_id, id) as id from sales
+      where account_id = ${row.accountId} and contact_id = ${row.contactId} and journey_flow_id = ${row.journeyFlowId}
+        and status = 'approved' and id <> ${row.id}
+        and created_at > ${row.createdAt}::timestamptz - ${ORDER_WINDOW} and created_at <= ${row.createdAt}::timestamptz + interval '1 minute'
+      order by created_at asc, id asc limit 1`)).rows as { id: string }[];
+    if (first) orderId = first.id;
+  }
+  const [up] = await db.update(schema.sales).set({ orderId }).where(eq(schema.sales.id, row.id)).returning();
+  return up ?? row;
 }
 
 export const normCurrency = (c: unknown) => {
@@ -73,6 +106,8 @@ export async function recordSale(input: SaleInput) {
   }
 
   const product = await findProduct(input.accountId, input.productId, input.productName);
+  const ctx = input.flowId ? { flowId: input.flowId, journeyFlowId: input.journeyFlowId ?? input.flowId }
+    : contact ? await flowContextOf(contact.id, input.createdAt ?? new Date()) : null;
   const customerPhone = input.customerPhone ?? contact?.phone ?? null;
   const values = {
     accountId: input.accountId,
@@ -92,6 +127,8 @@ export async function recordSale(input: SaleInput) {
     customerPhone,
     origin: input.origin,
     notes: input.notes ?? null,
+    flowId: ctx?.flowId ?? null,
+    journeyFlowId: ctx?.journeyFlowId ?? null,
     ...(input.createdAt ? { createdAt: input.createdAt } : {}),
     updatedAt: new Date(),
   };
@@ -111,6 +148,8 @@ export async function recordSale(input: SaleInput) {
           connectionId: sql`coalesce(excluded.connection_id, ${schema.sales.connectionId})`,
           sourceId: sql`coalesce(excluded.source_id, ${schema.sales.sourceId})`,
           state: sql`coalesce(excluded.state, ${schema.sales.state})`,
+          flowId: sql`coalesce(${schema.sales.flowId}, excluded.flow_id)`,
+          journeyFlowId: sql`coalesce(${schema.sales.journeyFlowId}, excluded.journey_flow_id)`,
           cost: values.cost,
         },
       }).returning();
@@ -118,6 +157,7 @@ export async function recordSale(input: SaleInput) {
     [row] = await db.insert(schema.sales).values(values).returning();
   }
 
+  row = await assignOrder(row);
   emitToAccount(input.accountId, 'sale:changed', { id: row.id });
   // pixels: venda aprovada vira evento de compra (uma vez só por venda)
   if (row.status === 'approved') void firePixels(input.accountId, 'sale', { saleId: row.id, contactId: row.contactId });

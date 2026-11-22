@@ -293,7 +293,7 @@ export async function loadManagerRows(o: {
   const r = (await db.execute(sql`select (${d0}::date::timestamp at time zone ${tz}) as s, (${addDays(d1, 1)}::date::timestamp at time zone ${tz}) as e`)).rows[0] as { s: Date; e: Date };
   const leadRows = (await db.execute(sql`select source_id as ad, count(*)::int as n from contacts
     where account_id = ${accountId} and source_id is not null and created_at >= ${r.s} and created_at < ${r.e} group by 1`)).rows as { ad: string; n: number }[];
-  const saleRows = (await db.execute(sql`select source_id as ad, currency, count(*)::int as n, coalesce(sum(amount), 0)::float as v, coalesce(sum(cost), 0)::float as c from sales
+  const saleRows = (await db.execute(sql`select source_id as ad, currency, count(distinct coalesce(order_id, id))::int as n, coalesce(sum(amount), 0)::float as v, coalesce(sum(cost), 0)::float as c from sales
     where account_id = ${accountId} and status = 'approved' and source_id is not null and created_at >= ${r.s} and created_at < ${r.e} group by 1, 2`)).rows as { ad: string; currency: string; n: number; v: number; c: number }[];
   const attrByAd = new Map<string, Attribution>();
   const get = (ad: string) => { const x = attrByAd.get(ad) ?? { leads: 0, sales: 0, revenue: {}, cost: {} }; attrByAd.set(ad, x); return x; };

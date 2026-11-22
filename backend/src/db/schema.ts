@@ -607,6 +607,11 @@ export const sales = pgTable('sales', {
   invoiceIssuedAt: timestamp('invoice_issued_at', { withTimezone: true }),
   /** venda já avisada no celular (Web Push) */
   pushNotifiedAt: timestamp('push_notified_at', { withTimezone: true }),
+  /** fluxo em que a venda aconteceu e o fluxo de entrada da jornada (o upsell aberto por "ir para fluxo" herda) */
+  flowId: uuid('flow_id').references(() => flows.id, { onDelete: 'set null' }),
+  journeyFlowId: uuid('journey_flow_id').references(() => flows.id, { onDelete: 'set null' }),
+  /** pedido: compras do mesmo contato na mesma jornada contam como 1 venda (o faturamento soma todas) */
+  orderId: uuid('order_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({

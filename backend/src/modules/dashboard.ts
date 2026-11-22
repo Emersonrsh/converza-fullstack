@@ -154,7 +154,7 @@ export function computeKpis(raw: { revenue: number; sales: number; cost: number;
 async function salesKpis(accountId: string, f: Filters, start: Date, end: Date, d0: string, d1: string, ps: ProfitSettings) {
   const [a] = await rows(sql`select
       coalesce(sum(s.amount) filter (where s.status = 'approved'), 0) as revenue,
-      count(*) filter (where s.status = 'approved') as sales,
+      count(distinct coalesce(s.order_id, s.id)) filter (where s.status = 'approved') as sales,
       coalesce(sum(s.cost) filter (where s.status = 'approved'), 0) as cost
     from sales s where ${salesWhere(accountId, f, start, end)}`);
   const [l] = await rows(sql`select count(*) as n from contacts c where ${leadsWhere(accountId, f, start, end)}`);
@@ -189,16 +189,16 @@ dashboardRouter.get('/sales', asyncHandler(async (req, res) => {
     salesKpis(accountId, f, r.start, r.end, r.d0, r.d1, ps),
     salesKpis(accountId, f, r.prevStart, r.prevEnd, r.prevD0, r.prevD1, ps),
     rows(sql`select to_char(date_trunc(${r.bucket}, s.created_at at time zone ${r.tz}), ${fmt}) as k,
-        coalesce(sum(s.amount), 0) as revenue, count(*) as count
+        coalesce(sum(s.amount), 0) as revenue, count(distinct coalesce(s.order_id, s.id)) as count
       from sales s where ${w} and s.status = 'approved' group by 1`),
     rows(sql`select extract(hour from s.created_at at time zone ${r.tz})::int as h,
-        coalesce(sum(s.amount), 0) as revenue, count(*) as count
+        coalesce(sum(s.amount), 0) as revenue, count(distinct coalesce(s.order_id, s.id)) as count
       from sales s where ${w} and s.status = 'approved' group by 1`),
     rows(sql`select s.connection_id as id, coalesce(cn.name, 'Sem conexão') as name, cn.display_phone as phone,
-        count(*) as count, coalesce(sum(s.amount), 0) as revenue
+        count(distinct coalesce(s.order_id, s.id)) as count, coalesce(sum(s.amount), 0) as revenue
       from sales s left join connections cn on cn.id = s.connection_id
       where ${w} and s.status = 'approved' group by 1, 2, 3 order by revenue desc`),
-    rows(sql`select coalesce(s.state, '') as state, count(*) as count, coalesce(sum(s.amount), 0) as revenue
+    rows(sql`select coalesce(s.state, '') as state, count(distinct coalesce(s.order_id, s.id)) as count, coalesce(sum(s.amount), 0) as revenue
       from sales s where ${w} and s.status = 'approved' group by 1 order by count desc, revenue desc`),
     rows(sql`select coalesce(s.product_id::text, 'nome:' || coalesce(s.product_name, '')) as id,
         coalesce(p.name, s.product_name, 'Sem produto') as name, count(*) as count, coalesce(sum(s.amount), 0) as revenue
@@ -275,7 +275,7 @@ function listQuery(accountId: string, r: Range, f: Filters, status: string | nul
     where,
     select: sql`select s.id, to_char(s.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "createdAt", s.status, s.amount, s.currency, s.external_id as "externalId",
         s.source_id as "sourceId", s.state, s.origin, s.notes, s.invoice_number as "invoiceNumber", s.invoice_url as "invoiceUrl",
-        to_char(s.invoice_issued_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "invoiceIssuedAt", s.product_id as "productId", s.contact_id as "contactId", s.connection_id as "connectionId",
+        to_char(s.invoice_issued_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "invoiceIssuedAt", s.product_id as "productId", s.order_id as "orderId", s.contact_id as "contactId", s.connection_id as "connectionId",
         coalesce(p.name, s.product_name) as "productName", coalesce(ct.name, s.customer_name) as "customerName",
         coalesce(s.customer_phone, ct.phone) as "customerPhone", cn.name as "connectionName", cn.display_phone as "connectionPhone",
         to_char(s.created_at at time zone ${r.tz}, 'DD/MM/YYYY HH24:MI') as "dateLabel"
@@ -461,7 +461,7 @@ export const LEVELS = [
 
 /** Contador do topo: faturamento aprovado (BRL) e a próxima meta da trilha de conquistas. */
 dashboardRouter.get('/revenue-goal', asyncHandler(async (req, res) => {
-  const [sale] = await rows(sql`select coalesce(sum(amount), 0) as revenue, count(*) as sales from sales where account_id = ${req.accountId!} and status = 'approved' and currency = 'BRL'`);
+  const [sale] = await rows(sql`select coalesce(sum(amount), 0) as revenue, count(distinct coalesce(order_id, id)) as sales from sales where account_id = ${req.accountId!} and status = 'approved' and currency = 'BRL'`);
   const revenue = n(sale?.revenue);
   const salesCount = n(sale?.sales);
   const reached = (l: (typeof LEVELS)[number]) => (l.minSales ? salesCount >= l.minSales : revenue >= l.target);
@@ -480,7 +480,7 @@ dashboardRouter.get('/revenue-goal', asyncHandler(async (req, res) => {
 dashboardRouter.get('/achievements', asyncHandler(async (req, res) => {
   const accountId = req.accountId!;
   const [[sale], [conn], [flow], [agent], [hook], [prod], [team]] = await Promise.all([
-    rows(sql`select coalesce(sum(amount), 0) as revenue, count(*) as sales from sales where account_id = ${accountId} and status = 'approved' and currency = 'BRL'`),
+    rows(sql`select coalesce(sum(amount), 0) as revenue, count(distinct coalesce(order_id, id)) as sales from sales where account_id = ${accountId} and status = 'approved' and currency = 'BRL'`),
     rows(sql`select count(*) as n from connections where account_id = ${accountId} and status = 'connected'`),
     rows(sql`select count(*) as n from flows where account_id = ${accountId} and status = 'active' and archived_at is null`),
     rows(sql`select count(*) as n from agents where account_id = ${accountId} and enabled = true`),

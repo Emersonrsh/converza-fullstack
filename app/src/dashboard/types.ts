@@ -43,7 +43,7 @@ export interface SaleRow {
   id: string; createdAt: string; dateLabel: string; status: 'pending' | 'approved' | 'refused' | 'refunded';
   amount: number; currency: string; externalId: string | null; sourceId: string | null; state: string | null;
   origin: string; notes: string | null; invoiceNumber: string | null; invoiceUrl: string | null; invoiceIssuedAt: string | null;
-  productId: string | null; contactId: string | null; connectionId: string | null;
+  productId: string | null; contactId: string | null; connectionId: string | null; orderId?: string | null;
   productName: string | null; customerName: string | null; customerPhone: string | null;
   connectionName: string | null; connectionPhone: string | null;
 }

@@ -641,7 +641,10 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
       const row = await storeSale({
         accountId: p.accountId, contactId: p.contactId, amount, status: 'approved', currency,
         productId: product?.id ?? null, productName: product?.name ?? null, origin: 'flow',
-        customerName: s.customerName, connectionId: conn?.id ?? null, externalId: `flow-${p.runId}-${p.flowId.slice(0, 8)}`,
+        customerName: s.customerName, connectionId: conn?.id ?? null,
+        // um registro por bloco de venda (dois blocos no mesmo fluxo não se sobrescrevem)
+        externalId: `flow-${p.runId}-${s.nodeId ? s.nodeId.slice(0, 40) : p.flowId.slice(0, 8)}`,
+        flowId: p.flowId, journeyFlowId: s.journeyFlowId ?? p.flowId,
       });
       await note(`💰 Venda registrada pelo fluxo: ${formatBRL(Number(row.amount), row.currency)}${row.productName ? ` · ${row.productName}` : ''}.`);
       return { productName: row.productName ?? '', amount: Number(row.amount), currency: row.currency };
@@ -806,7 +809,8 @@ async function execute(run: RunRow, flow: FlowRow, state: RunState, fn: (exec: F
   }
   await persist(run.id, halt, state);
   if (exec.pendingGoto) {
-    await startFlowById(flow.accountId, exec.pendingGoto, run.contactId, state).catch((err) =>
+    // o fluxo de destino (ex.: upsell) continua a mesma jornada: as vendas dele somam no mesmo pedido
+    await startFlowById(flow.accountId, exec.pendingGoto, run.contactId, { ...state, journeyFlowId: state.journeyFlowId ?? flow.id }).catch((err) =>
       console.error('[flow] ir para fluxo falhou:', (err as Error).message));
   }
 }
@@ -860,6 +864,7 @@ async function startRun(flow: FlowRow, contactId: string, state: RunState, opts:
       eq(schema.flowRuns.flowId, flow.id), eq(schema.flowRuns.contactId, contactId), eq(schema.flowRuns.status, 'paused'), superseded));
   }
 
+  if (!state.journeyFlowId) state.journeyFlowId = flow.id;
   // índice único parcial: no máximo uma execução em andamento por fluxo + contato
   const [run] = await db.insert(schema.flowRuns)
     .values({ accountId: flow.accountId, flowId: flow.id, contactId, status: 'running', context: state as any })
@@ -914,7 +919,7 @@ async function pauseOthersFor(flow: { id: string; name: string; accountId: strin
 /** Estado novo para um fluxo que começa a partir de outro (Conexão de Fluxo, agente, webhook…). */
 const carryState = (from: Partial<RunState> & { lastMessage?: string }) => normalizeState({
   lastMessage: from.lastMessage ?? '', vars: from.vars ?? {}, connectionId: from.connectionId ?? null,
-  lastWaId: from.lastWaId ?? null, mediaMsgId: from.mediaMsgId ?? null,
+  lastWaId: from.lastWaId ?? null, mediaMsgId: from.mediaMsgId ?? null, journeyFlowId: from.journeyFlowId ?? null,
 });
 
 async function startFlowById(accountId: string, flowId: string, contactId: string, from: RunState) {

@@ -130,7 +130,7 @@ async function saleVars(s: typeof schema.sales.$inferSelect) {
   const [p] = s.productId ? await db.select({ name: schema.products.name }).from(schema.products).where(eq(schema.products.id, s.productId)).limit(1) : [];
   const [c] = s.connectionId ? await db.select({ name: schema.connections.name }).from(schema.connections).where(eq(schema.connections.id, s.connectionId)).limit(1) : [];
   const tz = acc?.tz || 'America/Sao_Paulo';
-  const [t] = (await db.execute(sql`select count(*)::int as n, coalesce(sum(amount), 0)::float as v from sales
+  const [t] = (await db.execute(sql`select count(distinct coalesce(order_id, id))::int as n, coalesce(sum(amount), 0)::float as v from sales
     where account_id = ${s.accountId} and status = 'approved' and currency = ${s.currency}
       and created_at >= (date_trunc('day', now() at time zone ${tz}) at time zone ${tz})`)).rows as { n: number; v: number }[];
   return {

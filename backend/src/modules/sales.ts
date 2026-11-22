@@ -7,7 +7,7 @@ import { db, schema } from '../db';
 import { asyncHandler, AppError, isUuid } from '../utils/http';
 import { emitToAccount } from '../realtime/io';
 import { onPaymentApproved } from '../flows/runner';
-import { normCurrency, normState, recordSale } from './salesStore';
+import { assignOrder, normCurrency, normState, recordSale } from './salesStore';
 import { firePixels } from '../pixels/sender';
 import { notifySaleApproved } from './push';
 
@@ -110,7 +110,8 @@ salesRouter.patch('/:id', asyncHandler(async (req, res) => {
     patch.cost = p ? Number(p.cost).toFixed(2) : '0';
   }
   try {
-    const [row] = await db.update(schema.sales).set(patch).where(eq(schema.sales.id, sale.id)).returning();
+    let [row] = await db.update(schema.sales).set(patch).where(eq(schema.sales.id, sale.id)).returning();
+    if (row.status === 'approved') row = await assignOrder(row);
     if (row.status === 'approved' && sale.status !== 'approved' && row.contactId) await onPaymentApproved(accountId, row.contactId);
     if (row.status === 'approved' && sale.status !== 'approved') void firePixels(accountId, 'sale', { saleId: row.id, contactId: row.contactId });
     if (row.status === 'approved' && sale.status !== 'approved') void notifySaleApproved(row.id);
