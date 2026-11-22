@@ -231,6 +231,7 @@ function PeopleTab() {
 interface MemberModule {
   id: string; title: string; isBonus: boolean; defaultLocked: boolean; defaultUnlockAt: string | null; ruleLocked: boolean; unlockAfterDays: number | null;
   override: 'unlocked' | 'locked' | null; overrideSource: 'manual' | 'sale' | 'flow' | null; saleProduct: string | null; locked: boolean; unlockAt: string | null;
+  pendingSale: string | null; pendingAt: string | null;
 }
 const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 
@@ -260,6 +261,7 @@ function MemberModulesModal({ person, onClose }: { person: Person; onClose: () =
                 <small>
                   {m.locked ? <span className="mbx-mm-st off"><Icon name="lock" size={11} />Bloqueado{m.unlockAt ? ` até ${fmtDay(m.unlockAt)}` : ''}</span> : <span className="mbx-mm-st on"><Icon name="check" size={11} />Liberado</span>}
                   {m.override ? (m.overrideSource === 'sale' ? ` · pela venda de ${m.saleProduct ?? 'um produto'}` : m.overrideSource === 'flow' ? ' · pelo fluxo' : ' · escolha para este aluno') : ` · regra do módulo: ${ruleText(m)}`}
+                  {m.locked && m.pendingSale !== null && m.pendingSale !== undefined && <span className="mbx-mm-pend" data-testid="mbx-mm-pending-sale"> · libera na venda aprovada{m.pendingSale ? ` de ${m.pendingSale}` : ''}</span>}
                 </small>
               </div>
               <div className="mbx-seg" role="group" aria-label="Acesso ao módulo">

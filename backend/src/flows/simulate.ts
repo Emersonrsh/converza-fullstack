@@ -277,7 +277,8 @@ function memoryExecutor(state: SimState, outputs: SimOutput[], visited: string[]
       const chosen = [...p.moduleIds, ...Object.values(p.courseModules ?? {}).flat()];
       const names = deps.memberNames ? await deps.memberNames(p.courseIds, chosen) : { courses: [], modules: [] };
       const what = [...names.courses, ...names.modules.map((m) => `módulo ${m}`)].join(', ') || 'cursos escolhidos';
-      note(p.action === 'revoke' ? `🎓 Área de membros: tira o acesso a ${what} (na simulação nada muda)` : `🎓 Área de membros: libera ${what} (na simulação nada muda)`);
+      const later = p.unlockRest ? [p.unlockRest.onSale ? 'na venda aprovada' : '', p.unlockRest.afterDays ? `em ${p.unlockRest.afterDays} dia(s)` : ''].filter(Boolean).join(' ou ') : '';
+      note(p.action === 'revoke' ? `🎓 Área de membros: tira o acesso a ${what} (na simulação nada muda)` : `🎓 Área de membros: libera ${what}${later ? `; o resto dos módulos libera ${later}` : ''} (na simulação nada muda)`);
       return { ok: true, link: 'https://converza.pro/m/exemplo/entrar?t=exemplo', area: 'https://converza.pro/m/exemplo', courses: names.courses, modules: names.modules };
     },
     async notifyApp(title, body) { note(`🔔 Aviso para a equipe no Converza: ${title} — ${body}`); },

@@ -70,9 +70,16 @@ export function moduleLock(m: { locked: boolean; unlockAfterDays: number | null 
 }
 
 async function overridesOf(memberId: string) {
+  const { releaseDuePending } = await import('./members');
+  await releaseDuePending(memberId);
   const rows = await db.select({ moduleId: schema.memberModuleOverrides.moduleId, state: schema.memberModuleOverrides.state })
     .from(schema.memberModuleOverrides).where(eq(schema.memberModuleOverrides.memberId, memberId));
   return new Map(rows.map((r) => [r.moduleId, r.state]));
+}
+/** Datas em que módulos bloqueados pelo fluxo liberam para o aluno. */
+async function pendingDates(memberId: string) {
+  const rows = (await db.execute(sql`select module_id as "moduleId", min(unlock_at) as at from member_pending_unlocks where member_id = ${memberId} and kind = 'time' group by module_id`)).rows as { moduleId: string; at: string }[];
+  return new Map(rows.map((r) => [r.moduleId, new Date(r.at).toISOString()]));
 }
 
 const memberView = (m: typeof schema.memberUsers.$inferSelect) => ({ id: m.id, name: m.name, email: m.email, phone: m.phone, hasPassword: !!m.passwordHash });
@@ -212,7 +219,11 @@ membersAreaRouter.get('/:slug/catalog', memberAuth, asyncHandler(async (req: Mem
   const done = new Set(prog.filter((p) => p.completedAt).map((p) => p.lessonId));
   const sinceOf = new Map(courses.map((c) => [c.id, c.since]));
   const ov = await overridesOf(mid);
-  const lockOf = new Map(modules.map((m) => [m.id, moduleLock(m, sinceOf.get(m.courseId) ?? new Date(), Date.now(), ov.get(m.id))]));
+  const pend = await pendingDates(mid);
+  const lockOf = new Map(modules.map((m) => {
+    const lk = moduleLock(m, sinceOf.get(m.courseId) ?? new Date(), Date.now(), ov.get(m.id));
+    return [m.id, lk.locked && pend.get(m.id) ? { locked: true, unlockAt: pend.get(m.id)! } : lk];
+  }));
   const last = prog.sort((a, b) => +new Date(b.openedAt) - +new Date(a.openedAt))
     .find((p) => lessons.some((l) => l.id === p.lessonId && !lockOf.get(l.moduleId)?.locked));
   const out = await Promise.all(courses.map(async (c) => {
@@ -236,15 +247,19 @@ membersAreaRouter.get('/:slug/catalog', memberAuth, asyncHandler(async (req: Mem
 
 async function lessonFor(req: MemberReq, id: string) {
   if (!isUuid(id)) throw new AppError(404, 'Aula não encontrada');
+  const { releaseDuePending } = await import('./members');
+  await releaseDuePending(req.member!.id);
   const rows = (await db.execute(sql`
     select l.*, m.title as module_title, m.locked as module_locked, m.unlock_after_days as module_days, a.created_at as since, c.title as course_title,
-      (select o.state from member_module_overrides o where o.member_id = ${req.member!.id} and o.module_id = m.id) as module_override from member_lessons l
+      (select o.state from member_module_overrides o where o.member_id = ${req.member!.id} and o.module_id = m.id) as module_override,
+      (select min(pu.unlock_at) from member_pending_unlocks pu where pu.member_id = ${req.member!.id} and pu.module_id = m.id and pu.kind = 'time') as module_pending_at from member_lessons l
     join member_modules m on m.id = l.module_id
     join member_courses c on c.id = l.course_id and c.published
     join member_access a on a.course_id = c.id and a.member_id = ${req.member!.id} and a.revoked_at is null
     where l.id = ${id} and l.account_id = ${req.area!.accountId} limit 1`)).rows as any[];
   if (!rows[0]) throw new AppError(404, 'Aula não encontrada ou sem acesso');
-  const lk = moduleLock({ locked: rows[0].module_locked, unlockAfterDays: rows[0].module_days }, rows[0].since, Date.now(), rows[0].module_override);
+  const lk0 = moduleLock({ locked: rows[0].module_locked, unlockAfterDays: rows[0].module_days }, rows[0].since, Date.now(), rows[0].module_override);
+  const lk = lk0.locked && rows[0].module_pending_at ? { locked: true, unlockAt: new Date(rows[0].module_pending_at).toISOString() } : lk0;
   if (lk.locked) {
     const when = lk.unlockAt ? ` Ele libera em ${new Date(lk.unlockAt).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.` : '';
     throw new AppError(403, `O módulo “${rows[0].module_title}” está bloqueado.${when}`, { code: 'module_locked', unlockAt: lk.unlockAt });

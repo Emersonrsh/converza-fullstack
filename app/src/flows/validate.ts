@@ -184,7 +184,10 @@ export function validateFlow(nodes: N[], edges: E[], lk: Lookups): Issue[] {
           if (d.action !== 'revoke' && off.length) add(n.id, 'warn', `${nm}: o curso “${off[0].title}” ainda é rascunho; o aluno só vê depois de publicar.`);
           const cm = d.courseModules && typeof d.courseModules === 'object' ? d.courseModules : {};
           const none = lk.courses.find((c) => d.action !== 'revoke' && (d.courseIds ?? []).includes(c.id) && Array.isArray(cm[c.id]) && c.modules.length && !cm[c.id].length);
-          if (none) add(n.id, 'warn', `${nm}: nenhum módulo de “${none.title}” fica liberado na entrega.`);
+          if (none && !d.unlockRestOnSale && !d.unlockRestAfter) add(n.id, 'warn', `${nm}: nenhum módulo de “${none.title}” fica liberado na entrega.`);
+          const rest = lk.courses.some((c) => (d.courseIds ?? []).includes(c.id) && Array.isArray(cm[c.id]) && cm[c.id].length < c.modules.length);
+          if (d.action !== 'revoke' && (d.unlockRestOnSale || d.unlockRestAfter) && !rest) add(n.id, 'warn', `${nm}: todos os módulos já saem liberados, então “liberar o resto” não muda nada.`);
+          if (d.action !== 'revoke' && d.unlockRestOnSale && d.unlockRestProductId && lk.products.length && !lk.products.some((p) => p.id === d.unlockRestProductId)) add(n.id, 'error', `${nm}: o produto da venda que libera o resto não existe mais.`);
         }
         break;
       }

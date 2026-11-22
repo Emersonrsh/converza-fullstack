@@ -124,6 +124,6 @@ export async function recordSale(input: SaleInput) {
   // celular: "Venda aprovada" (uma vez por venda)
   if (row.status === 'approved') void notifySaleApproved(row.id);
   // Converza Members: produto ligado a curso libera o acesso do comprador
-  if (row.status === 'approved' && row.productId) void import('./members').then((m) => m.grantFromSale(row.id)).catch(() => {});
+  if (row.status === 'approved') void import('./members').then((m) => m.grantFromSale(row.id)).catch(() => {});
   return row;
 }

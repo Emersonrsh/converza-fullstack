@@ -138,21 +138,77 @@ export async function sendMemberAccess(accountId: string, memberId: string, opts
 export async function grantFromSale(saleId: string): Promise<void> {
   try {
     const [sale] = await db.select().from(schema.sales).where(eq(schema.sales.id, saleId)).limit(1);
-    if (!sale || sale.status !== 'approved' || !sale.productId) return;
-    const courses = await db.select({ id: schema.memberCourses.id, title: schema.memberCourses.title }).from(schema.memberCourses)
-      .where(and(eq(schema.memberCourses.accountId, sale.accountId), eq(schema.memberCourses.productId, sale.productId)));
-    const rules = await rulesForProduct(sale.accountId, sale.productId);
-    if (!courses.length && !rules.length) return;
-    const member = await buyerOf(sale);
+    if (!sale || sale.status !== 'approved') return;
+    const courses = sale.productId ? await db.select({ id: schema.memberCourses.id, title: schema.memberCourses.title }).from(schema.memberCourses)
+      .where(and(eq(schema.memberCourses.accountId, sale.accountId), eq(schema.memberCourses.productId, sale.productId))) : [];
+    const rules = sale.productId ? await rulesForProduct(sale.accountId, sale.productId) : [];
+    // módulos que um bloco de fluxo deixou "liberar na venda aprovada"
+    const [{ n: waiting }] = (await db.execute(sql`select count(*)::int as n from member_pending_unlocks where account_id = ${sale.accountId} and kind = 'sale' and (product_id is null or product_id = ${sale.productId ?? null}::uuid)`)).rows as { n: number }[];
+    if (!courses.length && !rules.length && !waiting) return;
+    const member = courses.length || rules.length ? await buyerOf(sale) : await existingBuyer(sale);
     if (!member) return;
     const fresh: string[] = [];
     for (const course of courses) if (await grantCourse(sale.accountId, member.id, course.id, sale.id)) fresh.push(course.title);
     const mods = await unlockByRules(sale.accountId, member.id, rules, sale.id);
+    if (waiting) for (const t of await releasePending(member.id, sql`kind = 'sale' and (product_id is null or product_id = ${sale.productId ?? null}::uuid)`, sale.id)) if (!mods.includes(t)) mods.push(t);
     if (fresh.length || mods.length) {
       const r = await sendMemberAccess(sale.accountId, member.id, { courseTitles: fresh, moduleTitles: mods, reason: 'sale' });
       if (!r.whatsapp && !r.email) console.warn(`[membros] acesso liberado para ${member.id}, mas o aviso não saiu: ${r.error ?? 'sem WhatsApp nem e-mail'}`);
     }
   } catch (err) { console.error('[membros] liberar acesso pela venda:', (err as Error).message); }
+}
+
+/** Quem comprou, se já for membro (não cria). */
+async function existingBuyer(sale: typeof schema.sales.$inferSelect) {
+  const [c] = sale.contactId ? await db.select().from(schema.contacts).where(eq(schema.contacts.id, sale.contactId)).limit(1) : [];
+  const email = normEmail(c?.email);
+  const phone = normPhone(c?.waId ?? c?.phone ?? sale.customerPhone);
+  const cond = [...(phone ? [eq(schema.memberUsers.phone, phone)] : []), ...(email ? [sql`lower(${schema.memberUsers.email}) = ${email}`] : [])];
+  if (!cond.length) return null;
+  const [m] = await db.select().from(schema.memberUsers).where(and(eq(schema.memberUsers.accountId, sale.accountId), sql`(${sql.join(cond, sql` or `)})`)).limit(1);
+  return m ?? null;
+}
+
+/**
+ * Libera os módulos pendentes do aluno que batem com a condição (venda ou data vencida).
+ * Escolha manual feita depois continua valendo. Retorna os nomes dos módulos liberados.
+ */
+async function releasePending(memberId: string, where: ReturnType<typeof sql>, saleId: string | null = null): Promise<string[]> {
+  const rows = (await db.execute(sql`delete from member_pending_unlocks where member_id = ${memberId} and ${where} returning module_id as "moduleId", account_id as "accountId"`)).rows as { moduleId: string; accountId: string }[];
+  const titles: string[] = [];
+  for (const r of rows) {
+    await db.execute(sql`delete from member_pending_unlocks where member_id = ${memberId} and module_id = ${r.moduleId}`);
+    const [prev] = await db.select().from(schema.memberModuleOverrides).where(and(eq(schema.memberModuleOverrides.memberId, memberId), eq(schema.memberModuleOverrides.moduleId, r.moduleId))).limit(1);
+    if (prev && prev.source !== 'flow') continue;
+    if (prev?.state === 'unlocked') continue;
+    await db.insert(schema.memberModuleOverrides).values({ memberId, moduleId: r.moduleId, accountId: r.accountId, state: 'unlocked', source: saleId ? 'sale' : 'flow', saleId })
+      .onConflictDoUpdate({ target: [schema.memberModuleOverrides.memberId, schema.memberModuleOverrides.moduleId], set: { state: 'unlocked', source: saleId ? 'sale' : 'flow', saleId, createdAt: new Date() } });
+    const [m] = await db.select({ title: schema.memberModules.title }).from(schema.memberModules).where(eq(schema.memberModules.id, r.moduleId)).limit(1);
+    if (m && !titles.includes(m.title)) titles.push(m.title);
+  }
+  return titles;
+}
+
+/** Libera os módulos com data vencida de um aluno (ao abrir a área) ou de todos (verificação periódica, que avisa o aluno). */
+export async function releaseDuePending(memberId?: string): Promise<number> {
+  const members = memberId ? [{ memberId }] : (await db.execute(sql`select distinct member_id as "memberId" from member_pending_unlocks where kind = 'time' and unlock_at <= now() limit 500`)).rows as { memberId: string }[];
+  let n = 0;
+  for (const { memberId: mid } of members) {
+    const titles = await releasePending(mid, sql`kind = 'time' and unlock_at <= now()`);
+    n += titles.length;
+    if (titles.length && !memberId) {
+      const [m] = await db.select({ accountId: schema.memberUsers.accountId }).from(schema.memberUsers).where(eq(schema.memberUsers.id, mid)).limit(1);
+      if (m) await sendMemberAccess(m.accountId, mid, { moduleTitles: titles, reason: 'sale' }).catch(() => undefined);
+    }
+  }
+  return n;
+}
+
+export function startMembersSweep() {
+  const tick = () => releaseDuePending().then((n) => { if (n) console.log(`[membros] ${n} módulo(s) liberado(s) pela data`); })
+    .catch((err) => console.error('[membros] liberar módulos pela data:', (err as Error).message));
+  setTimeout(tick, 50_000).unref();
+  setInterval(tick, 5 * 60_000).unref();
 }
 
 /** Quem comprou, como membro (cria se ainda não existir). */
@@ -203,7 +259,7 @@ async function unlockByRules(accountId: string, memberId: string, rules: Rule[],
  * Bloco de fluxo "Área de membros": libera ou tira cursos (e módulos) do contato da conversa.
  * Liberar devolve um link de entrada direta (vale 7 dias, uma vez) para o fluxo mandar na conversa.
  */
-export async function flowMembersAccess(accountId: string, contactId: string, p: { action: 'grant' | 'revoke'; courseIds: string[]; moduleIds: string[]; courseModules?: Record<string, string[]> }) {
+export async function flowMembersAccess(accountId: string, contactId: string, p: { action: 'grant' | 'revoke'; courseIds: string[]; moduleIds: string[]; courseModules?: Record<string, string[]>; unlockRest?: { onSale: boolean; productId: string | null; afterDays: number | null } }) {
   const empty = { link: '', area: '', courses: [] as string[], modules: [] as string[] };
   const [c] = await db.select().from(schema.contacts).where(and(eq(schema.contacts.id, contactId), eq(schema.contacts.accountId, accountId))).limit(1);
   if (!c) return { ok: false, info: 'contato não encontrado', ...empty };
@@ -224,6 +280,7 @@ export async function flowMembersAccess(accountId: string, contactId: string, p:
     if (m) {
       if (courses.length) await db.update(schema.memberAccess).set({ revokedAt: new Date() })
         .where(and(eq(schema.memberAccess.memberId, m.id), isNull(schema.memberAccess.revokedAt), sql`${schema.memberAccess.courseId} in (${sql.join(courses.map((x) => sql`${x.id}`), sql`, `)})`));
+      await db.execute(sql`delete from member_pending_unlocks where member_id = ${m.id} and module_id in (select id from member_modules where ${courses.length ? sql`course_id in (${sql.join(courses.map((x) => sql`${x.id}`), sql`, `)})` : sql`false`} ${mods.length ? sql`or id in (${sql.join(mods.map((x) => sql`${x.moduleId}`), sql`, `)})` : sql``})`);
       for (const r of mods) await db.insert(schema.memberModuleOverrides).values({ memberId: m.id, moduleId: r.moduleId, accountId, state: 'locked', source: 'flow' })
         .onConflictDoUpdate({ target: [schema.memberModuleOverrides.memberId, schema.memberModuleOverrides.moduleId], set: { state: 'locked', source: 'flow', saleId: null, createdAt: new Date() } });
     }
@@ -246,7 +303,14 @@ export async function flowMembersAccess(accountId: string, contactId: string, p:
       if (prev?.source === 'manual' || prev?.source === 'sale') continue; // escolha manual e venda de upsell continuam valendo
       await db.insert(schema.memberModuleOverrides).values({ memberId: member.id, moduleId: m.id, accountId, state: 'locked', source: 'flow' })
         .onConflictDoUpdate({ target: [schema.memberModuleOverrides.memberId, schema.memberModuleOverrides.moduleId], set: { state: 'locked', source: 'flow', saleId: null, createdAt: new Date() } });
+      // o resto dos módulos libera depois: na venda aprovada e/ou depois de alguns dias (o que vier primeiro)
+      await db.delete(schema.memberPendingUnlocks).where(and(eq(schema.memberPendingUnlocks.memberId, member.id), eq(schema.memberPendingUnlocks.moduleId, m.id)));
+      const ur = p.unlockRest;
+      if (ur?.onSale) await db.insert(schema.memberPendingUnlocks).values({ accountId, memberId: member.id, moduleId: m.id, kind: 'sale', productId: ur.productId && isUuid(ur.productId) ? ur.productId : null });
+      if (ur?.afterDays && ur.afterDays > 0) await db.insert(schema.memberPendingUnlocks).values({ accountId, memberId: member.id, moduleId: m.id, kind: 'time', unlockAt: new Date(Date.now() + Math.min(3650, ur.afterDays) * 86_400_000) });
     }
+    // módulos marcados não ficam mais pendentes
+    for (const m of on) await db.delete(schema.memberPendingUnlocks).where(and(eq(schema.memberPendingUnlocks.memberId, member.id), eq(schema.memberPendingUnlocks.moduleId, m.id)));
   }
   const link = await issueMemberLink(member.id, slug);
   const all = courses.map((x) => x.title);
@@ -659,13 +723,16 @@ membersRouter.get('/people/:id/modules', asyncHandler(async (req, res) => {
   const mem = await ownMember(req, req.params.id);
   const rows = (await db.execute(sql`
     select c.id as "courseId", c.title as "courseTitle", a.created_at as since, m.id, m.title, m.locked, m.unlock_after_days as "unlockAfterDays", m.is_bonus as "isBonus",
-      o.state as override, o.source as "overrideSource", p.name as "saleProduct"
+      o.state as override, o.source as "overrideSource", p.name as "saleProduct",
+      (select min(pu.unlock_at) from member_pending_unlocks pu where pu.member_id = a.member_id and pu.module_id = m.id and pu.kind = 'time') as "pendingAt",
+      (select coalesce(max(pp.name), case when count(*) > 0 then '' end) from member_pending_unlocks pu left join products pp on pp.id = pu.product_id where pu.member_id = a.member_id and pu.module_id = m.id and pu.kind = 'sale') as "pendingSale"
     from member_access a join member_courses c on c.id = a.course_id
     join member_modules m on m.course_id = c.id
     left join member_module_overrides o on o.module_id = m.id and o.member_id = a.member_id
     left join sales s on s.id = o.sale_id left join products p on p.id = s.product_id
     where a.member_id = ${mem.id} and a.revoked_at is null
     order by c.sort, c.created_at, m.is_bonus, m.sort, m.created_at`)).rows as any[];
+  await releaseDuePending(mem.id);
   const { moduleLock } = await import('./membersArea');
   const courses: { id: string; title: string; modules: unknown[] }[] = [];
   for (const r of rows) {
@@ -673,7 +740,7 @@ membersRouter.get('/people/:id/modules', asyncHandler(async (req, res) => {
     if (!c) { c = { id: r.courseId, title: r.courseTitle, modules: [] }; courses.push(c); }
     const base = moduleLock(r, r.since);
     const eff = moduleLock(r, r.since, Date.now(), r.override);
-    c.modules.push({ id: r.id, title: r.title, isBonus: r.isBonus, defaultLocked: base.locked, defaultUnlockAt: base.unlockAt, ruleLocked: r.locked, unlockAfterDays: r.unlockAfterDays, override: r.override, overrideSource: r.overrideSource, saleProduct: r.saleProduct, locked: eff.locked, unlockAt: eff.unlockAt });
+    c.modules.push({ id: r.id, title: r.title, isBonus: r.isBonus, defaultLocked: base.locked, defaultUnlockAt: base.unlockAt, ruleLocked: r.locked, unlockAfterDays: r.unlockAfterDays, override: r.override, overrideSource: r.overrideSource, saleProduct: r.saleProduct, locked: eff.locked, unlockAt: eff.locked && r.pendingAt ? new Date(r.pendingAt).toISOString() : eff.unlockAt, pendingSale: r.pendingSale, pendingAt: r.pendingAt });
   }
   res.json({ member: { id: mem.id, name: mem.name, phone: mem.phone, email: mem.email }, courses });
 }));
@@ -686,6 +753,7 @@ membersRouter.put('/people/:id/modules/:moduleId', asyncHandler(async (req, res)
   const p = z.object({ state: z.enum(['unlocked', 'locked']).nullable() }).safeParse(req.body ?? {});
   if (!p.success) throw new AppError(422, 'Estado inválido');
   const key = and(eq(schema.memberModuleOverrides.memberId, mem.id), eq(schema.memberModuleOverrides.moduleId, mod.id));
+  await db.delete(schema.memberPendingUnlocks).where(and(eq(schema.memberPendingUnlocks.memberId, mem.id), eq(schema.memberPendingUnlocks.moduleId, mod.id)));
   if (p.data.state === null) await db.delete(schema.memberModuleOverrides).where(key);
   else await db.insert(schema.memberModuleOverrides).values({ memberId: mem.id, moduleId: mod.id, accountId: req.accountId!, state: p.data.state, source: 'manual' })
     .onConflictDoUpdate({ target: [schema.memberModuleOverrides.memberId, schema.memberModuleOverrides.moduleId], set: { state: p.data.state, source: 'manual', saleId: null, createdAt: new Date() } });

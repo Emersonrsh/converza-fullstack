@@ -85,6 +85,25 @@ export function MembersEditor({ d, set, vars, lookups }: EditorProps) {
 
       {!revoke && (
         <>
+          <ToggleCard title="Liberar o resto dos módulos na venda aprovada" desc="Os módulos desmarcados liberam sozinhos quando entrar uma venda aprovada deste contato. O cliente recebe um aviso." checked={!!d.unlockRestOnSale} onChange={(unlockRestOnSale) => set({ unlockRestOnSale })} testId="mb-rest-sale" />
+          {d.unlockRestOnSale && (
+            <div className="fx-mb-sub">
+              <Field label="Venda de qual produto?">
+                <select className="select" value={d.unlockRestProductId ?? ''} onChange={(e) => set({ unlockRestProductId: e.target.value })} data-testid="mb-rest-product">
+                  <option value="">Qualquer venda aprovada</option>
+                  {lookups.products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </Field>
+            </div>
+          )}
+          <ToggleCard title="Liberar o resto dos módulos depois de alguns dias" desc="Os módulos desmarcados liberam sozinhos depois do prazo, contado a partir da entrega. O cliente recebe um aviso." checked={!!d.unlockRestAfter} onChange={(unlockRestAfter) => set({ unlockRestAfter, unlockRestDays: d.unlockRestDays ?? 7 })} testId="mb-rest-days" />
+          {d.unlockRestAfter && (
+            <div className="fx-mb-sub fx-mb-days">
+              <input className="input" type="number" min={1} max={3650} value={d.unlockRestDays ?? 7} onChange={(e) => set({ unlockRestDays: Number(e.target.value) })} data-testid="mb-rest-days-n" />
+              <span>dia(s) depois da entrega</span>
+            </div>
+          )}
+          {(d.unlockRestOnSale || d.unlockRestAfter) && <div className="bm-hint fx-mb-after">Com os dois ligados, vale o que acontecer primeiro. Só mexe nos módulos desmarcados acima.</div>}
           <ToggleCard title="Mandar o link de acesso na conversa" desc="Uma mensagem com o link que entra direto na área (vale 7 dias, uma vez). Depois, o cliente entra digitando o número." checked={d.sendMessage !== false} onChange={(sendMessage) => set({ sendMessage })} testId="mb-send" />
           {d.sendMessage !== false && (
             <Field label="Mensagem">

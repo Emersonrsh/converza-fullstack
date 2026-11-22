@@ -1389,6 +1389,19 @@ export const memberModuleOverrides = pgTable('member_module_overrides', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ pk: primaryKey({ columns: [t.memberId, t.moduleId] }) }));
 
+/** Módulo bloqueado pelo bloco de fluxo que libera depois: na venda aprovada (kind 'sale') ou numa data (kind 'time'). */
+export const memberPendingUnlocks = pgTable('member_pending_unlocks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  memberId: uuid('member_id').notNull().references(() => memberUsers.id, { onDelete: 'cascade' }),
+  moduleId: uuid('module_id').notNull().references(() => memberModules.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),
+  /** venda: só deste produto (null = qualquer venda aprovada do contato) */
+  productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }),
+  unlockAt: timestamp('unlock_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ memberIdx: index('member_pending_unlocks_member_idx').on(t.memberId) }));
+
 /** Venda aprovada deste produto libera este módulo para o comprador. */
 export const memberUnlockRules = pgTable('member_unlock_rules', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -1431,5 +1444,5 @@ export const schema = {
   departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, platformAudit, storedFiles, storedFileChunks, storedFileMedia,
   globalVariables, flowTranslations, aiUsage, trackingLinks, trackingClicks, apiKeys, mcpCalls, flowDistributions,
   waWebAuth, waWebMedia, accessLogs,
-  memberCourses, memberModules, memberLessons, memberUsers, memberAccess, memberProgress, memberTokens, memberModuleOverrides, memberUnlockRules,
+  memberCourses, memberModules, memberLessons, memberUsers, memberAccess, memberProgress, memberTokens, memberModuleOverrides, memberUnlockRules, memberPendingUnlocks,
 };

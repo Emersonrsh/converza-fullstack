@@ -194,6 +194,7 @@ if (process.env.START_WORKER !== 'false') {
   startTranslationSweep();
   startInfinitePaySweep();
   startXpagSweep();
+  void import('./modules/members').then((m) => m.startMembersSweep());
   // registros de acesso (Marco Civil): apaga os que passaram de 6 meses, uma vez por dia
   const purgeAccess = () => purgeAccessLogs().then((n) => { if (n) console.log(`[acessos] ${n} registros com mais de 6 meses apagados`); })
     .catch((err) => console.error('[acessos] limpeza:', (err as Error).message));

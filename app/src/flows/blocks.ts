@@ -570,6 +570,8 @@ export function preview(type: string, d: Record<string, any>, lk: Lookups): Prev
       for (const c of lk.courses) for (const m of c.modules.filter((x) => mids.includes(x.id))) parts.push({ k: 'box', title: m.title, sub: `Módulo de ${c.title}` });
       if (!parts.length) return [];
       return [{ k: 'label', text: d.action === 'revoke' ? 'Tirar o acesso a:' : 'Liberar o acesso a:' }, ...parts.slice(0, 4),
+        ...(d.action !== 'revoke' && d.unlockRestOnSale ? [{ k: 'row', icon: 'unlock', text: `Resto libera na venda aprovada${d.unlockRestProductId ? ` de ${lk.products.find((p) => p.id === d.unlockRestProductId)?.name ?? 'um produto'}` : ''}` } as PreviewPart] : []),
+        ...(d.action !== 'revoke' && d.unlockRestAfter ? [{ k: 'row', icon: 'clock', text: `Resto libera em ${d.unlockRestDays ?? 7} dia(s)` } as PreviewPart] : []),
         ...(d.action !== 'revoke' && d.sendMessage !== false ? [{ k: 'row', icon: 'send', text: 'Manda o link de acesso na conversa' } as PreviewPart] : [])];
     }
     case 'ai_agent': {

@@ -314,3 +314,9 @@
 .fx-mb-row.sm .ic{flex:none;color:var(--muted)}
 .fx-mb-tip{display:block;margin-top:6px;font-size:11.5px;line-height:1.45;color:var(--faint)}
 .fx-mb-after{margin:-4px 0 0}
+.fx-mb-sub{margin:-4px 0 16px 14px;padding:4px 0 0 14px;border-left:2px solid var(--primary)}
+.fx-mb-sub .bm-f{margin-bottom:4px}
+.fx-mb-days{display:flex;align-items:center;gap:10px;padding-bottom:4px;font-size:13px;color:var(--muted)}
+.fx-mb-days .input{width:90px}
+.fx-mb-after{margin:-6px 0 14px}
+.fx-mb-days + .fx-mb-after{margin-top:-4px}

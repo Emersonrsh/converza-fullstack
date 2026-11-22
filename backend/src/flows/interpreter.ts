@@ -63,6 +63,8 @@ export interface MembersAccessSpec {
   action: 'grant' | 'revoke'; courseIds: string[]; moduleIds: string[];
   /** liberar: por curso, os módulos que ficam liberados na entrega (os outros ficam bloqueados para o contato) */
   courseModules?: Record<string, string[]>;
+  /** módulos desmarcados: liberam na venda aprovada e/ou depois de alguns dias */
+  unlockRest?: { onSale: boolean; productId: string | null; afterDays: number | null };
 }
 export interface MembersAccessResult { ok: boolean; info?: string; link: string; area: string; courses: string[]; modules: string[] }
 export const MEMBERS_DEFAULT_TEXT = 'Pronto! Seu acesso a {{membros.cursos}} está liberado 🎉\n\nToque no link para entrar:\n{{membros.link}}\n\nDas próximas vezes, acesse {{membros.area}} e digite este número de WhatsApp.';
@@ -841,7 +843,10 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
       if (action === 'grant' && d.courseModules && typeof d.courseModules === 'object') {
         for (const [cid, list] of Object.entries(d.courseModules as Dict)) if (courseIds.includes(cid) && Array.isArray(list)) cm[cid] = list.map(String);
       }
-      const r = await exec.membersAccess({ action, courseIds, moduleIds, courseModules: cm });
+      const unlockRest = action === 'grant' && (d.unlockRestOnSale || d.unlockRestAfter)
+        ? { onSale: !!d.unlockRestOnSale, productId: d.unlockRestProductId ? String(d.unlockRestProductId) : null, afterDays: d.unlockRestAfter ? Math.max(1, Math.round(Number(d.unlockRestDays) || 7)) : null }
+        : undefined;
+      const r = await exec.membersAccess({ action, courseIds, moduleIds, courseModules: cm, unlockRest });
       const membros = { link: r.link, area: r.area, cursos: r.courses.join(', '), modulos: r.modules.join(', ') };
       state.vars.membros = membros;
       if (!r.ok) { exec.note(`⚠️ Área de membros: ${r.info ?? 'não foi possível liberar'}`); return go(null); }
