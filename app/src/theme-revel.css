@@ -48,7 +48,9 @@ code,.mono,.num{font-family:var(--mono)}
 .tokens .n{font-family:var(--mono);letter-spacing:-.02em}
 
 /* ---------- cartões */
-.card{border-radius:var(--radius);border:1px solid var(--hair-2);background:var(--card-sheen);box-shadow:var(--shadow);position:relative}
+.card{border-radius:var(--radius);border:1px solid var(--hair-2);background:var(--card-sheen);box-shadow:var(--shadow)}
+/* posição padrão sem peso: painéis flutuantes (.fb-issues, .fb-picker…) continuam absolutos */
+:where(.card){position:relative}
 html.dark .card{box-shadow:0 1px 0 color-mix(in srgb, #fff 3%, transparent) inset, 0 18px 40px -24px rgba(0,0,0,.7)}
 .title{font-size:17px;font-weight:800;letter-spacing:-.04em}
 h2,h3{letter-spacing:-.03em}
