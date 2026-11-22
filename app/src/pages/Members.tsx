@@ -193,7 +193,7 @@ function PeopleTab() {
                   <td><b>{p.name || 'Sem nome'}</b><small className="faint">{[p.email, p.phone ? `+${p.phone}` : null].filter(Boolean).join(' · ')}</small></td>
                   <td>{p.courses.map((c) => (
                     <div key={c.accessId} className="mbx-pc">
-                      <span>{c.title}</span>{c.source === 'manual' && <small className="mbx-src">manual</small>}<span className="mbx-mini"><i style={{ width: `${c.total ? Math.round((c.done / c.total) * 100) : 0}%` }} /></span><small>{c.done}/{c.total}</small>
+                      <span>{c.title}</span>{(c.source === 'manual' || c.source === 'flow') && <small className="mbx-src">{c.source === 'flow' ? 'fluxo' : 'manual'}</small>}<span className="mbx-mini"><i style={{ width: `${c.total ? Math.round((c.done / c.total) * 100) : 0}%` }} /></span><small>{c.done}/{c.total}</small>
                       {canEdit && <button type="button" className="btn icon sm ghost" title="Tirar o acesso a este curso" onClick={() => setRevoke({ p, c })} data-testid="mbx-revoke"><Icon name="close" size={12} /></button>}
                     </div>
                   ))}</td>
@@ -230,7 +230,7 @@ function PeopleTab() {
 
 interface MemberModule {
   id: string; title: string; isBonus: boolean; defaultLocked: boolean; defaultUnlockAt: string | null; ruleLocked: boolean; unlockAfterDays: number | null;
-  override: 'unlocked' | 'locked' | null; overrideSource: 'manual' | 'sale' | null; saleProduct: string | null; locked: boolean; unlockAt: string | null;
+  override: 'unlocked' | 'locked' | null; overrideSource: 'manual' | 'sale' | 'flow' | null; saleProduct: string | null; locked: boolean; unlockAt: string | null;
 }
 const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 
@@ -259,7 +259,7 @@ function MemberModulesModal({ person, onClose }: { person: Person; onClose: () =
                 <b>{m.isBonus && <span className="mbx-bonus-tag"><Icon name="gift" size={11} />Bônus</span>} {m.title}</b>
                 <small>
                   {m.locked ? <span className="mbx-mm-st off"><Icon name="lock" size={11} />Bloqueado{m.unlockAt ? ` até ${fmtDay(m.unlockAt)}` : ''}</span> : <span className="mbx-mm-st on"><Icon name="check" size={11} />Liberado</span>}
-                  {m.override ? (m.overrideSource === 'sale' ? ` · pela venda de ${m.saleProduct ?? 'um produto'}` : ' · escolha para este aluno') : ` · regra do módulo: ${ruleText(m)}`}
+                  {m.override ? (m.overrideSource === 'sale' ? ` · pela venda de ${m.saleProduct ?? 'um produto'}` : m.overrideSource === 'flow' ? ' · pelo fluxo' : ' · escolha para este aluno') : ` · regra do módulo: ${ruleText(m)}`}
                 </small>
               </div>
               <div className="mbx-seg" role="group" aria-label="Acesso ao módulo">

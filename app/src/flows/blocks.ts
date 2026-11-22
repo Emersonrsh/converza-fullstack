@@ -5,7 +5,7 @@ export type BlockType =
   // barra "Ferramentas"
   | 'message' | 'template' | 'tags' | 'pix' | 'menu' | 'carousel' | 'ask' | 'chat_status' | 'notify'
   | 'condition' | 'distributor' | 'goto_flow' | 'pixel' | 'delay' | 'department' | 'http' | 'ai' | 'ai_agent' | 'card' | 'xpag'
-  | 'kanban' | 'set_var' | 'sale'
+  | 'kanban' | 'set_var' | 'sale' | 'members'
   // blocos antigos: continuam nos fluxos que já os usam
   | 'media' | 'random' | 'action' | 'handoff' | 'payment' | 'ai_reply' | 'ai_classify';
 
@@ -36,6 +36,7 @@ export const BLOCKS: Record<BlockType, BlockMeta> = {
   kanban: { label: 'Kanban', desc: 'Adiciona, move ou tira o card do contato', icon: 'kanban', color: '#9333ea' },
   set_var: { label: 'Manipulador', desc: 'Define, soma ou junta variáveis', icon: 'sliders', color: '#ea580c' },
   sale: { label: 'Venda aprovada', desc: 'Registra a venda (dashboard e pixel)', icon: 'dollar', color: '#16a34a' },
+  members: { label: 'Área de membros', desc: 'Entrega ou tira cursos do contato (Converza Members)', icon: 'book', color: '#0d9488' },
   media: { label: 'Mídia (antigo)', desc: 'Imagem, vídeo, áudio ou PDF', icon: 'image', color: '#c026d3', legacy: true },
   random: { label: 'Teste A/B (antigo)', desc: 'Divide por porcentagem', icon: 'shuffle', color: '#ea580c', legacy: true },
   action: { label: 'Ações de CRM (antigo)', desc: 'Etapa do funil, etiquetas, nome, Kanban', icon: 'tag', color: '#1a9f52', legacy: true },
@@ -48,7 +49,7 @@ export const BLOCKS: Record<BlockType, BlockMeta> = {
 /** Ordem da barra "Ferramentas". */
 export const TOOLS: BlockType[] = [
   'message', 'template', 'tags', 'pix', 'card', 'xpag', 'menu', 'carousel', 'ask', 'chat_status', 'notify', 'condition', 'distributor',
-  'goto_flow', 'pixel', 'delay', 'department', 'http', 'ai', 'ai_agent', 'kanban', 'set_var', 'sale',
+  'goto_flow', 'pixel', 'delay', 'department', 'http', 'ai', 'ai_agent', 'kanban', 'set_var', 'sale', 'members',
 ];
 
 export const STAGES: [string, string][] = [
@@ -59,6 +60,8 @@ export const stageLabel = (s: string) => STAGES.find((x) => x[0] === s)?.[1] ?? 
 export const AI_MODELS: [string, string][] = [['', 'Padrão da plataforma']];
 
 export const rid = (p: string) => `${p}_${Math.random().toString(36).slice(2, 8)}`;
+
+export const MEMBERS_TEXT = 'Pronto! Seu acesso a {{membros.cursos}} está liberado 🎉\n\nToque no link para entrar:\n{{membros.link}}\n\nDas próximas vezes, acesse {{membros.area}} e digite este número de WhatsApp.';
 
 const DEFAULT_PROMPT = 'Você é um assistente útil.\nSempre responda em português do Brasil.\nSeja claro e objetivo.';
 
@@ -95,6 +98,7 @@ export function defaultData(type: BlockType): Record<string, any> {
     case 'ai_agent': return { action: 'assign', agentId: '' };
     case 'kanban': return { action: 'add', boardId: '', columnId: '' };
     case 'set_var': return { name: '', op: 'set', value: '' };
+    case 'members': return { action: 'grant', courseIds: [], moduleIds: [], sendMessage: true, text: MEMBERS_TEXT };
     case 'sale': return { productId: '', customerName: '{{comprovante.nome_pagador}}', amount: '{{comprovante.valor}}', currency: '{{comprovante.currency}}', notifyTitle: '', notifySubtitle: '' };
     // antigos
     case 'media': return { mediaType: 'image', url: '', caption: '' };
@@ -227,10 +231,11 @@ export interface Lookups {
   pixels: { id: string; name: string; platform: string; status: string }[];
   platforms: { id: string; label: string; events: string[] }[];
   wabas: { id: string; name: string; displayPhone: string | null }[];
+  courses: { id: string; title: string; published: boolean; modules: { id: string; title: string; locked: boolean; isBonus: boolean }[] }[];
 }
 export const emptyLookups: Lookups = {
   connections: [], webhooks: [], team: [], products: [], flows: [], kanban: [], fields: [], departments: [], globals: [],
-  tags: [], agents: [], pixels: [], platforms: [], wabas: [],
+  tags: [], agents: [], pixels: [], platforms: [], wabas: [], courses: [],
 };
 
 const UNITS: Record<string, [string, string]> = {
@@ -341,6 +346,10 @@ export function summary(type: string, d: Record<string, any>, lk: Lookups): stri
       const p = lk.products.find((x) => x.id === d.productId);
       return p ? `${p.name} · ${money(Number(p.price))} (preço reserva)` : '';
     }
+    case 'members': {
+      const names = membersNames(d, lk);
+      return names.length ? `${d.action === 'revoke' ? 'Tirar' : 'Liberar'}: ${names.join(', ')}` : '';
+    }
     // antigos
     case 'media': {
       const kinds: Record<string, string> = { image: '🖼️ Imagem', video: '🎬 Vídeo', audio: '🎧 Áudio', document: '📄 Documento' };
@@ -414,6 +423,7 @@ export function variablesOf(nodes: { type?: string; data: Record<string, any> }[
         break;
       case 'set_var': if (d.name) vars.add(String(d.name).replace(/^\{\{|\}\}$/g, '')); break;
       case 'sale': ['venda.cliente', 'venda.valor', 'venda.valor_numero', 'venda.moeda', 'venda.produto'].forEach((v) => vars.add(v)); break;
+      case 'members': ['membros.link', 'membros.area', 'membros.cursos', 'membros.modulos'].forEach((v) => vars.add(v)); break;
       case 'ai_reply': vars.add(d.saveAs || 'ia'); break;
       case 'ai_classify': vars.add('categoria'); break;
       case 'payment': case 'card': vars.add('link_pagamento'); vars.add('pagamento'); break;
@@ -423,6 +433,16 @@ export function variablesOf(nodes: { type?: string; data: Record<string, any> }[
     }
   }
   return [...vars];
+}
+
+/** Nomes dos cursos e módulos escolhidos no bloco Área de membros. */
+export function membersNames(d: Record<string, any>, lk: Lookups): string[] {
+  const ids: string[] = Array.isArray(d.courseIds) ? d.courseIds : [];
+  const mids: string[] = Array.isArray(d.moduleIds) ? d.moduleIds : [];
+  return [
+    ...lk.courses.filter((c) => ids.includes(c.id)).map((c) => c.title),
+    ...lk.courses.flatMap((c) => c.modules.filter((m) => mids.includes(m.id)).map((m) => m.title)),
+  ];
 }
 
 export const sanitizeVarName = (s: string) =>
@@ -536,6 +556,16 @@ export function preview(type: string, d: Record<string, any>, lk: Lookups): Prev
     case 'sale': {
       const p = lk.products.find((x) => x.id === d.productId);
       return p ? [{ k: 'label', text: 'Registrar venda:' }, { k: 'box', title: p.name, sub: money(Number(p.price)) }] : [];
+    }
+    case 'members': {
+      const ids: string[] = Array.isArray(d.courseIds) ? d.courseIds : [];
+      const mids: string[] = Array.isArray(d.moduleIds) ? d.moduleIds : [];
+      const parts: PreviewPart[] = [];
+      for (const c of lk.courses.filter((x) => ids.includes(x.id))) parts.push({ k: 'box', title: c.title, sub: 'Curso inteiro' });
+      for (const c of lk.courses) for (const m of c.modules.filter((x) => mids.includes(x.id))) parts.push({ k: 'box', title: m.title, sub: `Módulo de ${c.title}` });
+      if (!parts.length) return [];
+      return [{ k: 'label', text: d.action === 'revoke' ? 'Tirar o acesso a:' : 'Liberar o acesso a:' }, ...parts.slice(0, 4),
+        ...(d.action !== 'revoke' && d.sendMessage !== false ? [{ k: 'row', icon: 'send', text: 'Manda o link de acesso na conversa' } as PreviewPart] : [])];
     }
     case 'ai_agent': {
       if (d.action === 'remove') return [{ k: 'row', icon: 'bot', text: 'Devolve a conversa para o fluxo' }];

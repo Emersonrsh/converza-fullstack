@@ -25,6 +25,8 @@ export const BLOCK_TYPES = [
   'department', 'ai', 'ai_agent', 'kanban', 'set_var', 'sale',
   // checkout de cartão (InfinitePay) e cobranças em outras moedas (XPag)
   'card', 'xpag',
+  // Converza Members: libera ou tira cursos do contato
+  'members',
 ] as const;
 export type BlockType = typeof BLOCK_TYPES[number];
 

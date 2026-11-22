@@ -181,7 +181,7 @@ function Builder({ flowId }: { flowId: string }) {
   }, [flowId]);
 
   const loadLookups = useCallback(async () => {
-    const [c, w, t, p, f, k, cf, dp, gv, tg, ag, px, wb] = await Promise.allSettled([
+    const [c, w, t, p, f, k, cf, dp, gv, tg, ag, px, wb, mc] = await Promise.allSettled([
       api.get<{ connections: WaConnection[] }>('/connections'),
       api.get<{ webhooks: Webhook[] }>('/webhooks'),
       api.get<{ members: Member[] }>('/team'),
@@ -195,6 +195,7 @@ function Builder({ flowId }: { flowId: string }) {
       api.get<{ agents: { id: string; name: string; avatar: string; enabled: boolean }[] }>('/agents'),
       api.get<{ pixels: { id: string; name: string; platform: string; status: string }[]; platforms: { id: string; label: string; events: string[] }[] }>('/pixels'),
       api.get<{ wabas: { id: string; name: string; displayPhone: string | null }[] }>('/templates/wabas'),
+      api.get<{ courses: Lookups['courses'] }>('/members/flow-options'),
     ]);
     setLookups({
       connections: c.status === 'fulfilled' ? c.value.connections.map((x) => ({ id: x.id, name: x.displayPhone ? `${x.name} (${x.displayPhone})` : x.name })) : [],
@@ -211,6 +212,7 @@ function Builder({ flowId }: { flowId: string }) {
       pixels: px.status === 'fulfilled' ? px.value.pixels.map((x) => ({ id: x.id, name: x.name, platform: x.platform, status: x.status })) : [],
       platforms: px.status === 'fulfilled' ? px.value.platforms : [],
       wabas: wb.status === 'fulfilled' ? wb.value.wabas.map((x) => ({ id: x.id, name: x.name, displayPhone: x.displayPhone })) : [],
+      courses: mc.status === 'fulfilled' ? mc.value.courses : [],
     });
   }, []);
 

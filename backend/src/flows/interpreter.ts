@@ -59,6 +59,10 @@ export interface AiCallSpec {
 }
 export interface InboundMedia { kind: 'audio' | 'image' | 'document' | 'video' | 'sticker'; mime: string; filename: string | null; data: Buffer }
 
+export interface MembersAccessSpec { action: 'grant' | 'revoke'; courseIds: string[]; moduleIds: string[] }
+export interface MembersAccessResult { ok: boolean; info?: string; link: string; area: string; courses: string[]; modules: string[] }
+export const MEMBERS_DEFAULT_TEXT = 'Pronto! Seu acesso a {{membros.cursos}} está liberado 🎉\n\nToque no link para entrar:\n{{membros.link}}\n\nDas próximas vezes, acesse {{membros.area}} e digite este número de WhatsApp.';
+
 export interface FlowExecutor {
   getContact(): Promise<ContactSnapshot>;
   sendText(text: string): Promise<void>;
@@ -87,6 +91,8 @@ export interface FlowExecutor {
   checkoutLink?(p: { provider: 'infinitepay'; amount: number; description: string; productId: string | null; productName: string | null }): Promise<string>;
   /** cria uma cobrança na XPag (pesos mexicanos, Pix, Nequi, USDT…) para o contato, com a venda "aguardando" */
   xpagCharge?(p: { amount: number; currency: string; method: string; description: string; productId: string | null; productName: string | null }): Promise<{ link: string; instructions: string; amount: number; currency: string }>;
+  /** Converza Members: libera (ou tira) cursos e módulos do contato; devolve o link de entrada */
+  membersAccess?(p: MembersAccessSpec): Promise<MembersAccessResult>;
   onEnter(nodeId: string): Promise<void> | void;
   onAdvance(nodeId: string): Promise<void> | void;
   /** Anotação visível só na simulação (no ar é ignorada). */
@@ -818,6 +824,24 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
         await exec.saveToContact(name, result);
       }
       exec.note(`🧮 ${name} → ${result || '(vazio)'}`);
+      return go(null);
+    }
+
+    case 'members': {
+      const ids = (v: unknown) => (Array.isArray(v) ? v.map(String).filter(Boolean) : []);
+      const courseIds = ids(d.courseIds), moduleIds = ids(d.moduleIds);
+      const action = d.action === 'revoke' ? 'revoke' : 'grant';
+      if (!courseIds.length && !moduleIds.length) { exec.note('⚠️ Nenhum curso escolhido no bloco Área de membros.'); return go(null); }
+      if (!exec.membersAccess) { exec.note('⚠️ Área de membros indisponível aqui.'); return go(null); }
+      const r = await exec.membersAccess({ action, courseIds, moduleIds });
+      const membros = { link: r.link, area: r.area, cursos: r.courses.join(', '), modulos: r.modules.join(', ') };
+      state.vars.membros = membros;
+      if (!r.ok) { exec.note(`⚠️ Área de membros: ${r.info ?? 'não foi possível liberar'}`); return go(null); }
+      if (action === 'grant' && d.sendMessage !== false) {
+        const s = await scope();
+        const text = render(String(d.text ?? '').trim() || MEMBERS_DEFAULT_TEXT, { ...s, membros }).trim();
+        if (text) await exec.sendText(text);
+      }
       return go(null);
     }
 

@@ -174,6 +174,17 @@ export function validateFlow(nodes: N[], edges: E[], lk: Lookups): Issue[] {
         if (['add', 'subtract', 'multiply', 'divide'].includes(d.op) && String(d.value ?? '').trim() && !hasTemplate(String(d.value)) && !/^-?[\d.,\s]+$/.test(String(d.value))) add(n.id, 'warn', `${nm}: “${d.value}” não é um número.`);
         break;
       }
+      case 'members': {
+        const ids: string[] = [...(Array.isArray(d.courseIds) ? d.courseIds : []), ...(Array.isArray(d.moduleIds) ? d.moduleIds : [])];
+        if (!ids.length) add(n.id, 'error', `${nm}: escolha pelo menos um curso ou módulo.`);
+        else if (lk.courses.length) {
+          const known = new Set(lk.courses.flatMap((c) => [c.id, ...c.modules.map((m) => m.id)]));
+          if (ids.some((id) => !known.has(id))) add(n.id, 'error', `${nm}: um curso ou módulo escolhido não existe mais.`);
+          const off = lk.courses.filter((c) => (d.courseIds ?? []).includes(c.id) && !c.published);
+          if (d.action !== 'revoke' && off.length) add(n.id, 'warn', `${nm}: o curso “${off[0].title}” ainda é rascunho; o aluno só vê depois de publicar.`);
+        }
+        break;
+      }
       case 'sale': {
         if (d.productId && lk.products.length && !lk.products.some((p) => p.id === d.productId)) add(n.id, 'error', `${nm}: o produto escolhido não existe mais.`);
         if (!d.productId && !String(d.amount ?? '').trim()) add(n.id, 'warn', `${nm}: sem produto e sem valor, a venda é registrada com R$ 0,00.`);

@@ -646,6 +646,12 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
       await note(`💰 Venda registrada pelo fluxo: ${formatBRL(Number(row.amount), row.currency)}${row.productName ? ` · ${row.productName}` : ''}.`);
       return { productName: row.productName ?? '', amount: Number(row.amount), currency: row.currency };
     },
+    async membersAccess(m) {
+      const { flowMembersAccess } = await import('../modules/members');
+      const r = await flowMembersAccess(p.accountId, p.contactId, m);
+      if (r.ok) await note(m.action === 'revoke' ? `🎓 Acesso retirado: ${[...r.courses, ...r.modules].join(', ')}` : `🎓 Acesso liberado: ${[...r.courses, ...r.modules].join(', ')}`);
+      return r;
+    },
     async notifyApp(title, body) {
       // a notificação abre a conversa do contato (sem criar uma nova só por isso)
       const conversationId = convCache?.id ?? (await db.select({ id: schema.conversations.id }).from(schema.conversations)

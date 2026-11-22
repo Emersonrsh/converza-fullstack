@@ -244,6 +244,12 @@ flowsRouter.post('/simulate', asyncHandler(async (req, res) => {
         .where(and(eq(schema.agents.id, id), eq(schema.agents.accountId, accountId))).limit(1);
       return a?.name ?? null;
     },
+    memberNames: async (courseIds, moduleIds) => {
+      const pick = (ids: string[]) => ids.filter(isUuid);
+      const cs = pick(courseIds).length ? await db.select({ title: schema.memberCourses.title }).from(schema.memberCourses).where(and(eq(schema.memberCourses.accountId, accountId), inArray(schema.memberCourses.id, pick(courseIds)))) : [];
+      const ms = pick(moduleIds).length ? await db.select({ title: schema.memberModules.title }).from(schema.memberModules).where(and(eq(schema.memberModules.accountId, accountId), inArray(schema.memberModules.id, pick(moduleIds)))) : [];
+      return { courses: cs.map((c) => c.title), modules: ms.map((m) => m.title) };
+    },
     pixelName: async (id) => {
       if (!isUuid(id)) return null;
       const [px] = await db.select({ name: schema.pixels.name }).from(schema.pixels)

@@ -305,6 +305,7 @@ function textRefs(n: FlowNode): TextRef[] {
     case 'payment': field('text'); break;
     case 'ai': field('prompt'); listField('conditions', 'label'); listField('conditions', 'description'); break;
     case 'sale': field('notifyTitle'); field('notifySubtitle'); break;
+    case 'members': field('text'); break;
     case 'ai_reply': field('prompt'); field('fallbackText'); break;
     case 'ai_classify': field('instructions'); listField('categories', 'label'); listField('categories', 'description'); break;
     default: break;
@@ -398,6 +399,7 @@ export function stripForImport(graph: FlowGraph): FlowGraph {
     if (n.type === 'ai_agent') d.agentId = '';
     if (n.type === 'kanban') { d.boardId = ''; d.columnId = ''; }
     if (n.type === 'sale') d.productId = '';
+    if (n.type === 'members') { d.courseIds = []; d.moduleIds = []; }
     if (n.type === 'chat_status') d.assignUserId = '';
     if (n.type === 'notify') { d.phone = ''; d.templateName = ''; d.templateLanguage = ''; d.templateVarCount = 0; d.templateParam = ''; }
     if (n.type === 'pix') { d.key = ''; d.imageFileId = ''; }

@@ -11,6 +11,7 @@ import { AiEditor, HttpEditor } from './integrations';
 import { ActionEditor, AiClassifyEditor, AiReplyEditor, HandoffEditor, MediaEditor, PaymentEditor, RandomEditor } from './legacy';
 import { CardEditor } from './card';
 import { XpagEditor } from './xpag';
+import { MembersEditor } from './members';
 import type { D, EditorCtx, EditorProps } from './types';
 
 export type { EditorCtx } from './types';
@@ -20,7 +21,7 @@ const EDITORS: Record<BlockType, ComponentType<EditorProps>> = {
   message: MessageEditor, template: TemplateEditor, tags: TagsEditor, pix: PixEditor, menu: MenuEditor, carousel: CarouselEditor,
   ask: AskEditor, chat_status: ChatStatusEditor, notify: NotifyEditor, condition: ConditionEditor, distributor: DistributorEditor,
   goto_flow: GotoFlowEditor, pixel: PixelEditor, delay: DelayEditor, department: DepartmentEditor, http: HttpEditor, ai: AiEditor,
-  ai_agent: AiAgentEditor, kanban: KanbanEditor, set_var: SetVarEditor, sale: SaleEditor, card: CardEditor, xpag: XpagEditor,
+  ai_agent: AiAgentEditor, kanban: KanbanEditor, set_var: SetVarEditor, sale: SaleEditor, card: CardEditor, xpag: XpagEditor, members: MembersEditor,
   media: MediaEditor, random: RandomEditor, action: ActionEditor, handoff: HandoffEditor, payment: PaymentEditor,
   ai_reply: AiReplyEditor, ai_classify: AiClassifyEditor,
 };
@@ -76,6 +77,8 @@ export function requiredOf(type: string, d: D, lk: Lookups): string | null {
     }
     case 'distributor': return (Array.isArray(d.outputs) ? d.outputs : []).length >= 2 ? null : 'Crie pelo menos 2 saídas';
     case 'goto_flow': return blank(d.flowId) ? 'Escolha o fluxo de destino' : null;
+    case 'members':
+      return (Array.isArray(d.courseIds) && d.courseIds.length) || (Array.isArray(d.moduleIds) && d.moduleIds.length) ? null : 'Escolha pelo menos um curso ou módulo';
     case 'pixel':
       if (blank(d.pixelId)) return 'Escolha o pixel';
       if (blank(d.event)) return 'Escolha o tipo do evento';

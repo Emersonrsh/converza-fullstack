@@ -166,8 +166,8 @@ async function buyerOf(sale: typeof schema.sales.$inferSelect) {
 }
 
 /** Dá acesso ao curso (ou devolve um acesso revogado). Retorna true se o acesso é novo. */
-async function grantCourse(accountId: string, memberId: string, courseId: string, saleId: string | null) {
-  const [row] = await db.insert(schema.memberAccess).values({ accountId, memberId, courseId, source: saleId ? 'sale' : 'manual', saleId })
+async function grantCourse(accountId: string, memberId: string, courseId: string, saleId: string | null, source?: string) {
+  const [row] = await db.insert(schema.memberAccess).values({ accountId, memberId, courseId, source: source ?? (saleId ? 'sale' : 'manual'), saleId })
     .onConflictDoUpdate({ target: [schema.memberAccess.memberId, schema.memberAccess.courseId], set: { revokedAt: null, saleId }, setWhere: sql`${schema.memberAccess.revokedAt} is not null` })
     .returning({ id: schema.memberAccess.id });
   return !!row;
@@ -184,19 +184,61 @@ async function rulesForProduct(accountId: string, productId: string): Promise<Ru
  * Libera os módulos das regras para o aluno. Se ele ainda não tem o curso do módulo, ganha o acesso ao curso também.
  * Uma escolha manual de "bloqueado" para o aluno é respeitada. Retorna os módulos que passaram a ficar liberados.
  */
-async function unlockByRules(accountId: string, memberId: string, rules: Rule[], saleId: string | null): Promise<string[]> {
+async function unlockByRules(accountId: string, memberId: string, rules: Rule[], saleId: string | null, source = 'sale'): Promise<string[]> {
   const out: string[] = [];
   for (const r of rules) {
-    await grantCourse(accountId, memberId, r.courseId, saleId);
+    await grantCourse(accountId, memberId, r.courseId, saleId, source);
     const [prev] = await db.select().from(schema.memberModuleOverrides)
       .where(and(eq(schema.memberModuleOverrides.memberId, memberId), eq(schema.memberModuleOverrides.moduleId, r.moduleId))).limit(1);
     if (prev?.state === 'unlocked') continue;
     if (prev?.state === 'locked' && prev.source === 'manual') continue;
-    await db.insert(schema.memberModuleOverrides).values({ memberId, moduleId: r.moduleId, accountId, state: 'unlocked', source: 'sale', saleId })
-      .onConflictDoUpdate({ target: [schema.memberModuleOverrides.memberId, schema.memberModuleOverrides.moduleId], set: { state: 'unlocked', source: 'sale', saleId, createdAt: new Date() } });
+    await db.insert(schema.memberModuleOverrides).values({ memberId, moduleId: r.moduleId, accountId, state: 'unlocked', source, saleId })
+      .onConflictDoUpdate({ target: [schema.memberModuleOverrides.memberId, schema.memberModuleOverrides.moduleId], set: { state: 'unlocked', source, saleId, createdAt: new Date() } });
     out.push(r.moduleTitle);
   }
   return out;
+}
+
+/**
+ * Bloco de fluxo "Área de membros": libera ou tira cursos (e módulos) do contato da conversa.
+ * Liberar devolve um link de entrada direta (vale 7 dias, uma vez) para o fluxo mandar na conversa.
+ */
+export async function flowMembersAccess(accountId: string, contactId: string, p: { action: 'grant' | 'revoke'; courseIds: string[]; moduleIds: string[] }) {
+  const empty = { link: '', area: '', courses: [] as string[], modules: [] as string[] };
+  const [c] = await db.select().from(schema.contacts).where(and(eq(schema.contacts.id, contactId), eq(schema.contacts.accountId, accountId))).limit(1);
+  if (!c) return { ok: false, info: 'contato não encontrado', ...empty };
+  const phone = normPhone(c.waId ?? c.phone);
+  const email = normEmail(c.email);
+  if (!phone && !email) return { ok: false, info: 'o contato não tem telefone nem e-mail', ...empty };
+  const cIds = p.courseIds.filter(isUuid), mIds = p.moduleIds.filter(isUuid);
+  const courses = cIds.length ? await db.select({ id: schema.memberCourses.id, title: schema.memberCourses.title }).from(schema.memberCourses)
+    .where(and(eq(schema.memberCourses.accountId, accountId), sql`${schema.memberCourses.id} in (${sql.join(cIds.map((i) => sql`${i}`), sql`, `)})`)) : [];
+  const mods = mIds.length ? (await db.execute(sql`select id as "moduleId", title as "moduleTitle", course_id as "courseId", id from member_modules
+    where account_id = ${accountId} and id in (${sql.join(mIds.map((i) => sql`${i}`), sql`, `)})`)).rows as Rule[] : [];
+  if (!courses.length && !mods.length) return { ok: false, info: 'os cursos escolhidos no bloco não existem mais', ...empty };
+  const slug = await ensureSlug(accountId);
+  const area = `${appBase()}/m/${slug}`;
+  if (p.action === 'revoke') {
+    const [m] = await db.select().from(schema.memberUsers).where(and(eq(schema.memberUsers.accountId, accountId),
+      sql`(${sql.join([...(phone ? [eq(schema.memberUsers.phone, phone)] : []), ...(email ? [sql`lower(${schema.memberUsers.email}) = ${email}`] : [])], sql` or `)})`)).limit(1);
+    if (m) {
+      if (courses.length) await db.update(schema.memberAccess).set({ revokedAt: new Date() })
+        .where(and(eq(schema.memberAccess.memberId, m.id), isNull(schema.memberAccess.revokedAt), sql`${schema.memberAccess.courseId} in (${sql.join(courses.map((x) => sql`${x.id}`), sql`, `)})`));
+      for (const r of mods) await db.insert(schema.memberModuleOverrides).values({ memberId: m.id, moduleId: r.moduleId, accountId, state: 'locked', source: 'flow' })
+        .onConflictDoUpdate({ target: [schema.memberModuleOverrides.memberId, schema.memberModuleOverrides.moduleId], set: { state: 'locked', source: 'flow', saleId: null, createdAt: new Date() } });
+    }
+    return { ok: true, link: '', area, courses: courses.map((x) => x.title), modules: mods.map((x) => x.moduleTitle) };
+  }
+  const member = await upsertMember(accountId, { email, phone, name: (c.name ?? '').trim() || null, contactId: c.id });
+  for (const x of courses) await grantCourse(accountId, member.id, x.id, null, 'flow');
+  await unlockByRules(accountId, member.id, mods, null, 'flow');
+  const link = await issueMemberLink(member.id, slug);
+  const all = courses.map((x) => x.title);
+  for (const r of mods) if (!courses.some((x) => x.id === r.courseId)) {
+    const [t] = await db.select({ title: schema.memberCourses.title }).from(schema.memberCourses).where(eq(schema.memberCourses.id, r.courseId)).limit(1);
+    if (t && !all.includes(t.title)) all.push(t.title);
+  }
+  return { ok: true, link, area, courses: all, modules: mods.map((x) => x.moduleTitle) };
 }
 
 export async function upsertMember(accountId: string, d: { email: string | null; phone: string | null; name: string | null; contactId: string | null }) {
@@ -542,6 +584,15 @@ membersRouter.get('/people', asyncHandler(async (req, res) => {
       ${q ? sql`and (lower(coalesce(u.name,'')) like ${`%${q}%`} or lower(coalesce(u.email,'')) like ${`%${q}%`} or coalesce(u.phone,'') like ${`%${q.replace(/\D/g, '') || q}%`})` : sql``}
     group by u.id order by max(a.created_at) desc limit 300`)).rows;
   res.json({ members: rows });
+}));
+
+/** Cursos e módulos para o bloco de fluxo "Área de membros". */
+membersRouter.get('/flow-options', asyncHandler(async (req, res) => {
+  const courses = await db.select({ id: schema.memberCourses.id, title: schema.memberCourses.title, published: schema.memberCourses.published })
+    .from(schema.memberCourses).where(eq(schema.memberCourses.accountId, req.accountId!)).orderBy(asc(schema.memberCourses.sort), asc(schema.memberCourses.createdAt));
+  const mods = await db.select({ id: schema.memberModules.id, courseId: schema.memberModules.courseId, title: schema.memberModules.title, locked: schema.memberModules.locked, isBonus: schema.memberModules.isBonus })
+    .from(schema.memberModules).where(eq(schema.memberModules.accountId, req.accountId!)).orderBy(asc(schema.memberModules.isBonus), asc(schema.memberModules.sort), asc(schema.memberModules.createdAt));
+  res.json({ courses: courses.map((c) => ({ ...c, modules: mods.filter((m) => m.courseId === c.id).map(({ courseId: _c, ...m }) => m) })) });
 }));
 
 /* ---------- regras: venda aprovada libera módulo ---------- */

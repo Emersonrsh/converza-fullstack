@@ -58,6 +58,8 @@ export interface SimDeps {
   departmentName?(id: string): Promise<string | null>;
   agentName?(id: string): Promise<string | null>;
   pixelName?(id: string): Promise<string | null>;
+  /** nomes dos cursos e módulos da área de membros para a anotação */
+  memberNames?(courseIds: string[], moduleIds: string[]): Promise<{ courses: string[]; modules: string[] }>;
   memberName?(id: string): Promise<string | null>;
   /** link de prévia de um arquivo enviado no editor */
   fileUrl?(fileId: string): Promise<string | null>;
@@ -270,6 +272,12 @@ function memoryExecutor(state: SimState, outputs: SimOutput[], visited: string[]
       const currency = s.currency || 'BRL';
       note(`💰 Venda aprovada: ${formatBRL(amount, currency)}${product ? ` · ${product.name}` : ''} — cliente ${s.customerName} (na simulação não é registrada)`);
       return { productName: product?.name ?? '', amount, currency };
+    },
+    async membersAccess(p) {
+      const names = deps.memberNames ? await deps.memberNames(p.courseIds, p.moduleIds) : { courses: [], modules: [] };
+      const what = [...names.courses, ...names.modules.map((m) => `módulo ${m}`)].join(', ') || 'cursos escolhidos';
+      note(p.action === 'revoke' ? `🎓 Área de membros: tira o acesso a ${what} (na simulação nada muda)` : `🎓 Área de membros: libera ${what} (na simulação nada muda)`);
+      return { ok: true, link: 'https://converza.pro/m/exemplo/entrar?t=exemplo', area: 'https://converza.pro/m/exemplo', courses: names.courses, modules: names.modules };
     },
     async notifyApp(title, body) { note(`🔔 Aviso para a equipe no Converza: ${title} — ${body}`); },
     async distribute(nodeId, outs, sticky) {
