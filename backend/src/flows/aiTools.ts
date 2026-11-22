@@ -218,11 +218,12 @@ const GENERATABLE = new Set([
   'media', 'action', 'handoff', 'ai_reply', 'ai_classify', 'payment',
 ]);
 
-export function sanitizeGeneratedGraph(raw: unknown, extra: string[] = []): FlowGraph {
+/** maxNodes: o gerador por IA monta até 60 blocos; o MCP aceita até 200. */
+export function sanitizeGeneratedGraph(raw: unknown, extra: string[] = [], maxNodes = 60): FlowGraph {
   const g = (raw ?? {}) as Dict;
   const nodes: FlowNode[] = [];
   const idMap = new Map<string, string>();
-  for (const n of (Array.isArray(g.nodes) ? g.nodes : []).slice(0, 60)) {
+  for (const n of (Array.isArray(g.nodes) ? g.nodes : []).slice(0, maxNodes)) {
     if (!n || typeof n !== 'object') continue;
     const type = String(n.type);
     if (!(BLOCK_TYPES as readonly string[]).includes(type) || (!GENERATABLE.has(type) && !extra.includes(type))) continue;

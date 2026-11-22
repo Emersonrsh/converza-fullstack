@@ -21,6 +21,8 @@ const bool = (description: string) => ({ type: 'boolean', description });
 const int = (description: string, min?: number, max?: number) => ({ type: 'integer', description, ...(min !== undefined ? { minimum: min } : {}), ...(max !== undefined ? { maximum: max } : {}) });
 const ids = (description: string) => ({ type: 'array', items: { type: 'string', format: 'uuid' }, description });
 const r2 = (x: number) => Math.round(x * 100) / 100;
+/** blocos por fluxo criado ou editado pelo MCP */
+const MCP_MAX_NODES = 200;
 
 /* ============================================================ Converza Members */
 
@@ -205,7 +207,7 @@ const FLOWS: ToolDef[] = [
         result: {
           format: '{"nodes":[{"id":"trigger","type":"trigger","data":{...}}, {"id":"m1","type":"message","data":{...}}],"edges":[{"source":"trigger","target":"m1","sourceHandle":null}]}',
           blocks: `Blocos disponíveis${doc}${MEMBERS_DOC}`.trim(),
-          rules: 'Exatamente um trigger (id "trigger"). sourceHandle null = saída padrão; menus usam o id da opção ou "fallback"; condition usa "true"/"false"; ask usa null/"timeout". Arquivos de mídia entram só com fileName (o usuário anexa depois no editor). Posições são calculadas sozinhas. O fluxo nasce em rascunho, a não ser que activate=true.',
+          rules: 'Exatamente um trigger (id "trigger"). Até 200 blocos por fluxo. sourceHandle null = saída padrão; menus usam o id da opção ou "fallback"; condition usa "true"/"false"; ask usa null/"timeout". Arquivos de mídia entram só com fileName (o usuário anexa depois no editor). Posições são calculadas sozinhas. O fluxo nasce em rascunho, a não ser que activate=true.',
         },
         summary: 'referência dos blocos',
       };
@@ -229,9 +231,9 @@ const FLOWS: ToolDef[] = [
     description: 'Cria um fluxo a partir de um grafo (veja flow_blocks_reference). Nasce em rascunho; activate=true já coloca no ar. Blocos fora da referência são ignorados.',
     group: 'flows', write: true,
     inputSchema: S({ name: str('Nome do fluxo'), graph: { type: 'object', description: '{nodes, edges}' }, activate: bool('Ativar já') }, ['name', 'graph']),
-    args: z.object({ name: z.string().trim().min(1).max(120), graph: z.object({ nodes: z.array(z.any()).min(1).max(60), edges: z.array(z.any()).max(240) }), activate: z.boolean().optional() }),
+    args: z.object({ name: z.string().trim().min(1).max(120), graph: z.object({ nodes: z.array(z.any()).min(1).max(MCP_MAX_NODES, `Até ${MCP_MAX_NODES} blocos por fluxo`), edges: z.array(z.any()).max(MCP_MAX_NODES * 4) }), activate: z.boolean().optional() }),
     async run(ctx, a) {
-      const graph = sanitizeGeneratedGraph(a.graph, ['members']);
+      const graph = sanitizeGeneratedGraph(a.graph, ['members'], MCP_MAX_NODES);
       if (graph.nodes.length < 2) throw new ToolError('O grafo precisa de pelo menos um bloco além do trigger (confira os tipos em flow_blocks_reference).');
       const f = (await callRoute<{ flow: any }>(flowsRouter, ctx, 'POST', '/', { body: { name: a.name, graph } })).body.flow;
       if (a.activate) await callRoute(flowsRouter, ctx, 'PUT', `/${f.id}`, { body: { status: 'active' } });
@@ -243,11 +245,11 @@ const FLOWS: ToolDef[] = [
     description: 'Renomeia, troca o grafo inteiro (mesmo formato do create_flow) ou muda o status (draft, active, paused). Para editar, leia antes com get_flow.',
     group: 'flows', write: true,
     inputSchema: S({ flow_id: str('Fluxo', { format: 'uuid' }), name: str('Novo nome'), graph: { type: 'object', description: '{nodes, edges}' }, status: { type: 'string', enum: ['draft', 'active', 'paused'] } }, ['flow_id']),
-    args: z.object({ flow_id: uuid('flow_id'), name: z.string().trim().min(1).max(120).optional(), graph: z.object({ nodes: z.array(z.any()).min(1).max(60), edges: z.array(z.any()).max(240) }).optional(), status: z.enum(['draft', 'active', 'paused']).optional() }),
+    args: z.object({ flow_id: uuid('flow_id'), name: z.string().trim().min(1).max(120).optional(), graph: z.object({ nodes: z.array(z.any()).min(1).max(MCP_MAX_NODES, `Até ${MCP_MAX_NODES} blocos por fluxo`), edges: z.array(z.any()).max(MCP_MAX_NODES * 4) }).optional(), status: z.enum(['draft', 'active', 'paused']).optional() }),
     async run(ctx, a) {
       const body: Record<string, unknown> = {};
       if (a.name) body.name = a.name;
-      if (a.graph) body.graph = sanitizeGeneratedGraph(a.graph, ['members']);
+      if (a.graph) body.graph = sanitizeGeneratedGraph(a.graph, ['members'], MCP_MAX_NODES);
       if (a.status) body.status = a.status;
       if (!Object.keys(body).length) throw new ToolError('Nada para mudar: informe name, graph ou status.');
       const f = (await callRoute<{ flow: any }>(flowsRouter, ctx, 'PUT', `/${a.flow_id}`, { body })).body.flow;
