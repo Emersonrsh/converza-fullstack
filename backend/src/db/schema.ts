@@ -1389,6 +1389,17 @@ export const memberModuleOverrides = pgTable('member_module_overrides', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ pk: primaryKey({ columns: [t.memberId, t.moduleId] }) }));
 
+/** Cópia do fluxo antes de uma troca de grafo pelo MCP (desfazer). */
+export const flowBackups = pgTable('flow_backups', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  flowId: uuid('flow_id').notNull().references(() => flows.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  graph: jsonb('graph').notNull(),
+  source: text('source').notNull().default('mcp'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ flowIdx: index('flow_backups_flow_idx').on(t.flowId, t.createdAt) }));
+
 /** Módulo bloqueado pelo bloco de fluxo que libera depois: na venda aprovada (kind 'sale') ou numa data (kind 'time'). */
 export const memberPendingUnlocks = pgTable('member_pending_unlocks', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -1444,5 +1455,5 @@ export const schema = {
   departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, platformAudit, storedFiles, storedFileChunks, storedFileMedia,
   globalVariables, flowTranslations, aiUsage, trackingLinks, trackingClicks, apiKeys, mcpCalls, flowDistributions,
   waWebAuth, waWebMedia, accessLogs,
-  memberCourses, memberModules, memberLessons, memberUsers, memberAccess, memberProgress, memberTokens, memberModuleOverrides, memberUnlockRules, memberPendingUnlocks,
+  memberCourses, memberModules, memberLessons, memberUsers, memberAccess, memberProgress, memberTokens, memberModuleOverrides, memberUnlockRules, memberPendingUnlocks, flowBackups,
 };

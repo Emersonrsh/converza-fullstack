@@ -7,9 +7,19 @@ import { membersRouter } from '../modules/members';
 import { flowsRouter } from '../modules/flows';
 import { agentsRouter } from '../modules/agents';
 import { metaRouter } from '../modules/meta';
-import { GENERATE_SYSTEM, sanitizeGeneratedGraph } from '../flows/aiTools';
+import { autoLayout } from '../flows/aiTools';
+import { BLOCK_TYPES, outputsOf } from '../flows/types';
+import { settingsRouter } from '../modules/settings';
+import { kanbanRouter } from '../modules/kanban';
+import { departmentsRouter } from '../modules/departments';
+import { pixelsRouter } from '../modules/pixels';
+import { connectionsRouter } from '../modules/connections';
+import { globalsRouter } from '../modules/globals';
+import { contactsRouter } from '../modules/contacts';
 import { safeDownload } from '../flows/http';
 import { callRoute } from './internal';
+import { and, desc, eq, sql } from 'drizzle-orm';
+import { db, schema } from '../db';
 import { ToolError, type ToolDef } from './tools';
 
 const uuid = (label: string) => z.string({ required_error: `Informe ${label}` }).uuid(`${label} inválido`);
@@ -194,66 +204,264 @@ const MEMBERS: ToolDef[] = [
 
 /* ============================================================ Fluxos */
 
-const MEMBERS_DOC = `- members (Área de membros): {"action":"grant"|"revoke","courseIds":["<curso>"],"courseModules":{"<curso>":["<módulos liberados na entrega>"]},"unlockRestOnSale":false,"unlockRestProductId":"","unlockRestAfter":false,"unlockRestDays":7,"sendMessage":true,"text":"mensagem com {{membros.link}}"} — entrega cursos ao contato (ids em members_list_courses); revoke tira o acesso; variáveis {{membros.link}}, {{membros.area}}, {{membros.cursos}}, {{membros.modulos}}.`;
+/** Formato de cada bloco (os mesmos campos que o editor salva) e as saídas que cada um tem. */
+const BLOCK_SHAPES: Record<string, { data: Record<string, unknown>; outputs: string; note?: string }> = {
+  trigger: { data: { type: 'any_message | keyword | first_message | webhook | ad_click | tag_added', keywords: 'palavra1, palavra2', match: 'contains | exact', connectionId: '', webhookId: '', reentry: 'always | once | cooldown', cooldownHours: 24 }, outputs: 'null', note: 'Exatamente um, com id "trigger".' },
+  message: { data: { items: [{ type: 'text', text: 'Olá {{primeiro_nome}}', typingSeconds: 3 }, { type: 'interval', mode: 'fixed | random', seconds: 5 }, { type: 'image | video | audio | file | sticker', fileId: '<arquivo já enviado>', url: '<ou link público>', filename: 'nome.pdf', caption: '', recordingSeconds: 5 }, { type: 'contact', name: '', phone: '' }] }, outputs: 'null', note: 'Mídia sem fileId nem url não é enviada: o usuário anexa no editor.' },
+  template: { data: { connectionId: '', name: '<modelo aprovado>', language: 'pt_BR', paramFormat: 'positional', bodyText: '', bodyVars: [], vars: {}, headerFormat: '', headerVar: '', headerText: '', headerMediaUrl: '', buttons: [], buttonValues: {}, timeoutAmount: 60, timeoutUnit: 'minutes' }, outputs: 'null; ou, se espera resposta: ids dos botões, "replied", "timeout"' },
+  tags: { data: { mode: 'add | remove', tags: ['Comprou'] }, outputs: 'null' },
+  pix: { data: { keyType: 'evp | cpf | cnpj | email | phone', key: '', merchantName: '', amount: '47,00', text: '', imageUrl: '', imageFileId: '', imageName: '' }, outputs: 'null' },
+  menu: { data: { style: 'list | buttons', text: '', buttonLabel: 'Ver opções', expireAmount: 0, expireUnit: 'minutes | hours | days', options: [{ id: 'opt_1', title: 'Opção', description: '' }], saveAs: '', invalidText: '', maxRetries: 1 }, outputs: 'ids das opções, "fallback" e (com expireAmount > 0) "timeout"' },
+  carousel: { data: { expireAmount: 0, expireUnit: 'days', text: '', cards: [{ id: 'card_1', text: '', imageUrl: '', imageFileId: '', imageName: '', buttons: [{ id: 'btn_1', type: 'reply | url', title: '', url: '' }] }] }, outputs: 'com botões de resposta: ids dos botões, "fallback", "timeout"; senão null' },
+  ask: { data: { text: '', saveAs: 'resposta', validation: 'any | email | phone | number | cpf', invalidText: '', maxRetries: 2, waitForever: false, timeoutAmount: 20, timeoutUnit: 'seconds | minutes | hours | days', buffer: false, bufferSeconds: 5, quote: false, react: true, reactEmoji: '❤️' }, outputs: 'null (respondeu), "invalid", "timeout"' },
+  chat_status: { data: { status: 'pending | open | resolved', assignUserId: '', pause: true }, outputs: 'null' },
+  notify: { data: { name: '', country: '55', phone: '', text: '', templateName: '', templateLanguage: '', templateVarCount: 0, templateParam: '' }, outputs: 'null' },
+  condition: { data: { logic: 'all | any', rules: [{ id: 'r1', var: 'comprovante.valor', op: 'eq | neq | gt | gte | lt | lte | contains | not_contains | empty | not_empty | has_tag | not_has_tag', value: '40' }] }, outputs: '"true", "false"' },
+  distributor: { data: { mode: 'sticky | round_robin | random', outputs: [{ id: 'out_1', label: 'Saída 1' }, { id: 'out_2', label: 'Saída 2' }] }, outputs: 'ids das saídas' },
+  goto_flow: { data: { flowId: '<id do fluxo (flow_resources)>' }, outputs: 'nenhuma (o contato passa para o outro fluxo)' },
+  pixel: { data: { platform: 'meta', pixelId: '<id (flow_resources)>', event: 'Purchase | Lead | InitiateCheckout | …', value: '{{comprovante.valor}}', currency: 'BRL', pageId: '' }, outputs: 'null' },
+  delay: { data: { mode: 'interval | date | business_hours', amount: 1, unit: 'seconds | minutes | hours | days', date: '', days: [1, 2, 3, 4, 5], from: '09:00', to: '18:00', useBusinessHours: false }, outputs: 'null' },
+  department: { data: { action: 'set | clear', departmentId: '<id (flow_resources)>' }, outputs: 'null' },
+  http: { data: { method: 'GET | POST | PUT | PATCH | DELETE', url: '', headersJson: '{}', body: '', mappings: [{ path: 'data.id', var: 'id' }], saveAs: 'http' }, outputs: '"success", "error"' },
+  ai: { data: { provider: 'converza', model: '', input: '{{resposta}}', saveAs: '', send: true, prompt: '', audio: false, image: false, pdf: false, detectReceipt: false, receiptOnly: false, validatePixKey: false, pixKeys: [''], validateRecipient: false, recipientNames: [''], conditions: [{ id: 'c1', label: '', description: '' }], keepContext: false, contextSize: 5 }, outputs: 'com detectReceipt: "receipt" (mandou comprovante; cria {{comprovante.valor}}, {{comprovante.nome_pagador}}, {{comprovante.currency}}…), "pix_wrong" (com validatePixKey), "name_wrong" (com validateRecipient); ids das conditions; null (resposta normal); "error"' },
+  ai_agent: { data: { action: 'assign | remove', agentId: '<id (flow_resources)>' }, outputs: 'null' },
+  kanban: { data: { action: 'add | move | remove', boardId: '<id>', columnId: '<id (flow_resources)>' }, outputs: 'null' },
+  set_var: { data: { name: 'variavel', op: 'set | add | subtract | append', value: '' }, outputs: 'null' },
+  sale: { data: { productId: '<id (flow_resources)>', customerName: '{{comprovante.nome_pagador}}', amount: '{{comprovante.valor}}', currency: '{{comprovante.currency}}', notifyTitle: '', notifySubtitle: '' }, outputs: 'null' },
+  members: { data: { action: 'grant | revoke', courseIds: [], moduleIds: [], courseModules: { '<curso>': ['<módulos liberados na entrega>'] }, unlockRestOnSale: false, unlockRestProductId: '', unlockRestAfter: false, unlockRestDays: 7, sendMessage: true, text: '… {{membros.link}}' }, outputs: 'null' },
+  payment: { data: { productId: '', url: '', text: '{{link}}', wait: true, timeoutMinutes: 60 }, outputs: 'com wait: "paid", "unpaid"; senão null' },
+  card: { data: { productId: '', amount: '', description: '', text: '{{link}}', wait: true, timeoutMinutes: 60 }, outputs: 'com wait: "paid", "unpaid"; senão null' },
+  xpag: { data: { currency: 'MXN', method: 'SPEI', productId: '', amount: '', description: '', text: '{{instrucoes}}', wait: true, timeoutMinutes: 1440 }, outputs: 'com wait: "paid", "unpaid"; senão null' },
+  ai_reply: { data: { prompt: '', model: '', useHistory: true, send: true, saveAs: '', fallbackText: '' }, outputs: 'null' },
+  ai_classify: { data: { categories: [{ id: 'cat_1', label: '', description: '' }], instructions: '' }, outputs: 'ids das categorias, "none"' },
+  media: { data: { mediaType: 'image', url: '', caption: '' }, outputs: 'null', note: 'antigo: prefira message' },
+  random: { data: { percentA: 50 }, outputs: '"a", "b"', note: 'antigo: prefira distributor' },
+  action: { data: { setStage: '', addTags: [], removeTags: [], setName: '', kanbanBoardId: '', kanbanColumnId: '', setFields: [] }, outputs: 'null', note: 'antigo' },
+  handoff: { data: { message: '', assignUserId: '' }, outputs: 'null', note: 'antigo: prefira chat_status' },
+};
+
+const ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+const isId = (v: unknown) => typeof v === 'string' && v.length > 0;
+
+/**
+ * Grafo do MCP sem perdas: blocos, campos e ids ficam exatamente como vieram (como o editor salva).
+ * O que não dá para salvar com segurança vira ERRO (nada é salvo), nunca descarte silencioso.
+ * Referências vazias (produto, pixel, setor…) e mídia sem arquivo viram avisos: o usuário completa no editor.
+ */
+async function prepareMcpGraph(ctx: Parameters<ToolDef['run']>[0], raw: { nodes: any[]; edges: any[] }) {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const nodes: { id: string; type: string; position: { x: number; y: number }; data: Record<string, unknown> }[] = [];
+  const label = (n: any) => `bloco "${n?.data?.label || n?.id}" (${n?.type})`;
+  const seen = new Set<string>();
+  for (const [i, n] of raw.nodes.entries()) {
+    if (!n || typeof n !== 'object') { errors.push(`nodes[${i}] não é um objeto`); continue; }
+    const id = String(n.id ?? '');
+    if (!ID_RE.test(id)) { errors.push(`nodes[${i}]: id "${id}" inválido (use letras, números, _ - . :, até 64)`); continue; }
+    if (seen.has(id)) { errors.push(`id repetido: "${id}"`); continue; }
+    seen.add(id);
+    const type = String(n.type ?? '');
+    if (!(BLOCK_TYPES as readonly string[]).includes(type)) { errors.push(`${label(n)}: tipo desconhecido. Tipos válidos: ${BLOCK_TYPES.join(', ')}`); continue; }
+    const data = n.data && typeof n.data === 'object' && !Array.isArray(n.data) ? n.data : {};
+    if (JSON.stringify(data).length > 100_000) { errors.push(`${label(n)}: dados grandes demais`); continue; }
+    const px = Number(n.position?.x), py = Number(n.position?.y);
+    nodes.push({ id, type, position: { x: Number.isFinite(px) ? Math.round(px) : NaN, y: Number.isFinite(py) ? Math.round(py) : NaN }, data });
+  }
+  const triggers = nodes.filter((n) => n.type === 'trigger');
+  if (triggers.length !== 1) errors.push(triggers.length ? `o fluxo tem ${triggers.length} gatilhos (trigger); precisa de exatamente um` : 'falta o bloco trigger');
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const edges: { id: string; source: string; target: string; sourceHandle: string | null }[] = [];
+  const used = new Set<string>();
+  for (const [i, e] of raw.edges.entries()) {
+    const src = byId.get(String(e?.source)), dst = byId.get(String(e?.target));
+    if (!src || !dst) { errors.push(`edges[${i}]: ${!src ? `origem "${e?.source}"` : `destino "${e?.target}"`} não existe`); continue; }
+    if (dst.type === 'trigger') { errors.push(`edges[${i}]: nada pode ligar no trigger`); continue; }
+    let h: string | null = e.sourceHandle ?? e.handle ?? null;
+    if (h === '' || h === 'out' || h === 'null') h = null;
+    const outs = outputsOf(src);
+    if (!outs.includes(h)) {
+      errors.push(`edges[${i}] ${src.id} → ${dst.id}: a saída "${h ?? 'null'}" não existe em ${label(src)}. Saídas válidas: ${outs.length ? outs.map((x) => x ?? 'null').join(', ') : 'nenhuma'}`);
+      continue;
+    }
+    const key = `${src.id}::${h ?? ''}`;
+    if (used.has(key)) { errors.push(`edges[${i}]: a saída "${h ?? 'null'}" de ${label(src)} já está ligada (cada saída liga em um bloco só)`); continue; }
+    used.add(key);
+    edges.push({ id: String(e.id ?? `e_${src.id}_${h ?? 'out'}_${dst.id}`).slice(0, 120), source: src.id, target: dst.id, sourceHandle: h });
+  }
+  if (errors.length) throw new ToolError(`Nada foi salvo. Corrija e mande de novo:\n- ${errors.slice(0, 25).join('\n- ')}${errors.length > 25 ? `\n- … e mais ${errors.length - 25}` : ''}`);
+
+  // referências da conta: id inexistente é erro; vazio é aviso (o usuário escolhe no editor)
+  const res = await accountResources(ctx);
+  const known = {
+    product: new Set(res.products.map((x: any) => x.id)), pixel: new Set(res.pixels.map((x: any) => x.id)), department: new Set(res.departments.map((x: any) => x.id)),
+    flow: new Set(res.flows.map((x: any) => x.id)), agent: new Set(res.agents.map((x: any) => x.id)),
+    board: new Map<string, Set<string>>(res.kanban.map((b: any) => [b.id, new Set<string>(b.columns.map((c: any) => c.id))])),
+    course: new Set(res.courses.flatMap((c: any) => [c.id, ...c.modules.map((m: any) => m.id)])),
+  };
+  const ref = (n: any, field: string, set: Set<unknown>, what: string) => {
+    const v = n.data[field];
+    if (!isId(v)) warnings.push(`${label(n)}: falta escolher ${what} (complete no editor antes de ativar)`);
+    else if (!set.has(v as string)) errors.push(`${label(n)}: ${what} "${v}" não existe na conta (veja flow_resources)`);
+  };
+  for (const n of nodes) {
+    if (n.type === 'sale') ref(n, 'productId', known.product, 'o produto');
+    if (n.type === 'pixel') ref(n, 'pixelId', known.pixel, 'o pixel');
+    if (n.type === 'department' && n.data.action !== 'clear') ref(n, 'departmentId', known.department, 'o setor');
+    if (n.type === 'goto_flow') ref(n, 'flowId', known.flow, 'o fluxo de destino');
+    if (n.type === 'ai_agent') ref(n, 'agentId', known.agent, 'o agente');
+    if (n.type === 'kanban') {
+      const cols = known.board.get(String(n.data.boardId ?? ''));
+      if (!isId(n.data.boardId)) warnings.push(`${label(n)}: falta escolher o quadro do Kanban`);
+      else if (!cols) errors.push(`${label(n)}: quadro "${n.data.boardId}" não existe (veja flow_resources)`);
+      else if (n.data.action !== 'remove' && isId(n.data.columnId) && !cols.has(String(n.data.columnId))) errors.push(`${label(n)}: coluna "${n.data.columnId}" não é desse quadro`);
+      else if (n.data.action !== 'remove' && !isId(n.data.columnId)) warnings.push(`${label(n)}: falta escolher a coluna do Kanban`);
+    }
+    if (n.type === 'members') {
+      const all = [...(Array.isArray(n.data.courseIds) ? n.data.courseIds : []), ...(Array.isArray(n.data.moduleIds) ? n.data.moduleIds : [])].map(String);
+      const bad = all.filter((x) => !known.course.has(x));
+      if (bad.length) errors.push(`${label(n)}: curso/módulo inexistente: ${bad.join(', ')} (veja members_list_courses)`);
+      if (!all.length) warnings.push(`${label(n)}: falta escolher o curso`);
+    }
+    if (n.type === 'message' && Array.isArray(n.data.items)) {
+      const missing = n.data.items.filter((it: any) => ['image', 'video', 'audio', 'file', 'sticker'].includes(it?.type) && !it.fileId && !it.url).length;
+      if (missing) warnings.push(`${label(n)}: ${missing} arquivo(s) para anexar no editor`);
+    }
+  }
+  if (errors.length) throw new ToolError(`Nada foi salvo. Corrija e mande de novo:\n- ${errors.slice(0, 25).join('\n- ')}`);
+
+  const graph = { nodes, edges };
+  if (nodes.some((n) => !Number.isFinite(n.position.x) || !Number.isFinite(n.position.y))) autoLayout(graph as never);
+  return { graph, warnings };
+}
+
+async function accountResources(ctx: Parameters<ToolDef['run']>[0]) {
+  const get = async <T,>(router: any, path: string, pick: (b: any) => T, fallback: T): Promise<T> => {
+    try { return pick((await callRoute(router, ctx, 'GET', path)).body); } catch { return fallback; }
+  };
+  const [products, flows, kanban, departments, pixels, agents, tags, connections, globals, fields, courses] = await Promise.all([
+    get(settingsRouter, '/products', (b) => b.products.map((p: any) => ({ id: p.id, name: p.name, price: p.price })), []),
+    get(flowsRouter, '/', (b) => b.flows.map((f: any) => ({ id: f.id, name: f.name, status: f.status })), []),
+    get(kanbanRouter, '/boards', (b) => b.boards.map((x: any) => ({ id: x.id, name: x.name, columns: (x.columns ?? []).map((c: any) => ({ id: c.id, name: c.name })) })), []),
+    get(departmentsRouter, '/', (b) => b.departments.map((d: any) => ({ id: d.id, name: d.name })), []),
+    get(pixelsRouter, '/', (b) => b.pixels.map((p: any) => ({ id: p.id, name: p.name, platform: p.platform, status: p.status })), []),
+    get(agentsRouter, '/', (b) => b.agents.map((a: any) => ({ id: a.id, name: a.name, enabled: a.enabled })), []),
+    get(settingsRouter, '/tags', (b) => b.tags.map((t: any) => t.name), []),
+    get(connectionsRouter, '/', (b) => b.connections.map((c: any) => ({ id: c.id, name: c.name, phone: c.displayPhone })), []),
+    get(globalsRouter, '/', (b) => b.variables.map((v: any) => v.key), []),
+    get(contactsRouter, '/fields', (b) => b.fields.map((f: any) => f.key), []),
+    get(membersRouter, '/flow-options', (b) => b.courses, []),
+  ]);
+  return { products, flows, kanban, departments, pixels, agents, tags, connections, globals, contact_fields: fields, courses };
+}
+
+/** Guarda o grafo atual antes de o MCP trocar (as 15 últimas cópias de cada fluxo). */
+async function backupFlow(ctx: Parameters<ToolDef['run']>[0], flowId: string): Promise<string> {
+  const cur = (await callRoute<{ flow: any }>(flowsRouter, ctx, 'GET', `/${flowId}`)).body.flow;
+  const [b] = await db.insert(schema.flowBackups).values({ accountId: ctx.accountId, flowId, name: cur.name, graph: cur.graph }).returning({ id: schema.flowBackups.id });
+  await db.execute(sql`delete from flow_backups where flow_id = ${flowId} and id not in (select id from flow_backups where flow_id = ${flowId} order by created_at desc limit 15)`);
+  return b.id;
+}
+
+const graphArg = z.object({ nodes: z.array(z.any()).min(1).max(MCP_MAX_NODES, `Até ${MCP_MAX_NODES} blocos por fluxo`), edges: z.array(z.any()).max(MCP_MAX_NODES * 4) });
 
 const FLOWS: ToolDef[] = [
   {
     name: 'flow_blocks_reference', title: 'Fluxos: referência dos blocos',
-    description: 'Formato do grafo aceito por create_flow/update_flow: tipos de bloco, campos de cada um e saídas. Leia antes de montar um fluxo.',
+    description: 'Todos os tipos de bloco, os campos de cada um (os mesmos que o editor salva) e as saídas válidas. Leia antes de montar ou editar um fluxo.',
     group: 'flows', write: false, inputSchema: S({}), args: z.object({}),
     async run() {
-      const doc = GENERATE_SYSTEM.split('Blocos disponíveis')[1]?.split('Regras:')[0] ?? '';
       return {
         result: {
-          format: '{"nodes":[{"id":"trigger","type":"trigger","data":{...}}, {"id":"m1","type":"message","data":{...}}],"edges":[{"source":"trigger","target":"m1","sourceHandle":null}]}',
-          blocks: `Blocos disponíveis${doc}${MEMBERS_DOC}`.trim(),
-          rules: 'Exatamente um trigger (id "trigger"). Até 200 blocos por fluxo. sourceHandle null = saída padrão; menus usam o id da opção ou "fallback"; condition usa "true"/"false"; ask usa null/"timeout". Arquivos de mídia entram só com fileName (o usuário anexa depois no editor). Posições são calculadas sozinhas. O fluxo nasce em rascunho, a não ser que activate=true.',
+          format: '{"nodes":[{"id":"trigger","type":"trigger","position":{"x":0,"y":0},"data":{…}},{"id":"m1","type":"message","data":{…}}],"edges":[{"source":"trigger","target":"m1","sourceHandle":null}]}',
+          rules: [
+            'O grafo é salvo exatamente como vier: ids, campos e variáveis (ex.: {{comprovante.valor}}) não são alterados.',
+            'Exatamente um trigger. Cada saída (sourceHandle) liga em um bloco só; null = saída padrão. As saídas válidas de cada bloco estão em "blocks".',
+            'Ids de produto, pixel, setor, Kanban, agente, fluxo e curso: pegue em flow_resources. Id que não existe = erro; campo vazio = aviso (o usuário escolhe no editor).',
+            'Se qualquer coisa estiver errada, nada é salvo e a resposta lista o que corrigir.',
+            'Arquivos: use fileId de um fluxo existente (get_flow) ou url pública; sem os dois, o usuário anexa no editor.',
+            'position é opcional; se faltar em algum bloco, o fluxo é organizado sozinho.',
+            `Até ${MCP_MAX_NODES} blocos. O fluxo novo nasce em rascunho, a não ser que activate=true.`,
+            'Para editar, leia com get_flow, mude o que precisa e mande o grafo inteiro em update_flow (ids iguais preservam o resto).',
+          ],
+          blocks: BLOCK_SHAPES,
+          variables: 'Contato: {{nome}}, {{primeiro_nome}}, {{telefone}}, {{email}}; campos {{campo.<chave>}}; globais {{global.<chave>}}; salvas por blocos (saveAs) e {{comprovante.*}}, {{membros.*}}, {{venda.*}}.',
         },
         summary: 'referência dos blocos',
       };
     },
   },
   {
+    name: 'flow_resources', title: 'Fluxos: ids da conta',
+    description: 'Ids e nomes para usar nos blocos: produtos, fluxos, quadros e colunas do Kanban, setores, pixels, agentes de IA, etiquetas, números de WhatsApp, variáveis globais, campos do contato e cursos/módulos da Converza Members.',
+    group: 'flows', write: false, inputSchema: S({}), args: z.object({}),
+    async run(ctx) {
+      const r = await accountResources(ctx);
+      return { result: r, summary: `${r.products.length} produto(s), ${r.flows.length} fluxo(s), ${r.departments.length} setor(es)` };
+    },
+  },
+  {
     name: 'get_flow', title: 'Fluxos: ver fluxo',
-    description: 'O grafo completo de um fluxo (blocos, dados e conexões), status e gatilho.',
+    description: 'O grafo completo de um fluxo, exatamente como está salvo (blocos com posição e todos os campos, conexões), e o status.',
     group: 'flows', write: false,
     inputSchema: S({ flow_id: str('Fluxo', { format: 'uuid' }) }, ['flow_id']), args: z.object({ flow_id: uuid('flow_id') }),
     async run(ctx, a) {
       const f = (await callRoute<{ flow: any }>(flowsRouter, ctx, 'GET', `/${a.flow_id}`)).body.flow;
       return {
-        result: { id: f.id, name: f.name, status: f.status, nodes: f.graph.nodes.map((n: any) => ({ id: n.id, type: n.type, data: n.data })), edges: f.graph.edges.map((e: any) => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? null })) },
-        summary: `fluxo ${f.name}`,
+        result: { id: f.id, name: f.name, status: f.status, nodes: f.graph.nodes.map((n: any) => ({ id: n.id, type: n.type, position: n.position, data: n.data })), edges: f.graph.edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? null })) },
+        summary: `fluxo ${f.name} (${f.graph.nodes.length} blocos)`,
       };
     },
   },
   {
     name: 'create_flow', title: 'Fluxos: criar fluxo',
-    description: 'Cria um fluxo a partir de um grafo (veja flow_blocks_reference). Nasce em rascunho; activate=true já coloca no ar. Blocos fora da referência são ignorados.',
+    description: 'Cria um fluxo com o grafo exatamente como enviado (veja flow_blocks_reference e flow_resources). Se algo estiver errado, nada é salvo e a resposta diz o que corrigir. Nasce em rascunho; activate=true coloca no ar.',
     group: 'flows', write: true,
     inputSchema: S({ name: str('Nome do fluxo'), graph: { type: 'object', description: '{nodes, edges}' }, activate: bool('Ativar já') }, ['name', 'graph']),
-    args: z.object({ name: z.string().trim().min(1).max(120), graph: z.object({ nodes: z.array(z.any()).min(1).max(MCP_MAX_NODES, `Até ${MCP_MAX_NODES} blocos por fluxo`), edges: z.array(z.any()).max(MCP_MAX_NODES * 4) }), activate: z.boolean().optional() }),
+    args: z.object({ name: z.string().trim().min(1).max(120), graph: graphArg, activate: z.boolean().optional() }),
     async run(ctx, a) {
-      const graph = sanitizeGeneratedGraph(a.graph, ['members'], MCP_MAX_NODES);
-      if (graph.nodes.length < 2) throw new ToolError('O grafo precisa de pelo menos um bloco além do trigger (confira os tipos em flow_blocks_reference).');
+      const { graph, warnings } = await prepareMcpGraph(ctx, a.graph);
       const f = (await callRoute<{ flow: any }>(flowsRouter, ctx, 'POST', '/', { body: { name: a.name, graph } })).body.flow;
       if (a.activate) await callRoute(flowsRouter, ctx, 'PUT', `/${f.id}`, { body: { status: 'active' } });
-      return { result: { flow_id: f.id, name: f.name, status: a.activate ? 'active' : 'draft', blocks: graph.nodes.length, connections: graph.edges.length, ignored_blocks: a.graph.nodes.length - graph.nodes.length }, summary: `fluxo criado: ${f.name}` };
+      return { result: { flow_id: f.id, name: f.name, status: a.activate ? 'active' : 'draft', blocks: graph.nodes.length, connections: graph.edges.length, warnings }, summary: `fluxo criado: ${f.name}${warnings.length ? ` (${warnings.length} aviso(s))` : ''}` };
     },
   },
   {
     name: 'update_flow', title: 'Fluxos: editar fluxo',
-    description: 'Renomeia, troca o grafo inteiro (mesmo formato do create_flow) ou muda o status (draft, active, paused). Para editar, leia antes com get_flow.',
+    description: 'Renomeia, troca o grafo inteiro (salvo exatamente como enviado, mesmo formato do get_flow) ou muda o status (draft, active, paused). Se o grafo tiver erro, nada muda.',
     group: 'flows', write: true,
     inputSchema: S({ flow_id: str('Fluxo', { format: 'uuid' }), name: str('Novo nome'), graph: { type: 'object', description: '{nodes, edges}' }, status: { type: 'string', enum: ['draft', 'active', 'paused'] } }, ['flow_id']),
-    args: z.object({ flow_id: uuid('flow_id'), name: z.string().trim().min(1).max(120).optional(), graph: z.object({ nodes: z.array(z.any()).min(1).max(MCP_MAX_NODES, `Até ${MCP_MAX_NODES} blocos por fluxo`), edges: z.array(z.any()).max(MCP_MAX_NODES * 4) }).optional(), status: z.enum(['draft', 'active', 'paused']).optional() }),
+    args: z.object({ flow_id: uuid('flow_id'), name: z.string().trim().min(1).max(120).optional(), graph: graphArg.optional(), status: z.enum(['draft', 'active', 'paused']).optional() }),
     async run(ctx, a) {
       const body: Record<string, unknown> = {};
+      let warnings: string[] = [];
       if (a.name) body.name = a.name;
-      if (a.graph) body.graph = sanitizeGeneratedGraph(a.graph, ['members'], MCP_MAX_NODES);
+      if (a.graph) { const p = await prepareMcpGraph(ctx, a.graph); body.graph = p.graph; warnings = p.warnings; }
       if (a.status) body.status = a.status;
       if (!Object.keys(body).length) throw new ToolError('Nada para mudar: informe name, graph ou status.');
+      let backupId: string | null = null;
+      if (body.graph) backupId = await backupFlow(ctx, a.flow_id);
       const f = (await callRoute<{ flow: any }>(flowsRouter, ctx, 'PUT', `/${a.flow_id}`, { body })).body.flow;
-      return { result: { flow_id: f.id, name: f.name, status: f.status }, summary: `fluxo atualizado: ${f.name}` };
+      return { result: { flow_id: f.id, name: f.name, status: f.status, blocks: f.graph?.nodes?.length, warnings, backup_id: backupId }, summary: `fluxo atualizado: ${f.name}${backupId ? ' (cópia anterior guardada)' : ''}` };
+    },
+  },
+  {
+    name: 'flow_backups', title: 'Fluxos: cópias anteriores',
+    description: 'Lista as cópias que o Converza guarda de um fluxo antes de cada troca de grafo pelo MCP (as 15 últimas) e restaura uma delas (restore_backup_id). Restaurar também guarda uma cópia do estado atual.',
+    group: 'flows', write: true,
+    inputSchema: S({ flow_id: str('Fluxo', { format: 'uuid' }), restore_backup_id: str('Cópia a restaurar', { format: 'uuid' }) }, ['flow_id']),
+    args: z.object({ flow_id: uuid('flow_id'), restore_backup_id: z.string().uuid().optional() }),
+    async run(ctx, a) {
+      await callRoute(flowsRouter, ctx, 'GET', `/${a.flow_id}`); // confere que o fluxo é da conta
+      if (a.restore_backup_id) {
+        const [b] = await db.select().from(schema.flowBackups).where(and(eq(schema.flowBackups.id, a.restore_backup_id), eq(schema.flowBackups.flowId, a.flow_id), eq(schema.flowBackups.accountId, ctx.accountId))).limit(1);
+        if (!b) throw new ToolError('Cópia não encontrada para esse fluxo.');
+        const safety = await backupFlow(ctx, a.flow_id);
+        const f = (await callRoute<{ flow: any }>(flowsRouter, ctx, 'PUT', `/${a.flow_id}`, { body: { graph: b.graph, name: b.name } })).body.flow;
+        return { result: { flow_id: f.id, restored_from: b.id, restored_at: b.createdAt, blocks: f.graph.nodes.length, backup_of_current: safety }, summary: `fluxo restaurado para ${new Date(b.createdAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` };
+      }
+      const rows = await db.select({ id: schema.flowBackups.id, name: schema.flowBackups.name, graph: schema.flowBackups.graph, createdAt: schema.flowBackups.createdAt })
+        .from(schema.flowBackups).where(and(eq(schema.flowBackups.flowId, a.flow_id), eq(schema.flowBackups.accountId, ctx.accountId))).orderBy(desc(schema.flowBackups.createdAt)).limit(15);
+      return { result: { backups: rows.map((r) => ({ backup_id: r.id, name: r.name, blocks: (r.graph as any)?.nodes?.length ?? 0, saved_at: r.createdAt })) }, summary: `${rows.length} cópia(s)` };
     },
   },
 ];
