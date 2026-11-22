@@ -98,7 +98,7 @@ export function defaultData(type: BlockType): Record<string, any> {
     case 'ai_agent': return { action: 'assign', agentId: '' };
     case 'kanban': return { action: 'add', boardId: '', columnId: '' };
     case 'set_var': return { name: '', op: 'set', value: '' };
-    case 'members': return { action: 'grant', courseIds: [], moduleIds: [], sendMessage: true, text: MEMBERS_TEXT };
+    case 'members': return { action: 'grant', courseIds: [], moduleIds: [], courseModules: {}, sendMessage: true, text: MEMBERS_TEXT };
     case 'sale': return { productId: '', customerName: '{{comprovante.nome_pagador}}', amount: '{{comprovante.valor}}', currency: '{{comprovante.currency}}', notifyTitle: '', notifySubtitle: '' };
     // antigos
     case 'media': return { mediaType: 'image', url: '', caption: '' };
@@ -561,7 +561,12 @@ export function preview(type: string, d: Record<string, any>, lk: Lookups): Prev
       const ids: string[] = Array.isArray(d.courseIds) ? d.courseIds : [];
       const mids: string[] = Array.isArray(d.moduleIds) ? d.moduleIds : [];
       const parts: PreviewPart[] = [];
-      for (const c of lk.courses.filter((x) => ids.includes(x.id))) parts.push({ k: 'box', title: c.title, sub: 'Curso inteiro' });
+      const cm: Record<string, string[]> = d.courseModules && typeof d.courseModules === 'object' ? d.courseModules : {};
+      for (const c of lk.courses.filter((x) => ids.includes(x.id))) {
+        const pick = d.action === 'revoke' ? null : cm[c.id];
+        const on = pick ? c.modules.filter((m) => pick.includes(m.id)) : null;
+        parts.push({ k: 'box', title: c.title, sub: !on ? 'Curso inteiro' : on.length === c.modules.length ? 'Todos os módulos liberados' : on.length ? `Liberados: ${on.map((m) => m.title).join(', ')}` : 'Nenhum módulo liberado' });
+      }
       for (const c of lk.courses) for (const m of c.modules.filter((x) => mids.includes(x.id))) parts.push({ k: 'box', title: m.title, sub: `Módulo de ${c.title}` });
       if (!parts.length) return [];
       return [{ k: 'label', text: d.action === 'revoke' ? 'Tirar o acesso a:' : 'Liberar o acesso a:' }, ...parts.slice(0, 4),

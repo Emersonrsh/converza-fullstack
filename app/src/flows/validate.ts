@@ -182,6 +182,9 @@ export function validateFlow(nodes: N[], edges: E[], lk: Lookups): Issue[] {
           if (ids.some((id) => !known.has(id))) add(n.id, 'error', `${nm}: um curso ou módulo escolhido não existe mais.`);
           const off = lk.courses.filter((c) => (d.courseIds ?? []).includes(c.id) && !c.published);
           if (d.action !== 'revoke' && off.length) add(n.id, 'warn', `${nm}: o curso “${off[0].title}” ainda é rascunho; o aluno só vê depois de publicar.`);
+          const cm = d.courseModules && typeof d.courseModules === 'object' ? d.courseModules : {};
+          const none = lk.courses.find((c) => d.action !== 'revoke' && (d.courseIds ?? []).includes(c.id) && Array.isArray(cm[c.id]) && c.modules.length && !cm[c.id].length);
+          if (none) add(n.id, 'warn', `${nm}: nenhum módulo de “${none.title}” fica liberado na entrega.`);
         }
         break;
       }

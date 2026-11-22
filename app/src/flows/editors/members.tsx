@@ -21,8 +21,8 @@ export function MembersEditor({ d, set, vars, lookups }: EditorProps) {
       </div>
 
       <div className="mbx-seg-row" role="group" aria-label="Ação" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <button type="button" className={cx('fx-choice', !revoke && 'on')} onClick={() => set({ action: 'grant' })} data-testid="mb-action-grant"><Icon name="unlock" size={15} />Liberar acesso</button>
-        <button type="button" className={cx('fx-choice', revoke && 'on')} onClick={() => set({ action: 'revoke' })} data-testid="mb-action-revoke"><Icon name="lock" size={15} />Tirar acesso</button>
+        <button type="button" className={cx('fx-choice', !revoke && 'on')} onClick={() => set({ action: 'grant', moduleIds: [] })} data-testid="mb-action-grant"><Icon name="unlock" size={15} />Liberar acesso</button>
+        <button type="button" className={cx('fx-choice', revoke && 'on')} onClick={() => set({ action: 'revoke', moduleIds: [] })} data-testid="mb-action-revoke"><Icon name="lock" size={15} />Tirar acesso</button>
       </div>
 
       <Field label={revoke ? 'Tirar o acesso a' : 'Entregar'} required>
@@ -32,25 +32,40 @@ export function MembersEditor({ d, set, vars, lookups }: EditorProps) {
           <div className="fx-mb-list">
             {courses.map((c) => {
               const whole = courseIds.includes(c.id);
-              const lockedMods = c.modules.filter((m) => m.locked || moduleIds.includes(m.id));
+              const cm: Record<string, string[]> = d.courseModules && typeof d.courseModules === 'object' ? d.courseModules : {};
+              // módulos liberados na entrega; sem escolha salva, vale o que está liberado no curso hoje
+              const picked = cm[c.id] ?? c.modules.filter((m) => !m.locked || moduleIds.includes(m.id)).map((m) => m.id);
+              const setPicked = (list: string[]) => set({ courseModules: { ...cm, [c.id]: list } });
+              const pickCourse = (on: boolean) => {
+                const next = { ...cm };
+                if (on) next[c.id] = picked; else delete next[c.id];
+                set({ courseIds: toggle(courseIds, c.id, on), courseModules: next });
+              };
               return (
                 <div key={c.id} className={cx('fx-mb-course', whole && 'on')}>
                   <label className="fx-mb-row" data-testid="mb-course">
-                    <input type="checkbox" checked={whole} onChange={(e) => set({ courseIds: toggle(courseIds, c.id, e.target.checked) })} />
-                    <span><b>{c.title}</b><small>{revoke ? 'O curso inteiro' : 'O curso inteiro (módulos bloqueados continuam bloqueados)'}{!c.published && ' · rascunho'}</small></span>
+                    <input type="checkbox" checked={whole} onChange={(e) => (revoke ? set({ courseIds: toggle(courseIds, c.id, e.target.checked) }) : pickCourse(e.target.checked))} />
+                    <span><b>{c.title}</b><small>{revoke ? 'O curso inteiro' : whole ? `${picked.length} de ${c.modules.length} módulo(s) liberado(s) na entrega` : `${c.modules.length} módulo(s)`}{!c.published && ' · rascunho'}</small></span>
                   </label>
-                  {lockedMods.length > 0 && (
-                    <div className="fx-mb-mods">
-                      <small className="faint">{revoke ? 'Ou bloquear só estes módulos:' : 'Também liberar estes módulos bloqueados:'}</small>
-                      {(revoke ? c.modules : lockedMods).map((m) => (
+                  {!revoke && whole && c.modules.length > 0 && (
+                    <div className="fx-mb-mods" data-testid="mb-modules">
+                      <div className="fx-mb-mods-hd">
+                        <small className="faint">Módulos liberados na entrega:</small>
+                        <span>
+                          <button type="button" className="linkbtn" onClick={() => setPicked(c.modules.map((m) => m.id))} data-testid="mb-all">Todos</button>
+                          <button type="button" className="linkbtn" onClick={() => setPicked([])} data-testid="mb-none">Nenhum</button>
+                        </span>
+                      </div>
+                      {c.modules.map((m) => (
                         <label key={m.id} className="fx-mb-row sm" data-testid="mb-module">
-                          <input type="checkbox" checked={moduleIds.includes(m.id)} onChange={(e) => set({ moduleIds: toggle(moduleIds, m.id, e.target.checked) })} />
-                          <span>{m.isBonus && <Icon name="gift" size={11} />} {m.title}{m.locked && <Icon name="lock" size={11} />}</span>
+                          <input type="checkbox" checked={picked.includes(m.id)} onChange={(e) => setPicked(toggle(picked, m.id, e.target.checked))} />
+                          <span>{m.isBonus && <Icon name="gift" size={11} />} {m.title}{!picked.includes(m.id) && <Icon name="lock" size={11} />}</span>
                         </label>
                       ))}
+                      <small className="faint fx-mb-tip">Os desmarcados ficam bloqueados para este contato até você liberar (na aba Membros, com uma regra de venda ou com outro bloco).</small>
                     </div>
                   )}
-                  {revoke && !lockedMods.length && c.modules.length > 0 && (
+                  {revoke && c.modules.length > 0 && (
                     <div className="fx-mb-mods">
                       <small className="faint">Ou bloquear só estes módulos:</small>
                       {c.modules.map((m) => (

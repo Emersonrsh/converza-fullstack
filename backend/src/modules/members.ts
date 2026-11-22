@@ -203,7 +203,7 @@ async function unlockByRules(accountId: string, memberId: string, rules: Rule[],
  * Bloco de fluxo "Área de membros": libera ou tira cursos (e módulos) do contato da conversa.
  * Liberar devolve um link de entrada direta (vale 7 dias, uma vez) para o fluxo mandar na conversa.
  */
-export async function flowMembersAccess(accountId: string, contactId: string, p: { action: 'grant' | 'revoke'; courseIds: string[]; moduleIds: string[] }) {
+export async function flowMembersAccess(accountId: string, contactId: string, p: { action: 'grant' | 'revoke'; courseIds: string[]; moduleIds: string[]; courseModules?: Record<string, string[]> }) {
   const empty = { link: '', area: '', courses: [] as string[], modules: [] as string[] };
   const [c] = await db.select().from(schema.contacts).where(and(eq(schema.contacts.id, contactId), eq(schema.contacts.accountId, accountId))).limit(1);
   if (!c) return { ok: false, info: 'contato não encontrado', ...empty };
@@ -232,13 +232,29 @@ export async function flowMembersAccess(accountId: string, contactId: string, p:
   const member = await upsertMember(accountId, { email, phone, name: (c.name ?? '').trim() || null, contactId: c.id });
   for (const x of courses) await grantCourse(accountId, member.id, x.id, null, 'flow');
   await unlockByRules(accountId, member.id, mods, null, 'flow');
+  // módulos escolhidos na entrega: os marcados ficam liberados, os outros bloqueados para este contato
+  const liberated: string[] = mods.map((x) => x.moduleTitle);
+  for (const x of courses) {
+    const pick = p.courseModules?.[x.id];
+    if (!pick) continue;
+    const all = await db.select({ id: schema.memberModules.id, title: schema.memberModules.title }).from(schema.memberModules).where(eq(schema.memberModules.courseId, x.id));
+    const on = all.filter((m) => pick.includes(m.id));
+    await unlockByRules(accountId, member.id, on.map((m) => ({ id: m.id, moduleId: m.id, moduleTitle: m.title, courseId: x.id })), null, 'flow');
+    for (const m of on) if (!liberated.includes(m.title)) liberated.push(m.title);
+    for (const m of all.filter((y) => !pick.includes(y.id))) {
+      const [prev] = await db.select().from(schema.memberModuleOverrides).where(and(eq(schema.memberModuleOverrides.memberId, member.id), eq(schema.memberModuleOverrides.moduleId, m.id))).limit(1);
+      if (prev?.source === 'manual' || prev?.source === 'sale') continue; // escolha manual e venda de upsell continuam valendo
+      await db.insert(schema.memberModuleOverrides).values({ memberId: member.id, moduleId: m.id, accountId, state: 'locked', source: 'flow' })
+        .onConflictDoUpdate({ target: [schema.memberModuleOverrides.memberId, schema.memberModuleOverrides.moduleId], set: { state: 'locked', source: 'flow', saleId: null, createdAt: new Date() } });
+    }
+  }
   const link = await issueMemberLink(member.id, slug);
   const all = courses.map((x) => x.title);
   for (const r of mods) if (!courses.some((x) => x.id === r.courseId)) {
     const [t] = await db.select({ title: schema.memberCourses.title }).from(schema.memberCourses).where(eq(schema.memberCourses.id, r.courseId)).limit(1);
     if (t && !all.includes(t.title)) all.push(t.title);
   }
-  return { ok: true, link, area, courses: all, modules: mods.map((x) => x.moduleTitle) };
+  return { ok: true, link, area, courses: all, modules: liberated };
 }
 
 export async function upsertMember(accountId: string, d: { email: string | null; phone: string | null; name: string | null; contactId: string | null }) {

@@ -274,7 +274,8 @@ function memoryExecutor(state: SimState, outputs: SimOutput[], visited: string[]
       return { productName: product?.name ?? '', amount, currency };
     },
     async membersAccess(p) {
-      const names = deps.memberNames ? await deps.memberNames(p.courseIds, p.moduleIds) : { courses: [], modules: [] };
+      const chosen = [...p.moduleIds, ...Object.values(p.courseModules ?? {}).flat()];
+      const names = deps.memberNames ? await deps.memberNames(p.courseIds, chosen) : { courses: [], modules: [] };
       const what = [...names.courses, ...names.modules.map((m) => `módulo ${m}`)].join(', ') || 'cursos escolhidos';
       note(p.action === 'revoke' ? `🎓 Área de membros: tira o acesso a ${what} (na simulação nada muda)` : `🎓 Área de membros: libera ${what} (na simulação nada muda)`);
       return { ok: true, link: 'https://converza.pro/m/exemplo/entrar?t=exemplo', area: 'https://converza.pro/m/exemplo', courses: names.courses, modules: names.modules };

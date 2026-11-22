@@ -59,7 +59,11 @@ export interface AiCallSpec {
 }
 export interface InboundMedia { kind: 'audio' | 'image' | 'document' | 'video' | 'sticker'; mime: string; filename: string | null; data: Buffer }
 
-export interface MembersAccessSpec { action: 'grant' | 'revoke'; courseIds: string[]; moduleIds: string[] }
+export interface MembersAccessSpec {
+  action: 'grant' | 'revoke'; courseIds: string[]; moduleIds: string[];
+  /** liberar: por curso, os módulos que ficam liberados na entrega (os outros ficam bloqueados para o contato) */
+  courseModules?: Record<string, string[]>;
+}
 export interface MembersAccessResult { ok: boolean; info?: string; link: string; area: string; courses: string[]; modules: string[] }
 export const MEMBERS_DEFAULT_TEXT = 'Pronto! Seu acesso a {{membros.cursos}} está liberado 🎉\n\nToque no link para entrar:\n{{membros.link}}\n\nDas próximas vezes, acesse {{membros.area}} e digite este número de WhatsApp.';
 
@@ -833,7 +837,11 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
       const action = d.action === 'revoke' ? 'revoke' : 'grant';
       if (!courseIds.length && !moduleIds.length) { exec.note('⚠️ Nenhum curso escolhido no bloco Área de membros.'); return go(null); }
       if (!exec.membersAccess) { exec.note('⚠️ Área de membros indisponível aqui.'); return go(null); }
-      const r = await exec.membersAccess({ action, courseIds, moduleIds });
+      const cm: Record<string, string[]> = {};
+      if (action === 'grant' && d.courseModules && typeof d.courseModules === 'object') {
+        for (const [cid, list] of Object.entries(d.courseModules as Dict)) if (courseIds.includes(cid) && Array.isArray(list)) cm[cid] = list.map(String);
+      }
+      const r = await exec.membersAccess({ action, courseIds, moduleIds, courseModules: cm });
       const membros = { link: r.link, area: r.area, cursos: r.courses.join(', '), modulos: r.modules.join(', ') };
       state.vars.membros = membros;
       if (!r.ok) { exec.note(`⚠️ Área de membros: ${r.info ?? 'não foi possível liberar'}`); return go(null); }
