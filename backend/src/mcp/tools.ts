@@ -404,7 +404,7 @@ export const TOOLS: ToolDef[] = [
     async run({ accountId }) {
       const list = await db.select().from(schema.products).where(eq(schema.products.accountId, accountId)).orderBy(asc(schema.products.name)).limit(300);
       return {
-        result: { products: list.map((p) => ({ id: p.id, name: p.name, price: Number(p.price), checkout_url: p.checkoutUrl ?? null })) },
+        result: { products: list.map((p) => ({ id: p.id, name: p.name, price: Number(p.price), currency: p.currency, min_price: p.minPrice == null ? null : Number(p.minPrice), max_price: p.maxPrice == null ? null : Number(p.maxPrice), checkout_url: p.checkoutUrl ?? null })) },
         summary: `${list.length} produto(s)`,
       };
     },

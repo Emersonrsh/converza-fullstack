@@ -349,7 +349,7 @@ export function AiEditor({ d, set, vars, lookups }: EditorProps) {
             <ToggleCard title="Só conferir comprovante" accent checked={!!d.receiptOnly} onChange={(receiptOnly) => set({ receiptOnly })} testId="ai-receipt-only"
               desc={<>Se o cliente mandar outra coisa (texto, outra foto), a IA <strong>não responde</strong> e o fluxo segue direto pelo <strong>Fallback (padrão)</strong> — use para pedir o comprovante de novo com a sua mensagem. Desligado, a IA responde normalmente com o prompt.</>} />
             <div className="ai-val-h">Validações adicionais</div>
-            <p className="ai-val-sub">Cada validação ligada vira uma saída no bloco: <b>Chave Pix errada</b> e/ou <b>Nome errado</b>.</p>
+            <p className="ai-val-sub">Cada validação ligada vira uma saída no bloco: <b>Chave Pix errada</b>, <b>Nome errado</b> e/ou <b>Valor errado</b>.</p>
             <ToggleCard title="Validar Chave Pix" desc="Compara a chave Pix do comprovante com a chave cadastrada." accent
               checked={!!d.validatePixKey} onChange={(validatePixKey) => set({ validatePixKey })} testId="ai-val-pix" />
             {d.validatePixKey && (
@@ -364,7 +364,20 @@ export function AiEditor({ d, set, vars, lookups }: EditorProps) {
                 placeholder="Empresa Exemplo LTDA ou {{g_nome_recebedor}}"
                 hint={<>Compara com <code>{'{{comprovante.nome_recebedor}}'}</code>; se não bater, tenta <code>{'{{comprovante.nome_pagador}}'}</code>. Ignora acentos, maiúsculas e “LTDA”, e aceita nome abreviado (JOAO S SILVA). Até 5 variações. Deixe vazio para ignorar.</>} />
             )}
-            {(d.validatePixKey || d.validateRecipient) && (
+            <ToggleCard title="Validar valor" desc="Confere se o valor do comprovante está dentro da faixa de preço (mínimo e máximo) do produto." accent
+              checked={!!d.validateAmount} onChange={(validateAmount) => set({ validateAmount })} testId="ai-val-amount" />
+            {d.validateAmount && (
+              <Field label="Produto">
+                <select className="select" value={d.amountProductId ?? ''} onChange={(e) => set({ amountProductId: e.target.value })} data-testid="ai-amount-product">
+                  <option value="">Escolha o produto…</option>
+                  {lookups.products.map((p) => {
+                    const c = p.currency ?? 'BRL';
+                    return <option key={p.id} value={p.id}>{p.name} — {p.minPrice != null && p.maxPrice != null ? `${c} ${Number(p.minPrice).toFixed(2)} a ${Number(p.maxPrice).toFixed(2)}` : 'sem faixa'}</option>;
+                  })}
+                </select>
+              </Field>
+            )}
+            {(d.validatePixKey || d.validateRecipient || d.validateAmount) && (
               <div className="bm-hint">O motivo da recusa fica em <code>{'{{comprovante.motivo}}'}</code>, para você responder o cliente na saída de erro.</div>
             )}
           </div>

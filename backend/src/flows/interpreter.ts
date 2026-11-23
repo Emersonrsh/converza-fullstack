@@ -17,7 +17,7 @@ import { runAiBlock } from './aiBlock';
 
 export type MediaKind = 'image' | 'audio' | 'video' | 'document';
 export interface ContactSnapshot { name: string; phone: string; stage: string; tags: string[]; email?: string | null; custom?: Record<string, unknown>; }
-export interface ProductInfo { id: string; name: string; price: number; checkoutUrl: string | null; }
+export interface ProductInfo { id: string; name: string; price: number; currency: string; minPrice: number | null; maxPrice: number | null; checkoutUrl: string | null; }
 export interface HttpRequestSpec { method: string; url: string; headers: Record<string, string>; body?: string; }
 export interface HttpResult { ok: boolean; status: number; body: unknown; error?: string; }
 export interface AiRequest { system: string; model?: string; history: boolean; user?: string; maxTokens?: number; }
@@ -952,7 +952,7 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
         const p = await exec.getProduct(String(d.productId));
         if (p) {
           produto = p.name;
-          preco = formatBRL(p.price);
+          preco = formatBRL(p.price, p.currency);
           if (!link) link = p.checkoutUrl ?? '';
         }
       }
@@ -960,9 +960,10 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
       if (provider === 'infinitepay') {
         const p = d.productId ? await exec.getProduct(String(d.productId)) : null;
         const amount = p ? p.price : parseMoney(render(String(d.amount ?? ''), s));
-        if (p) { produto = p.name; preco = formatBRL(p.price); } else if (Number.isFinite(amount)) preco = formatBRL(amount);
+        if (p) { produto = p.name; preco = formatBRL(p.price, p.currency); } else if (Number.isFinite(amount)) preco = formatBRL(amount);
         const description = render(String(d.description ?? ''), s).trim() || produto || 'Pedido';
         if (!exec.checkoutLink) link = '';
+        else if (p && p.currency !== 'BRL') { exec.note(`⚠️ Pagamento InfinitePay: o produto “${p.name}” está em ${p.currency}, e a InfinitePay só cobra em reais (BRL).`); link = ''; }
         else if (!Number.isFinite(amount) || amount < 1) exec.note('⚠️ Pagamento InfinitePay: escolha um produto com preço ou informe um valor de pelo menos R$ 1,00.');
         else {
           try { link = await exec.checkoutLink({ provider: 'infinitepay', amount, description, productId: p?.id ?? null, productName: p?.name ?? null }); }
@@ -984,8 +985,8 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
     case 'xpag': {
       const s = await scope();
       const p = d.productId ? await exec.getProduct(String(d.productId)) : null;
+      // cobra na moeda escolhida no bloco (o editor já troca para a moeda do produto ao escolher o produto)
       const currency = String(d.currency || 'MXN').toUpperCase();
-      // o preço do produto vale na moeda escolhida no bloco
       const amount = p ? p.price : parseMoney(render(String(d.amount ?? ''), s));
       const description = render(String(d.description ?? ''), s).trim() || p?.name || 'Pedido';
       let link = '';

@@ -406,7 +406,7 @@ async function flowMaterial(accountId: string, flowId: string): Promise<string> 
     if ((n.type === 'ai_reply' || n.type === 'ai_classify') && d.prompt) lines.push(`Instrução de IA: ${d.prompt}`);
     if (n.type === 'payment') {
       const p = products.find((x) => x.id === d.productId);
-      lines.push(`Pagamento: ${p ? `${p.name} por R$ ${Number(p.price).toFixed(2).replace('.', ',')}` : 'link de pagamento'}${d.text ? ` — ${d.text}` : ''}`);
+      lines.push(`Pagamento: ${p ? `${p.name} por ${Number(p.price).toLocaleString('pt-BR', { style: 'currency', currency: p.currency || 'BRL' })}` : 'link de pagamento'}${d.text ? ` — ${d.text}` : ''}`);
     }
   }
   return `FLUXO DA OFERTA (“${flow.name}”)\n${lines.join('\n').slice(0, 6000) || '(fluxo sem textos)'}`;

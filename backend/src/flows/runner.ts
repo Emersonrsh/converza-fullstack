@@ -2,6 +2,7 @@
  * Execução real dos fluxos: guarda o estado em flow_runs, envia pelo WhatsApp,
  * registra no inbox, conta estatísticas por bloco e agenda esperas na fila.
  */
+import { priced, rangeText, resolveAmount } from '../utils/pricing';
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { redis } from '../redis';
 import { db, schema } from '../db';
@@ -391,7 +392,7 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
       if (!isUuid(id)) return null;
       const [r] = await db.select().from(schema.products)
         .where(and(eq(schema.products.id, id), eq(schema.products.accountId, p.accountId))).limit(1);
-      return r ? { id: r.id, name: r.name, price: Number(r.price), checkoutUrl: r.checkoutUrl } : null;
+      return r ? { id: r.id, name: r.name, ...priced(r), checkoutUrl: r.checkoutUrl } : null;
     },
     async checkoutLink(req) {
       const { createInfinitePayLink } = await import('../modules/infinitepay');
@@ -634,9 +635,14 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
     },
     async recordSale(s) {
       const product = s.productId ? await exec.getProduct(s.productId) : null;
-      // valor vazio ou inválido: usa o preço do produto
-      const amount = s.amount ?? product?.price ?? 0;
-      const currency = s.currency || 'BRL';
+      // com produto: sem valor (ou fora da faixa do produto) usa o valor padrão; a moeda é a do produto se o valor não trouxe outra
+      let amount = s.amount ?? 0;
+      let currency = s.currency || 'BRL';
+      if (product) {
+        const r = resolveAmount(product, s.amount, s.currency);
+        amount = r.amount; currency = r.currency;
+        if (r.reason === 'out_of_range') await note(`⚠️ Valor ${formatBRL(s.amount ?? 0, s.currency || product.currency)} fora da faixa de “${product.name}” (${rangeText(product, formatBRL)}): registrei o valor padrão.`);
+      }
       const conn = await connection();
       const row = await storeSale({
         accountId: p.accountId, contactId: p.contactId, amount, status: 'approved', currency,

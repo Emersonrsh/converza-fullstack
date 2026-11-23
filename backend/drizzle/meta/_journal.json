@@ -309,6 +309,13 @@
       "when": 1795470100000,
       "tag": "0043_sales_pending_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1795480000000,
+      "tag": "0044_product_price_range",
+      "breakpoints": true
     }
   ]
 }

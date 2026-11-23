@@ -150,6 +150,12 @@ export function validateFlow(nodes: N[], edges: E[], lk: Lookups): Issue[] {
         if (conds.some((c) => !String(c.label ?? '').trim())) add(n.id, 'error', `${nm}: há condição inteligente sem nome.`);
         if (conds.length > 10) add(n.id, 'error', `${nm}: no máximo 10 condições inteligentes.`);
         if (d.detectReceipt && !outKey.has(`${n.id}|receipt`)) add(n.id, 'warn', `${nm}: a saída “Comprovante válido” não leva a nenhum bloco.`);
+        if (d.detectReceipt && d.validateAmount) {
+          const p = lk.products.find((x) => x.id === d.amountProductId);
+          if (!d.amountProductId) add(n.id, 'error', `${nm}: escolha o produto para conferir o valor do comprovante.`);
+          else if (lk.products.length && !p) add(n.id, 'error', `${nm}: o produto da validação de valor não existe mais.`);
+          else if (p && (p.minPrice == null || p.maxPrice == null)) add(n.id, 'error', `${nm}: o produto “${p.name}” não tem faixa de preço (mínimo e máximo). Edite o produto para o valor ser conferido.`);
+        }
         break;
       }
       case 'ai_agent':
@@ -194,6 +200,8 @@ export function validateFlow(nodes: N[], edges: E[], lk: Lookups): Issue[] {
       case 'sale': {
         if (d.productId && lk.products.length && !lk.products.some((p) => p.id === d.productId)) add(n.id, 'error', `${nm}: o produto escolhido não existe mais.`);
         if (!d.productId && !String(d.amount ?? '').trim()) add(n.id, 'warn', `${nm}: sem produto e sem valor, a venda é registrada com R$ 0,00.`);
+        { const p = lk.products.find((x) => x.id === d.productId);
+          if (p && (p.minPrice == null || p.maxPrice == null)) add(n.id, 'warn', `${nm}: o produto “${p.name}” não tem faixa de preço: qualquer valor é aceito. Edite o produto para definir o mínimo e o máximo.`); }
         break;
       }
       case 'media': {
@@ -314,7 +322,8 @@ export function validateFlow(nodes: N[], edges: E[], lk: Lookups): Issue[] {
         if (lk.payments?.infinitepay === false) add(n.id, 'error', `${nm}: a InfinitePay não está configurada. Ligue em Configurações › Pagamentos › InfinitePay, senão o link de cartão não é gerado.`);
         const p = lk.products.find((x) => x.id === d.productId);
         if (d.productId && !p) add(n.id, 'error', `${nm}: o produto escolhido não existe mais.`);
-        else if (p && Number(p.price) < 1) add(n.id, 'error', `${nm}: o produto “${p.name}” precisa ter preço de pelo menos R$ 1,00.`);
+        else if (p && (p.currency ?? 'BRL') !== 'BRL') add(n.id, 'error', `${nm}: o produto “${p.name}” está em ${p.currency}, e a InfinitePay só cobra em reais (BRL).`);
+        else if (p && Number(p.price) < 1) add(n.id, 'error', `${nm}: o produto “${p.name}” precisa ter valor padrão de pelo menos R$ 1,00.`);
         else if (!d.productId && !String(d.amount ?? '').trim()) add(n.id, 'error', `${nm}: escolha um produto ou informe o valor.`);
         break;
       }
@@ -322,7 +331,8 @@ export function validateFlow(nodes: N[], edges: E[], lk: Lookups): Issue[] {
         if (lk.payments?.xpag === false) add(n.id, 'error', `${nm}: a XPag não está configurada. Ligue em Configurações › Pagamentos › XPag, senão a cobrança não é criada.`);
         const p = lk.products.find((x) => x.id === d.productId);
         if (d.productId && !p) add(n.id, 'error', `${nm}: o produto escolhido não existe mais.`);
-        else if (p && Number(p.price) <= 0) add(n.id, 'error', `${nm}: o produto “${p.name}” não tem preço.`);
+        else if (p && Number(p.price) <= 0) add(n.id, 'error', `${nm}: o produto “${p.name}” não tem valor padrão.`);
+        else if (p && (p.currency ?? 'BRL') !== String(d.currency || 'MXN').toUpperCase()) add(n.id, 'warn', `${nm}: o produto “${p.name}” está em ${p.currency ?? 'BRL'}, mas o bloco cobra em ${String(d.currency || 'MXN').toUpperCase()} — o valor padrão ${Number(p.price).toFixed(2)} vai ser cobrado em ${String(d.currency || 'MXN').toUpperCase()}.`);
         else if (!d.productId && !String(d.amount ?? '').trim()) add(n.id, 'error', `${nm}: escolha um produto ou informe o valor.`);
         break;
       }

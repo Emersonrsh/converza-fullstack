@@ -3259,3 +3259,4 @@ html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:10
 .mbx-seg button + button{border-left:1px solid var(--border)}
 .mbx-seg button.on{background:var(--primary-50);color:var(--primary)}
 .mbx-seg button:disabled{opacity:.6}
+.pm-err{color:var(--danger);font-size:12px;margin-top:4px}

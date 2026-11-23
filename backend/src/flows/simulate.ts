@@ -3,6 +3,7 @@
  * executor em memória — nada vai para o WhatsApp nem para o banco.
  * O estado da simulação fica com o cliente e volta a cada chamada.
  */
+import { rangeText, resolveAmount } from '../utils/pricing';
 import {
   runFrom, resumeInput, resumePayment, resumeAfterDelay, resumeTimeout, flushBuffer, normalizeState, triggerMatches,
   delayLabel, formatBRL, findNode, type AiCallSpec, type AiRequest, type ContactSnapshot, type FlowExecutor, type Halt,
@@ -268,8 +269,13 @@ function memoryExecutor(state: SimState, outputs: SimOutput[], visited: string[]
     },
     async recordSale(s) {
       const product = s.productId ? await deps.product(s.productId) : null;
-      const amount = s.amount ?? product?.price ?? 0;
-      const currency = s.currency || 'BRL';
+      let amount = s.amount ?? 0;
+      let currency = s.currency || 'BRL';
+      if (product) {
+        const r = resolveAmount(product, s.amount, s.currency);
+        amount = r.amount; currency = r.currency;
+        if (r.reason === 'out_of_range') note(`⚠️ Valor ${formatBRL(s.amount ?? 0, s.currency || product.currency)} fora da faixa de “${product.name}” (${rangeText(product, formatBRL)}): usaria o valor padrão.`);
+      }
       note(`💰 Venda aprovada: ${formatBRL(amount, currency)}${product ? ` · ${product.name}` : ''} — cliente ${s.customerName} (na simulação não é registrada)`);
       return { productName: product?.name ?? '', amount, currency };
     },

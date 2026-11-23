@@ -37,13 +37,18 @@ export function XpagEditor({ d, set, vars, lookups, openProducts }: EditorProps)
         )}
       </div>
       <Field label="Produto" right={<button type="button" className="linkbtn" onClick={openProducts}><Icon name="dollar" size={12} />Gerenciar produtos</button>}>
-        <select className="select" value={d.productId ?? ''} onChange={(e) => set({ productId: e.target.value })} data-testid="xpag-product">
+        <select className="select" value={d.productId ?? ''} data-testid="xpag-product" onChange={(e) => {
+          // a moeda do produto manda: o bloco passa a cobrar nela
+          const p = lookups.products.find((x) => x.id === e.target.value);
+          const pc = p?.currency ?? 'BRL';
+          set(p && XPAG_CURRENCIES.some((c) => c.id === pc) && pc !== d.currency ? { productId: e.target.value, currency: pc, method: '' } : { productId: e.target.value });
+        }}>
           <option value="">Valor personalizado</option>
-          {lookups.products.map((p) => <option key={p.id} value={p.id}>{p.name} — {SYMBOL[cur.id]} {Number(p.price).toFixed(2)}</option>)}
+          {lookups.products.map((p) => <option key={p.id} value={p.id}>{p.name} — {p.currency ?? 'BRL'} {Number(p.price).toFixed(2)}</option>)}
         </select>
       </Field>
       {d.productId
-        ? <small className="faint" style={{ display: 'block', marginTop: -4 }}>O preço do produto é cobrado em {cur.id}: {SYMBOL[cur.id]} {Number(lookups.products.find((p) => p.id === d.productId)?.price ?? 0).toFixed(2)}.</small>
+        ? <small className="faint" style={{ display: 'block', marginTop: -4 }}>Cobra o valor padrão do produto em {cur.id}: {SYMBOL[cur.id]} {Number(lookups.products.find((p) => p.id === d.productId)?.price ?? 0).toFixed(2)}.</small>
         : <>
           <Field label={`Valor (${cur.id})`}><VarInput value={d.amount ?? ''} onChange={(amount) => set({ amount })} vars={vars} placeholder={cur.id === 'MXN' ? '499,00 ou {{valor}}' : '97,00 ou {{valor}}'} testId="xpag-amount" /></Field>
           <Field label="Descrição"><VarInput value={d.description ?? ''} onChange={(description) => set({ description })} vars={vars} placeholder="Ex.: Consultoría individual" testId="xpag-description" /></Field>

@@ -231,6 +231,13 @@ export function PixelEditor({ d, set, vars, lookups }: EditorProps) {
 
 /* ------------------------------------------------------------------ Venda aprovada */
 
+const fmtCur = (v: number, c = 'BRL') => { try { return v.toLocaleString('pt-BR', { style: 'currency', currency: c }); } catch { return `${c} ${v.toFixed(2)}`; } };
+function saleHint(p: { price: string; currency?: string; minPrice?: string | null; maxPrice?: string | null }) {
+  const c = p.currency ?? 'BRL';
+  const range = p.minPrice != null && p.maxPrice != null ? ` Faixa aceita: ${fmtCur(Number(p.minPrice), c)} a ${fmtCur(Number(p.maxPrice), c)}; fora dela também usa o padrão.` : '';
+  return `Valor padrão: ${fmtCur(Number(p.price), c)} (usado se o valor abaixo vier vazio ou inválido).${range}`;
+}
+
 export function SaleEditor({ d, set, vars, lookups, openProducts }: EditorProps) {
   const [perm, setPerm] = useState(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
   const product = lookups.products.find((p) => p.id === d.productId);
@@ -238,8 +245,8 @@ export function SaleEditor({ d, set, vars, lookups, openProducts }: EditorProps)
   return (
     <>
       <Field label="Produto" right={<button type="button" className="linkbtn" onClick={openProducts}><Icon name="dollar" size={12} />Gerenciar produtos</button>}
-        hint={product ? `Preço cadastrado: ${money(Number(product.price))} (usado se o valor abaixo vier vazio ou inválido).` : 'Opcional, mas ajuda nos relatórios de vendas por produto.'}>
-        <Picker value={d.productId ?? ''} options={lookups.products.map((p) => ({ value: p.id, label: p.name, hint: money(Number(p.price)) }))}
+        hint={product ? saleHint(product) : 'Opcional, mas ajuda nos relatórios de vendas por produto.'}>
+        <Picker value={d.productId ?? ''} options={lookups.products.map((p) => ({ value: p.id, label: p.name, hint: fmtCur(Number(p.price), p.currency) }))}
           onChange={(productId) => set({ productId })} placeholder="Escolha o produto" testId="sale-product" empty="Nenhum produto cadastrado" />
       </Field>
       <Field label="Nome do cliente" hint="Vazio: usa o nome do contato.">
@@ -249,7 +256,7 @@ export function SaleEditor({ d, set, vars, lookups, openProducts }: EditorProps)
         <Field label="Valor" hint="Lê R$ 1.234,56, 1234.56…">
           <VarInput value={String(d.amount ?? '')} onChange={(amount) => set({ amount })} vars={vars} placeholder="{{comprovante.valor}}" testId="sale-amount" />
         </Field>
-        <Field label="Moeda" hint="Código de 3 letras. Vazio: BRL.">
+        <Field label="Moeda" hint={`Código de 3 letras. Vazio: ${product?.currency ?? 'BRL'}${product ? ' (a do produto)' : ''}.`}>
           <VarInput value={d.currency ?? ''} onChange={(currency) => set({ currency })} vars={vars} placeholder="{{comprovante.currency}}" />
         </Field>
       </div>

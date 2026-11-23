@@ -223,7 +223,7 @@ const BLOCK_SHAPES: Record<string, { data: Record<string, unknown>; outputs: str
   delay: { data: { mode: 'interval | date | business_hours', amount: 1, unit: 'seconds | minutes | hours | days', date: '', days: [1, 2, 3, 4, 5], from: '09:00', to: '18:00', useBusinessHours: false }, outputs: 'null' },
   department: { data: { action: 'set | clear', departmentId: '<id (flow_resources)>' }, outputs: 'null' },
   http: { data: { method: 'GET | POST | PUT | PATCH | DELETE', url: '', headersJson: '{}', body: '', mappings: [{ path: 'data.id', var: 'id' }], saveAs: 'http' }, outputs: '"success", "error"' },
-  ai: { data: { provider: 'converza', model: '', input: '{{resposta}}', saveAs: '', send: true, prompt: '', audio: false, image: false, pdf: false, detectReceipt: false, receiptOnly: false, validatePixKey: false, pixKeys: [''], validateRecipient: false, recipientNames: [''], conditions: [{ id: 'c1', label: '', description: '' }], keepContext: false, contextSize: 5 }, outputs: 'com detectReceipt: "receipt" (mandou comprovante; cria {{comprovante.valor}}, {{comprovante.nome_pagador}}, {{comprovante.currency}}…), "pix_wrong" (com validatePixKey), "name_wrong" (com validateRecipient); ids das conditions; null (resposta normal); "error"' },
+  ai: { data: { provider: 'converza', model: '', input: '{{resposta}}', saveAs: '', send: true, prompt: '', audio: false, image: false, pdf: false, detectReceipt: false, receiptOnly: false, validatePixKey: false, pixKeys: [''], validateRecipient: false, recipientNames: [''], validateAmount: false, amountProductId: '<id do produto (flow_resources)>', conditions: [{ id: 'c1', label: '', description: '' }], keepContext: false, contextSize: 5 }, outputs: 'com detectReceipt: "receipt" (mandou comprovante; cria {{comprovante.valor}}, {{comprovante.nome_pagador}}, {{comprovante.currency}}…), "pix_wrong" (com validatePixKey), "name_wrong" (com validateRecipient), "amount_wrong" (com validateAmount: valor fora da faixa do produto); ids das conditions; null (resposta normal); "error"' },
   ai_agent: { data: { action: 'assign | remove', agentId: '<id (flow_resources)>' }, outputs: 'null' },
   kanban: { data: { action: 'add | move | remove', boardId: '<id>', columnId: '<id (flow_resources)>' }, outputs: 'null' },
   set_var: { data: { name: 'variavel', op: 'set | add | subtract | append', value: '' }, outputs: 'null' },
@@ -339,7 +339,7 @@ async function accountResources(ctx: Parameters<ToolDef['run']>[0]) {
     try { return pick((await callRoute(router, ctx, 'GET', path)).body); } catch { return fallback; }
   };
   const [products, flows, kanban, departments, pixels, agents, tags, connections, globals, fields, courses] = await Promise.all([
-    get(settingsRouter, '/products', (b) => b.products.map((p: any) => ({ id: p.id, name: p.name, price: p.price })), []),
+    get(settingsRouter, '/products', (b) => b.products.map((p: any) => ({ id: p.id, name: p.name, price: p.price, currency: p.currency, min_price: p.minPrice, max_price: p.maxPrice })), []),
     get(flowsRouter, '/', (b) => b.flows.map((f: any) => ({ id: f.id, name: f.name, status: f.status })), []),
     get(kanbanRouter, '/boards', (b) => b.boards.map((x: any) => ({ id: x.id, name: x.name, columns: (x.columns ?? []).map((c: any) => ({ id: c.id, name: c.name })) })), []),
     get(departmentsRouter, '/', (b) => b.departments.map((d: any) => ({ id: d.id, name: d.name })), []),

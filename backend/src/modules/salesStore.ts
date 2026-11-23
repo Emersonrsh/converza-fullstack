@@ -87,6 +87,20 @@ async function findProduct(accountId: string, productId?: string | null, product
 }
 
 /**
+ * Venda de fora (webhook) sem produto reconhecido: se o valor cabe na faixa de exatamente um produto
+ * na mesma moeda, é dele. Dois ou mais produtos com faixa que cobre o valor: não chuta.
+ */
+async function productByRange(accountId: string, amount: number, currency: string) {
+  if (!(amount > 0)) return null;
+  const rows = await db.select().from(schema.products).where(and(
+    eq(schema.products.accountId, accountId), eq(schema.products.currency, currency),
+    isNotNull(schema.products.minPrice), isNotNull(schema.products.maxPrice),
+    sql`${amount} between ${schema.products.minPrice} and ${schema.products.maxPrice}`,
+  )).limit(2);
+  return rows.length === 1 ? rows[0] : null;
+}
+
+/**
  * Registra (ou atualiza, se o ID da transação já existir) uma venda, preenchendo
  * sozinho: conexão por onde o cliente conversou, anúncio de origem, estado pelo
  * DDD, nome do produto e custo (para o lucro do dashboard).
@@ -105,7 +119,9 @@ export async function recordSale(input: SaleInput) {
     connectionId = conv?.id ?? contact.firstConnectionId ?? null;
   }
 
-  const product = await findProduct(input.accountId, input.productId, input.productName);
+  const inCurrency = String(input.currency ?? '').trim() ? normCurrency(input.currency) : null;
+  const product = await findProduct(input.accountId, input.productId, input.productName)
+    ?? (input.origin === 'webhook' ? await productByRange(input.accountId, input.amount, inCurrency ?? 'BRL') : null);
   const ctx = input.flowId ? { flowId: input.flowId, journeyFlowId: input.journeyFlowId ?? input.flowId }
     : contact ? await flowContextOf(contact.id, input.createdAt ?? new Date()) : null;
   const customerPhone = input.customerPhone ?? contact?.phone ?? null;
@@ -117,7 +133,8 @@ export async function recordSale(input: SaleInput) {
     connectionId,
     webhookId: input.webhookId ?? null,
     amount: Math.max(0, input.amount).toFixed(2),
-    currency: normCurrency(input.currency),
+    // sem moeda informada, vale a do produto
+    currency: inCurrency ?? (product?.currency || 'BRL'),
     cost: product ? Number(product.cost).toFixed(2) : '0',
     status: input.status,
     externalId: input.externalId?.trim() ? input.externalId.trim().slice(0, 120) : null,

@@ -93,7 +93,7 @@ export function defaultData(type: BlockType): Record<string, any> {
     case 'ai': return {
       provider: 'converza', apiKey: '', model: '', input: '{{resposta}}', saveAs: '', send: true, prompt: DEFAULT_PROMPT,
       audio: false, image: false, pdf: false, detectReceipt: false,
-      receiptOnly: false, validatePixKey: false, pixKeys: [''], validateRecipient: false, recipientNames: [''], conditions: [], keepContext: false, contextSize: 5,
+      receiptOnly: false, validatePixKey: false, pixKeys: [''], validateRecipient: false, recipientNames: [''], validateAmount: false, amountProductId: '', conditions: [], keepContext: false, contextSize: 5,
     };
     case 'ai_agent': return { action: 'assign', agentId: '' };
     case 'kanban': return { action: 'add', boardId: '', columnId: '' };
@@ -194,6 +194,7 @@ export function outputsFor(type: string, d: Record<string, any>): Output[] {
       ...(d.detectReceipt ? [{ id: 'receipt', label: 'Comprovante válido', tone: 'green' as const }] : []),
       ...(d.detectReceipt && d.validatePixKey ? [{ id: 'pix_wrong', label: 'Chave Pix errada', tone: 'red' as const }] : []),
       ...(d.detectReceipt && d.validateRecipient ? [{ id: 'name_wrong', label: 'Nome errado', tone: 'red' as const }] : []),
+      ...(d.detectReceipt && d.validateAmount ? [{ id: 'amount_wrong', label: 'Valor errado', tone: 'red' as const }] : []),
       ...(Array.isArray(d.conditions) ? d.conditions : []).map((c: any) => ({ id: String(c.id), label: c.label || '(condição sem nome)' })),
       { id: null, label: 'Fallback (padrão)' },
       { id: 'error', label: 'Falha', tone: 'red' as const },
@@ -220,7 +221,7 @@ export interface Lookups {
   connections: { id: string; name: string }[];
   webhooks: { id: string; name: string }[];
   team: { userId: string; name: string }[];
-  products: { id: string; name: string; price: string; checkoutUrl: string | null }[];
+  products: { id: string; name: string; price: string; currency?: string; minPrice?: string | null; maxPrice?: string | null; checkoutUrl: string | null }[];
   flows: { id: string; name: string; status: string; archived: boolean }[];
   kanban: { id: string; name: string; columns: { id: string; name: string }[] }[];
   fields: { key: string; label: string }[];

@@ -197,26 +197,61 @@ const checkoutUrl = z.string().trim().max(1000)
   .refine((v) => v === '' || /^https?:\/\/\S+$/i.test(v), 'O link precisa começar com http:// ou https://')
   .optional();
 
+const money = z.number().nonnegative().max(100_000_000);
+const productBody = z.object({
+  name: z.string().trim().min(1, 'Informe o nome do produto').max(160),
+  currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, 'Moeda inválida').optional(),
+  /** valor padrão (fallback) */
+  price: money,
+  minPrice: money.nullable().optional(),
+  maxPrice: money.nullable().optional(),
+  cost: money.optional(),
+  checkoutUrl,
+});
+
+/** Regras da faixa: padrão maior que zero e dentro da faixa; mínimo até o máximo. */
+function checkPrices(p: { price: number; minPrice: number | null; maxPrice: number | null }) {
+  if (!(p.price > 0)) throw new AppError(400, 'O valor padrão precisa ser maior que zero.');
+  if ((p.minPrice == null) !== (p.maxPrice == null)) throw new AppError(400, 'Informe o preço mínimo e o máximo (ou nenhum dos dois).');
+  if (p.minPrice != null && p.maxPrice != null) {
+    if (p.minPrice > p.maxPrice) throw new AppError(400, 'O preço mínimo não pode ser maior que o máximo.');
+    if (p.price < p.minPrice || p.price > p.maxPrice) throw new AppError(400, 'O valor padrão precisa ficar entre o preço mínimo e o máximo.');
+  }
+}
+const fix = (n: number | null | undefined) => (n == null ? null : n.toFixed(2));
+
 settingsRouter.post('/products', asyncHandler(async (req, res) => {
-  const data = z.object({ name: z.string().trim().min(1), price: z.number().nonnegative(), cost: z.number().nonnegative().optional(), checkoutUrl }).parse(req.body);
-  const [row] = await db.insert(schema.products)
-    .values({ accountId: req.accountId!, name: data.name, price: data.price.toFixed(2), cost: (data.cost ?? 0).toFixed(2), checkoutUrl: data.checkoutUrl || null })
-    .returning();
+  const data = productBody.parse(req.body);
+  const prices = { price: data.price, minPrice: data.minPrice ?? null, maxPrice: data.maxPrice ?? null };
+  checkPrices(prices);
+  const [row] = await db.insert(schema.products).values({
+    accountId: req.accountId!, name: data.name, currency: data.currency ?? 'BRL',
+    price: data.price.toFixed(2), minPrice: fix(prices.minPrice), maxPrice: fix(prices.maxPrice),
+    cost: (data.cost ?? 0).toFixed(2), checkoutUrl: data.checkoutUrl || null,
+  }).returning();
   res.status(201).json({ product: row });
 }));
 
 settingsRouter.patch('/products/:id', asyncHandler(async (req, res) => {
   if (!isUuid(req.params.id)) throw new AppError(404, 'Produto não encontrado');
-  const data = z.object({
-    name: z.string().trim().min(1).optional(), price: z.number().nonnegative().optional(), cost: z.number().nonnegative().optional(), checkoutUrl,
-  }).parse(req.body);
+  const data = productBody.partial().parse(req.body);
+  const [cur] = await db.select().from(schema.products)
+    .where(and(eq(schema.products.id, req.params.id), eq(schema.products.accountId, req.accountId!))).limit(1);
+  if (!cur) throw new AppError(404, 'Produto não encontrado');
+  const num = (v: string | null) => (v == null ? null : Number(v));
+  const prices = {
+    price: data.price ?? Number(cur.price),
+    minPrice: data.minPrice !== undefined ? data.minPrice : num(cur.minPrice),
+    maxPrice: data.maxPrice !== undefined ? data.maxPrice : num(cur.maxPrice),
+  };
+  if (data.price !== undefined || data.minPrice !== undefined || data.maxPrice !== undefined) checkPrices(prices);
   const [row] = await db.update(schema.products).set({
     ...(data.name ? { name: data.name } : {}),
-    ...(data.price !== undefined ? { price: data.price.toFixed(2) } : {}),
+    ...(data.currency ? { currency: data.currency } : {}),
+    price: prices.price.toFixed(2), minPrice: fix(prices.minPrice), maxPrice: fix(prices.maxPrice),
     ...(data.cost !== undefined ? { cost: data.cost.toFixed(2) } : {}),
     ...(data.checkoutUrl !== undefined ? { checkoutUrl: data.checkoutUrl || null } : {}),
   }).where(and(eq(schema.products.id, req.params.id), eq(schema.products.accountId, req.accountId!))).returning();
-  if (!row) throw new AppError(404, 'Produto não encontrado');
   res.json({ product: row });
 }));
 

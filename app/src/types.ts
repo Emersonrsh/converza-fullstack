@@ -36,7 +36,15 @@ export interface FlowFolder { id: string; name: string; color: string; flowCount
 export interface FlowNode { id: string; type: string; position?: { x: number; y: number }; x?: number; y?: number; data?: Record<string, any>; }
 export interface FlowEdge { id?: string; source: string; target: string; sourceHandle?: string | null; branch?: string | null; }
 export interface NodeStat { entries: number; advances: number; }
-export interface Product { id: string; name: string; price: string; cost?: string; checkoutUrl: string | null; }
+export interface Product {
+  id: string; name: string;
+  /** valor padrão (fallback) */
+  price: string;
+  /** moeda dos preços (ISO 4217) */
+  currency?: string;
+  minPrice?: string | null; maxPrice?: string | null;
+  cost?: string; checkoutUrl: string | null;
+}
 export interface Agent {
   id: string; name: string; model: string; enabled: boolean; systemPrompt: string; createdAt: string;
 }

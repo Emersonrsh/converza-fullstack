@@ -3,6 +3,7 @@
  * identifica comprovante de pagamento e escolhe uma "condicional inteligente".
  * Sem banco/rede: tudo passa pelo FlowExecutor (funciona igual no simulador).
  */
+import { hasRange, inRange } from '../utils/pricing';
 import type { Dict } from './types';
 import type { AiPart, AiProvider, FlowExecutor, RunState } from './interpreter';
 import type { ChatPart } from '../ai/provider';
@@ -167,7 +168,7 @@ export async function runAiBlock(d: Dict, state: RunState, exec: FlowExecutor, s
           valido: 'sim', valor: valor.toFixed(2), moeda, currency: moeda,
           nome_pagador: str(j.nome_pagador), nome_recebedor: str(j.nome_recebedor), chave_pix: str(j.chave_pix),
           data: str(j.data), banco: str(j.banco), id_transacao: str(j.id_transacao),
-          chave_ok: '', nome_ok: '', motivo: '',
+          chave_ok: '', nome_ok: '', valor_ok: '', motivo: '',
         };
         state.vars.comprovante = comp;
         state.vars.ia = { resposta: '', erro: '', transcricao: transcript, condicao: '' };
@@ -196,6 +197,20 @@ export async function runAiBlock(d: Dict, state: RunState, exec: FlowExecutor, s
             return { handle: 'name_wrong', reply: '' };
           }
           exec.note(byRecipient ? '👤 Recebedor confere.' : '👤 Nome confere pelo pagador.');
+        }
+        // valor do comprovante dentro da faixa do produto
+        if (d.validateAmount && d.amountProductId) {
+          const prod = await exec.getProduct(String(d.amountProductId));
+          if (prod && hasRange(prod)) {
+            const ok = inRange(prod, valor, moeda);
+            comp.valor_ok = ok ? 'sim' : 'nao';
+            if (!ok) {
+              comp.motivo = `O valor do comprovante (${moeda} ${valor.toFixed(2)}) está fora da faixa de ${prod.name}: ${prod.currency} ${(prod.minPrice as number).toFixed(2)} a ${(prod.maxPrice as number).toFixed(2)}.`;
+              exec.note(`💲 Valor errado — ${comp.motivo}`);
+              return { handle: 'amount_wrong', reply: '' };
+            }
+            exec.note(moeda === prod.currency ? `💲 Valor dentro da faixa de ${prod.name}.` : `💲 Comprovante em ${moeda} e produto em ${prod.currency}: não deu para conferir a faixa.`);
+          } else exec.note(prod ? `💲 ${prod.name} não tem faixa de preço: valor não conferido.` : '💲 Produto da validação de valor não encontrado: valor não conferido.');
         }
         return { handle: 'receipt', reply: '' };
       }

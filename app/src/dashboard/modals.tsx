@@ -57,7 +57,12 @@ export function SaleModal({ sale, products, connections, currency, onClose, onSa
     setProductId(id);
     const p = products.find((x) => x.id === id);
     if (p && (!amount || !editing)) setAmount(moneyInput(Number(p.price)));
+    if (p?.currency && !editing) setCur(p.currency);
   }
+  const chosen = products.find((x) => x.id === productId);
+  const typed = parsePrice(amount);
+  const outOfRange = !!chosen && chosen.minPrice != null && chosen.maxPrice != null && (chosen.currency ?? 'BRL') === cur && typed > 0
+    && (typed < Number(chosen.minPrice) || typed > Number(chosen.maxPrice));
 
   async function save() {
     const value = parsePrice(amount);
@@ -134,6 +139,7 @@ export function SaleModal({ sale, products, connections, currency, onClose, onSa
             <div>
               <label className="label">Valor</label>
               <input className="input" inputMode="decimal" placeholder="497,00" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="sale-amount" />
+              {outOfRange && <div className="cf-hint" style={{ color: 'var(--amber, #d97706)' }} data-testid="sale-out-of-range">Fora da faixa de {chosen!.name}: {fmtMoney(Number(chosen!.minPrice), cur)} a {fmtMoney(Number(chosen!.maxPrice), cur)}.</div>}
             </div>
             <div>
               <label className="label">Moeda</label>

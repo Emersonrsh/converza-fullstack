@@ -1,3 +1,4 @@
+import { priced } from '../utils/pricing';
 import express, { Router } from 'express';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
@@ -205,7 +206,7 @@ flowsRouter.post('/simulate', asyncHandler(async (req, res) => {
       if (!isUuid(id)) return null;
       const [p] = await db.select().from(schema.products)
         .where(and(eq(schema.products.id, id), eq(schema.products.accountId, accountId))).limit(1);
-      return p ? { id: p.id, name: p.name, price: Number(p.price), checkoutUrl: p.checkoutUrl } : null;
+      return p ? { id: p.id, name: p.name, ...priced(p), checkoutUrl: p.checkoutUrl } : null;
     },
     extras: () => flowExtras(accountId),
     departmentName: async (id) => {

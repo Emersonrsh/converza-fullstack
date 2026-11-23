@@ -570,7 +570,13 @@ export const products = pgTable('products', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
+  /** valor padrão (fallback): usado quando a venda não traz outro valor */
   price: numeric('price', { precision: 12, scale: 2 }).notNull().default('0'),
+  /** moeda dos preços do produto (ISO 4217) */
+  currency: text('currency').notNull().default('BRL'),
+  /** faixa aceita para uma venda deste produto (nula = sem faixa, produtos antigos) */
+  minPrice: numeric('min_price', { precision: 12, scale: 2 }),
+  maxPrice: numeric('max_price', { precision: 12, scale: 2 }),
   // link de pagamento/checkout usado pelo bloco "Pagamento" dos fluxos
   checkoutUrl: text('checkout_url'),
   // custo unitário (usado no cálculo de lucro do dashboard)
