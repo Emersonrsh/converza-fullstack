@@ -62,7 +62,8 @@ export default function Members() {
 }
 
 function StorageWarning({ storage }: { storage: Settings['storage'] | undefined }) {
-  if (storage) return null;
+  // undefined = ainda carregando: só avisa quando o servidor responder que não há armazenamento
+  if (storage !== null) return null;
   return (
     <div className="mbx-warn" data-testid="mbx-storage-warn">
       <Icon name="alert" size={16} />

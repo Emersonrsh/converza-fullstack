@@ -51,6 +51,8 @@ code,.mono,.num{font-family:var(--mono)}
 .card{border-radius:var(--radius);border:1px solid var(--hair-2);background:var(--card-sheen);box-shadow:var(--shadow)}
 /* posição padrão sem peso: painéis flutuantes (.fb-issues, .fb-picker…) continuam absolutos */
 :where(.card){position:relative}
+/* card com menu aberto fica por cima dos vizinhos (senão o card de baixo cobre o menu) */
+.card:has(.menu-wrap .menu){z-index:30}
 html.dark .card{box-shadow:0 1px 0 color-mix(in srgb, #fff 3%, transparent) inset, 0 18px 40px -24px rgba(0,0,0,.7)}
 .title{font-size:17px;font-weight:800;letter-spacing:-.04em}
 h2,h3{letter-spacing:-.03em}
