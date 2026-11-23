@@ -1,4 +1,4 @@
-/** Arquivos guardados no banco (anexos das respostas rápidas e dos fluxos): limites do WhatsApp, link assinado e envio para a Meta. */
+/** Arquivos guardados (no R2 ou, os antigos, no banco: anexos das respostas rápidas e dos fluxos): limites do WhatsApp, link assinado e envio para a Meta. */
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { and, eq, gt, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
@@ -7,6 +7,7 @@ import { AppError } from '../utils/http';
 import { uploadMedia, type WaConnection } from '../whatsapp/cloud-api';
 import { isWebPhoneId, STORED_REF, WEB_MEDIA_PREFIX } from '../whatsapp/web/convert';
 import { CHUNK, readStoredFile } from '../db/storedFileData';
+import { putBuffer, storeDriver } from '../storage/objects';
 import { compressFile } from '../utils/compress';
 import { isVoiceFormat, toOggOpus } from '../utils/audio';
 export { readStoredFile };
@@ -66,14 +67,21 @@ export async function saveFile(accountId: string, kind: FileKind, data: Buffer, 
     sha256: createHash('sha256').update(data).digest('hex'), sourceSha256, data: null,
   }).returning(fileRow);
   try {
-    // um pedaço por comando: o banco nunca recebe mais que ~1 MB de uma vez
-    for (let i = 0, idx = 0; i < data.length; i += CHUNK, idx++) {
-      await db.insert(schema.storedFileChunks).values({ fileId: row.id, idx, data: data.subarray(i, i + CHUNK) });
+    if (storeDriver()) {
+      // R2 (ou a pasta local em desenvolvimento): o banco guarda só a chave
+      const key = `files/${accountId}/${row.id}`;
+      await putBuffer(key, data, m);
+      await db.update(schema.storedFiles).set({ storageKey: key }).where(eq(schema.storedFiles.id, row.id));
+    } else {
+      // sem armazenamento de objetos: um pedaço por comando, o banco nunca recebe mais que ~1 MB de uma vez
+      for (let i = 0, idx = 0; i < data.length; i += CHUNK, idx++) {
+        await db.insert(schema.storedFileChunks).values({ fileId: row.id, idx, data: data.subarray(i, i + CHUNK) });
+      }
     }
   } catch (err) {
     await db.delete(schema.storedFiles).where(eq(schema.storedFiles.id, row.id)).catch(() => undefined);
     console.error(`[arquivos] falha ao gravar "${fileName}" (${data.length} bytes): ${(err as Error).message}`);
-    throw new AppError(503, 'Não foi possível guardar o arquivo agora (o banco não respondeu). Tente de novo em instantes.', { code: 'storage_unavailable' });
+    throw new AppError(503, 'Não foi possível guardar o arquivo agora (o armazenamento não respondeu). Tente de novo em instantes.', { code: 'storage_unavailable' });
   }
   return { ...row, originalSize, compressed: c.compressed, reused: false };
 }

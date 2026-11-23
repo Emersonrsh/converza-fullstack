@@ -89,6 +89,9 @@ export function Inbox() {
 
   const loadListRef = useRef(loadList);
   loadListRef.current = loadList;
+  /** Lista sem filtro nem chip: dá para aplicar os eventos em tempo real ali mesmo, sem buscar tudo de novo. */
+  const plainRef = useRef(true);
+  plainRef.current = filters.chip === 'all' && !(['q', 'connectionId', 'tag', 'stage', 'assignee', 'from', 'to', 'department'] as const).some((k) => filters[k]);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Agrupa eventos em tempo real: no máximo uma recarga da lista a cada 700 ms. */
   const scheduleRefresh = useCallback(() => {
@@ -96,7 +99,8 @@ export function Inbox() {
     refreshTimer.current = setTimeout(() => { refreshTimer.current = null; void loadListRef.current(false); }, 700);
   }, []);
   useEffect(() => {
-    const t = setInterval(scheduleRefresh, 60_000); // horários relativos ("Ontem") e eventos perdidos
+    // horários relativos ("Ontem") e eventos perdidos; com a aba do navegador escondida, não busca
+    const t = setInterval(() => { if (document.visibilityState === 'visible') scheduleRefresh(); }, 120_000);
     return () => { clearInterval(t); if (refreshTimer.current) clearTimeout(refreshTimer.current); };
   }, [scheduleRefresh]);
 
@@ -235,7 +239,47 @@ export function Inbox() {
         }
         bumpPanel();
       }
-      scheduleRefresh();
+      if (!applyMessageToList(p.conversationId, p.message)) scheduleRefresh();
+    };
+    /**
+     * Mensagem nova numa conversa que já está na lista: atualiza a prévia, sobe para o topo e conta como não lida,
+     * sem recarregar a lista (antes cada mensagem fazia toda aba aberta buscar a lista inteira de novo).
+     * Devolve false quando não dá para saber o efeito (conversa fora da lista, filtros, conversa resolvida).
+     */
+    const applyMessageToList = (conversationId: string, m: ChatMessage): boolean => {
+      if (m.type === 'note') return true; // nota interna não muda a prévia nem a ordem
+      const list = itemsRef.current;
+      if (!list || !plainRef.current) return false;
+      const cur = list.find((x) => x.id === conversationId);
+      if (!cur || cur.status === 'resolved') return false;
+      const inbound = m.direction === 'in';
+      const next: ChatItem = {
+        ...cur,
+        lastMessageAt: m.createdAt > cur.lastMessageAt ? m.createdAt : cur.lastMessageAt,
+        last: { id: m.id, body: m.body, type: m.type, direction: m.direction, status: m.status, fileName: m.fileName },
+        awaitingReply: inbound,
+        unreadCount: inbound ? cur.unreadCount + 1 : cur.unreadCount,
+      };
+      const updated = [next, ...list.filter((x) => x.id !== conversationId)];
+      itemsRef.current = updated;
+      setItems(updated);
+      if (inbound && cur.unreadCount === 0) setCounts((c) => (c ? { ...c, unread: c.unread + 1 } : c));
+      return true;
+    };
+    /** Conversa mudou só a contagem de não lidas ou a pausa do robô: aplica na lista sem recarregar. */
+    const applyConvToList = (row: Partial<Conv> & { id: string }): boolean => {
+      const keys = Object.keys(row).filter((k) => k !== 'id' && (row as Record<string, unknown>)[k] !== undefined);
+      if (!keys.every((k) => k === 'unreadCount' || k === 'botPaused' || k === 'lastMessageAt' || k === 'updatedAt')) return false;
+      const list = itemsRef.current;
+      if (!list || !plainRef.current) return false;
+      const cur = list.find((x) => x.id === row.id);
+      if (!cur) return true; // fora da lista carregada: a mudança não aparece nela
+      const unread = row.unreadCount ?? cur.unreadCount;
+      const updated = list.map((x) => (x.id === row.id ? { ...x, unreadCount: unread, ...(row.botPaused !== undefined ? { botPaused: row.botPaused } : {}) } : x));
+      itemsRef.current = updated;
+      setItems(updated);
+      if ((cur.unreadCount > 0) !== (unread > 0)) setCounts((c) => (c ? { ...c, unread: Math.max(0, c.unread + (unread > 0 ? 1 : -1)) } : c));
+      return true;
     };
     const onStatus = (p: { conversationId: string; id: string; status: string; error?: string | null }) => {
       if (p.conversationId === selRef.current) setMessages((list) => list.map((m) => (m.id === p.id ? mergeStatus(m, p.status, p.error ?? null) : m)));
@@ -272,7 +316,7 @@ export function Inbox() {
         if (!known || conversation.connectionId !== d.conversation.connectionId || (row.departmentId !== undefined && (row.departmentId ?? null) !== (d.department?.id ?? null))) void loadDetail(row.id, true);
         bumpPanel();
       }
-      scheduleRefresh();
+      if (!applyConvToList(row)) scheduleRefresh();
     };
     const onReconnect = () => { scheduleRefresh(); if (selRef.current) void loadDetail(selRef.current, true); };
     // histórico importado do WhatsApp Business do celular: várias conversas mudaram de uma vez

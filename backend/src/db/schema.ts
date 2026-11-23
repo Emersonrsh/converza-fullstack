@@ -1114,8 +1114,10 @@ export const storedFiles = pgTable('stored_files', {
   sha256: text('sha256').notNull(),
   /** hash do arquivo como foi enviado (antes da compressão): reenvio do mesmo arquivo reaproveita este */
   sourceSha256: text('source_sha256'),
-  /** arquivos antigos; os novos ficam em stored_file_chunks (pedaços de 1 MB) */
+  /** arquivos antigos; depois ficaram em stored_file_chunks (pedaços de 1 MB) e agora no R2 (storage_key) */
   data: bytea('data'),
+  /** chave no armazenamento de objetos (R2); nulo = conteúdo ainda no banco */
+  storageKey: text('storage_key'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   byAccount: index('stored_files_account_idx').on(t.accountId),
@@ -1158,11 +1160,19 @@ export const waWebMedia = pgTable('wa_web_media', {
   mime: text('mime').notNull(),
   fileName: text('file_name'),
   size: integer('size').notNull(),
-  data: bytea('data').notNull(),
+  /** antigos ficam no banco; os novos, no R2 (storage_key) */
+  data: bytea('data'),
+  storageKey: text('storage_key'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   byCreated: index('wa_web_media_created_idx').on(t.createdAt),
 }));
+
+/** Arquivos do R2 cujo registro foi apagado (inclusive em cascata): a limpeza remove do R2 e tira daqui. */
+export const objectTrash = pgTable('object_trash', {
+  key: text('key').primaryKey(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 /**
  * Registros de acesso (data, hora e IP de quem entrou no app): o Marco Civil da Internet (art. 15) exige guardar
@@ -1457,7 +1467,7 @@ export const schema = {
   tags, flowFolders, flows, flowRuns, flowNodeStats, voices, knowledgeBases, agents, agentRuns, campaigns, webhooks, products, sales, adSpend, subscriptions,
   kanbanBoards, kanbanColumns, kanbanCards, contactFields, contactExports, webhookEvents, webhookUsage, flowPending,
   campaignRecipients, dispatchUsage, metaProfiles, metaAdAccounts, metaCampaignFlows, metaCampaignProducts, adRules, adRuleLogs, pushSubscriptions, pixels, pixelEvents, invoices, billingEvents,
-  departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, platformAudit, storedFiles, storedFileChunks, storedFileMedia,
+  departments, businessHours, defaultFlows, teamInvites, platformInvites, supportAccess, platformAudit, storedFiles, storedFileChunks, storedFileMedia, objectTrash,
   globalVariables, flowTranslations, aiUsage, trackingLinks, trackingClicks, apiKeys, mcpCalls, flowDistributions,
   waWebAuth, waWebMedia, accessLogs,
   memberCourses, memberModules, memberLessons, memberUsers, memberAccess, memberProgress, memberTokens, memberModuleOverrides, memberUnlockRules, memberPendingUnlocks, flowBackups,

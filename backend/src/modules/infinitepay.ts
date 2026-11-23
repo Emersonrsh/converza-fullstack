@@ -122,6 +122,7 @@ export async function createInfinitePayLink(input: LinkInput): Promise<{ url: st
     externalId: `${PREFIX}${orderNsu}`, origin: 'flow', connectionId: input.connectionId ?? null,
     notes: 'Checkout InfinitePay', customerName: input.customer?.name ?? null, customerPhone: input.customer?.phone ?? null,
   });
+  wakeInfinitePaySweep();
   return { url, orderNsu, saleId: sale.id };
 }
 
@@ -198,12 +199,18 @@ export function checkEveryMs(ageMs: number): number {
 }
 
 /** Confere os pedidos pendentes na InfinitePay, mesmo que o aviso dela nunca chegue. */
+/** Sem cobrança pendente: a próxima consulta ao banco espera 5 minutos (uma cobrança nova acorda na hora). */
+let idleUntil = 0;
+export function wakeInfinitePaySweep() { idleUntil = 0; }
+
 export async function sweepInfinitePay(now = Date.now()): Promise<number> {
+  if (now < idleUntil) return 0;
   const rows = await db.select({ id: schema.sales.id, accountId: schema.sales.accountId, externalId: schema.sales.externalId, createdAt: schema.sales.createdAt })
     .from(schema.sales).where(and(
       eq(schema.sales.status, 'pending'), sql`${schema.sales.externalId} like ${`${PREFIX}%`}`,
       sql`${schema.sales.createdAt} >= now() - interval '48 hours'`,
     )).orderBy(sql`${schema.sales.createdAt} desc`).limit(200);
+  idleUntil = rows.length ? 0 : now + 5 * 60_000;
   const alive = new Set(rows.map((r) => r.id));
   for (const id of lastCheck.keys()) if (!alive.has(id)) lastCheck.delete(id);
   let approved = 0;

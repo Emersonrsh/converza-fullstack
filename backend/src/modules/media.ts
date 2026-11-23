@@ -1,4 +1,7 @@
-import { readStoredFile } from '../db/storedFileData';
+import { readStoredFile, storedFileInfo, streamStoredChunks } from '../db/storedFileData';
+import { signedUrl } from '../storage/objects';
+import { config } from '../config';
+import { webMediaObject } from '../whatsapp/web/media';
 import { Router, type Response } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db';
@@ -43,7 +46,13 @@ function cachePut(id: string, data: Buffer, mime: string) {
 /** Só imagem, áudio, vídeo e PDF abrem no navegador; o resto é baixado (evita HTML/scripts no domínio da API). */
 const INLINE = /^(image\/(jpeg|png|webp|gif)|audio\/|video\/|application\/pdf)/i;
 
-function send(req: { headers: { range?: string } }, res: Response, data: Buffer, mime: string, fileName: string | null) {
+/** Link curto para um arquivo no R2 (ou na pasta local, em desenvolvimento). */
+async function objectLink(req: { protocol: string; get(h: string): string | undefined }, key: string, mime: string, fileName: string | null) {
+  const base = config.publicApiUrl || `${req.protocol}://${req.get('host')}`;
+  return signedUrl(key, { seconds: 3600, fileName, inline: INLINE.test(mime), apiBase: base });
+}
+
+function headers(res: Response, mime: string, fileName: string | null) {
   const inline = INLINE.test(mime);
   res.setHeader('Content-Type', inline ? mime : 'application/octet-stream');
   res.setHeader('Cache-Control', 'private, max-age=3600');
@@ -52,6 +61,10 @@ function send(req: { headers: { range?: string } }, res: Response, data: Buffer,
   res.setHeader('Accept-Ranges', 'bytes');
   const name = fileName ? encodeURIComponent(fileName) : null;
   res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}${name ? `; filename*=UTF-8''${name}` : ''}`);
+}
+
+function send(req: { headers: { range?: string } }, res: Response, data: Buffer, mime: string, fileName: string | null) {
+  headers(res, mime, fileName);
 
   const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? '').trim());
   if (range && (range[1] || range[2])) {
@@ -85,9 +98,19 @@ mediaRouter.get('/files/:id', asyncHandler(async (req, res) => {
     const hit = thumbs.get(key);
     if (hit) { res.setHeader('Cache-Control', 'private, max-age=3600'); return send(req, res, hit, 'image/webp', null); }
   }
+  const info = await storedFileInfo(id);
+  if (!info) throw new AppError(404, 'Arquivo não encontrado');
+  const thumb = w >= 64 && w <= 1200 && /^image\/(jpeg|png|webp|heic|heif|avif)$/i.test(info.mime);
+  if (!thumb) {
+    // no R2: o navegador baixa direto de lá (o servidor não paga a banda nem segura o arquivo na memória)
+    if (info.storageKey) return res.redirect(302, await objectLink(req, info.storageKey, info.mime, info.fileName));
+    // ainda no banco: vai pedaço por pedaço
+    headers(res, info.mime, info.fileName);
+    if (await streamStoredChunks(info, req.headers.range, res)) return;
+  }
   const f = await readStoredFile(id);
   if (!f) throw new AppError(404, 'Arquivo não encontrado');
-  if (w >= 64 && w <= 1200 && /^image\/(jpeg|png|webp|heic|heif|avif)$/i.test(f.mime)) {
+  if (thumb) {
     try {
       const sharp = (await import('sharp')).default;
       const out = await sharp(f.data, { failOn: 'none' }).rotate().resize({ width: w, withoutEnlargement: true }).webp({ quality: 72 }).toBuffer();
@@ -113,6 +136,9 @@ mediaRouter.get('/:id', asyncHandler(async (req, res) => {
     if (row.m.mediaUrl && /^https?:\/\//i.test(row.m.mediaUrl)) return res.redirect(302, row.m.mediaUrl);
     throw new AppError(404, 'Mídia não encontrada');
   }
+  // QR Code com o arquivo no R2: o navegador baixa direto de lá
+  const obj = await webMediaObject(row.m.waMediaId);
+  if (obj) return res.redirect(302, await objectLink(req, obj.key, row.m.mimeType || obj.mime, row.m.fileName ?? obj.fileName));
   const hit = cacheGet(id);
   if (hit) return send(req, res, hit.data, row.m.mimeType || hit.mime, row.m.fileName);
   if (!row.conn?.accessToken) throw new AppError(410, 'A conexão desta conversa não está mais disponível');

@@ -78,6 +78,40 @@ export async function putObject(key: string, body: Readable, contentType: string
   return lim.size();
 }
 
+/** Guarda um arquivo que já está na memória (anexos comprimidos, mídia do QR Code). */
+export async function putBuffer(key: string, data: Buffer, contentType: string): Promise<void> {
+  safeKey(key);
+  const drv = storeDriver();
+  if (!drv) throw new AppError(503, 'O armazenamento de arquivos ainda não foi configurado no servidor.');
+  if (drv === 'r2') {
+    await new Upload({ client: s3(), params: { Bucket: R2.bucket, Key: key, Body: data, ContentType: contentType }, queueSize: 2, partSize: 8 * 1024 * 1024 }).done();
+    return;
+  }
+  const file = path.join(LOCAL_DIR, key);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, data);
+  await fs.writeFile(`${file}.type`, contentType);
+}
+
+/** Conteúdo inteiro de um arquivo guardado (para mandar à Meta, ao WhatsApp Web ou gerar miniatura). */
+export async function readObjectBuffer(key: string): Promise<Buffer> {
+  const { body } = await readObject(key);
+  const parts: Buffer[] = [];
+  for await (const c of body) parts.push(Buffer.isBuffer(c) ? c : Buffer.from(c as Uint8Array));
+  return Buffer.concat(parts);
+}
+
+/** Apaga e diz se deu certo (a lixeira só esquece a chave quando o R2 confirmou). */
+export async function removeObject(key: string): Promise<boolean> {
+  const drv = storeDriver();
+  if (!drv) return false;
+  try {
+    if (drv === 'r2') await s3().send(new DeleteObjectCommand({ Bucket: R2.bucket, Key: safeKey(key) }));
+    else { const f = path.join(LOCAL_DIR, safeKey(key)); await fs.rm(f, { force: true }); await fs.rm(`${f}.type`, { force: true }); }
+    return true;
+  } catch (err) { console.error('[arquivos] não apagou', key, (err as Error).message); return false; }
+}
+
 export async function deleteObject(key: string | null | undefined) {
   if (!key) return;
   const drv = storeDriver();

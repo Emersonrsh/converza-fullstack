@@ -196,6 +196,7 @@ export async function createXpagCharge(input: XpagChargeInput): Promise<{ link: 
     externalId: `${PREFIX}${externalId}`, origin: 'flow', connectionId: input.connectionId ?? null,
     notes: `XPag · ${currency}${method ? ` · ${method}` : ''}`, customerName: input.customer?.name ?? null, customerPhone: input.customer?.phone ?? null,
   });
+  wakeXpagSweep();
   return { link: ins.link, instructions: ins.text, externalId, saleId: sale.id, amount: charged, currency };
 }
 
@@ -256,12 +257,18 @@ export async function checkXpagPendingForContact(accountId: string, contactId: s
 const lastCheck = new Map<string, number>();
 
 /** Confere as cobranças pendentes na XPag, mesmo que o aviso nunca chegue (OXXO vale 12 dias). */
+/** Sem cobrança pendente: a próxima consulta ao banco espera 5 minutos (uma cobrança nova acorda na hora). */
+let idleUntil = 0;
+export function wakeXpagSweep() { idleUntil = 0; }
+
 export async function sweepXpag(now = Date.now()): Promise<number> {
+  if (now < idleUntil) return 0;
   const rows = await db.select({ id: schema.sales.id, accountId: schema.sales.accountId, externalId: schema.sales.externalId, createdAt: schema.sales.createdAt })
     .from(schema.sales).where(and(
       eq(schema.sales.status, 'pending'), sql`${schema.sales.externalId} like ${`${PREFIX}%`}`,
       sql`${schema.sales.createdAt} >= now() - interval '13 days'`,
     )).orderBy(sql`${schema.sales.createdAt} desc`).limit(200);
+  idleUntil = rows.length ? 0 : now + 5 * 60_000;
   const alive = new Set(rows.map((r) => r.id));
   for (const id of lastCheck.keys()) if (!alive.has(id)) lastCheck.delete(id);
   let approved = 0;

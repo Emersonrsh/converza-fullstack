@@ -295,6 +295,20 @@
       "when": 1795390000000,
       "tag": "0041_sale_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1795470000000,
+      "tag": "0042_files_object_store",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1795470100000,
+      "tag": "0043_sales_pending_idx",
+      "breakpoints": true
     }
   ]
 }
