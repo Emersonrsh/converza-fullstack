@@ -249,7 +249,7 @@ const BLOCK_SHAPES: Record<string, { data: Record<string, unknown>; outputs: str
   ask: { data: { text: '', saveAs: 'resposta', validation: 'any | email | phone | number | cpf', invalidText: '', maxRetries: 2, waitForever: false, timeoutAmount: 20, timeoutUnit: 'seconds | minutes | hours | days', buffer: false, bufferSeconds: 5, quote: false, react: true, reactEmoji: '❤️' }, outputs: 'null (respondeu), "invalid", "timeout"' },
   chat_status: { data: { status: 'pending | open | resolved', assignUserId: '', pause: true }, outputs: 'null' },
   notify: { data: { name: '', country: '55', phone: '', text: '', templateName: '', templateLanguage: '', templateVarCount: 0, templateParam: '' }, outputs: 'null' },
-  condition: { data: { logic: 'all | any', rules: [{ id: 'r1', var: 'comprovante.valor', op: 'eq | neq | gt | gte | lt | lte | contains | not_contains | empty | not_empty | has_tag | not_has_tag', value: '40' }] }, outputs: '"true", "false"' },
+  condition: { data: { logic: 'all | any', rules: [{ id: 'r1', field: 'lastMessage | var | name | stage | phone | email | field | global | tags | business_hours', varName: 'comprovante.valor (com field=var)', fieldKey: '(com field=field)', globalKey: '(com field=global)', op: 'contains | not_contains | equals | not_equals | starts_with | ends_with | not_empty | is_empty | is_number | greater_than | less_than | has_tag | not_has_tag | open | closed', value: '40' }] }, outputs: '"true", "false"', note: 'value aceita alternativas separadas por vírgula ou "|" e variáveis {{...}}.' },
   distributor: { data: { mode: 'sticky | round_robin | random', outputs: [{ id: 'out_1', label: 'Saída 1' }, { id: 'out_2', label: 'Saída 2' }] }, outputs: 'ids das saídas' },
   goto_flow: { data: { flowId: '<id do fluxo (flow_resources)>' }, outputs: 'nenhuma (o contato passa para o outro fluxo)' },
   pixel: { data: { platform: 'meta', pixelId: '<id (flow_resources)>', event: 'Purchase | Lead | InitiateCheckout | …', value: '{{comprovante.valor}}', currency: 'BRL', pageId: '' }, outputs: 'null' },
@@ -257,7 +257,7 @@ const BLOCK_SHAPES: Record<string, { data: Record<string, unknown>; outputs: str
   department: { data: { action: 'set | clear', departmentId: '<id (flow_resources)>' }, outputs: 'null' },
   http: { data: { method: 'GET | POST | PUT | PATCH | DELETE', url: '', headersJson: '{}', body: '', mappings: [{ path: 'data.id', var: 'id' }], saveAs: 'http' }, outputs: '"success", "error"' },
   ai: { data: { provider: 'converza', model: '', input: '{{resposta}}', saveAs: '', send: true, prompt: '', audio: false, image: false, pdf: false, detectReceipt: false, receiptOnly: false, validatePixKey: false, pixKeys: [''], validateRecipient: false, recipientNames: [''], validateAmount: false, amountProductId: '<id do produto (flow_resources)>', conditions: [{ id: 'c1', label: '', description: '' }], keepContext: false, contextSize: 5 }, outputs: 'com detectReceipt: "receipt" (mandou comprovante; cria {{comprovante.valor}}, {{comprovante.nome_pagador}}, {{comprovante.currency}}…), "pix_wrong" (com validatePixKey), "name_wrong" (com validateRecipient), "amount_wrong" (com validateAmount: valor fora da faixa do produto); ids das conditions; null (resposta normal); "error"' },
-  ai_agent: { data: { action: 'assign | remove', agentId: '<id (flow_resources)>' }, outputs: 'null' },
+  ai_agent: { data: { action: 'assign | remove', agentId: '<id (flow_resources)>', replyNow: false }, outputs: 'null' },
   kanban: { data: { action: 'add | move | remove', boardId: '<id>', columnId: '<id (flow_resources)>' }, outputs: 'null' },
   set_var: { data: { name: 'variavel', op: 'set | add | subtract | append', value: '' }, outputs: 'null' },
   sale: { data: { productId: '<id (flow_resources)>', customerName: '{{comprovante.nome_pagador}}', amount: '{{comprovante.valor}}', currency: '{{comprovante.currency}}', notifyTitle: '', notifySubtitle: '' }, outputs: 'null' },
@@ -478,6 +478,70 @@ const FLOWS: ToolDef[] = [
     },
   },
   {
+    name: 'patch_flow', title: 'Fluxos: editar partes do fluxo',
+    description: 'Muda só uma parte do fluxo, sem reenviar o grafo inteiro: add_nodes (blocos novos), update_nodes (junta os campos em data e/ou troca a posição de blocos existentes), remove_nodes, remove_edges (por id, ou por source + source_handle; null = saída padrão) e add_edges. Tudo é conferido junto (mesmas regras do update_flow) e uma cópia do fluxo é guardada antes.',
+    group: 'flows', write: true,
+    inputSchema: S({
+      flow_id: str('Fluxo', { format: 'uuid' }),
+      add_nodes: { type: 'array', items: { type: 'object' }, description: 'Blocos novos: {id, type, position?, data}' },
+      update_nodes: { type: 'array', items: { type: 'object' }, description: '{id, data?: campos a juntar, position?}' },
+      remove_nodes: { type: 'array', items: { type: 'string' } },
+      remove_edges: { type: 'array', items: { type: 'object' }, description: '{id} ou {source, source_handle}' },
+      add_edges: { type: 'array', items: { type: 'object' }, description: '{source, target, source_handle?}' },
+    }, ['flow_id']),
+    args: z.object({
+      flow_id: uuid('flow_id'),
+      add_nodes: z.array(z.object({ id: z.string().min(1).max(120), type: z.string().max(40), position: z.object({ x: z.number(), y: z.number() }).optional(), data: z.record(z.any()).default({}) })).max(50).optional(),
+      update_nodes: z.array(z.object({ id: z.string().max(120), data: z.record(z.any()).optional(), position: z.object({ x: z.number(), y: z.number() }).optional() })).max(100).optional(),
+      remove_nodes: z.array(z.string().max(120)).max(50).optional(),
+      remove_edges: z.array(z.object({ id: z.string().max(200).optional(), source: z.string().max(120).optional(), source_handle: z.string().max(120).nullable().optional() })).max(100).optional(),
+      add_edges: z.array(z.object({ source: z.string().max(120), target: z.string().max(120), source_handle: z.string().max(120).nullable().optional() })).max(100).optional(),
+    }),
+    async run(ctx, a) {
+      const f0 = (await callRoute<{ flow: any }>(flowsRouter, ctx, 'GET', `/${a.flow_id}`)).body.flow;
+      const g = JSON.parse(JSON.stringify(f0.graph ?? { nodes: [], edges: [] })) as { nodes: any[]; edges: any[] };
+      const has = (id: string) => g.nodes.some((n) => n.id === id);
+      for (const n of a.add_nodes ?? []) {
+        if (has(n.id)) throw new ToolError(`Já existe um bloco com id "${n.id}".`);
+        g.nodes.push({ id: n.id, type: n.type, ...(n.position ? { position: n.position } : {}), data: n.data ?? {} });
+      }
+      for (const u of a.update_nodes ?? []) {
+        const n = g.nodes.find((x) => x.id === u.id);
+        if (!n) throw new ToolError(`Bloco "${u.id}" não existe.`);
+        if (u.data) n.data = { ...(n.data ?? {}), ...u.data };
+        if (u.position) n.position = u.position;
+      }
+      const gone = new Set<string>(a.remove_nodes ?? []);
+      for (const id of gone) if (!has(String(id))) throw new ToolError(`Bloco "${id}" não existe.`);
+      g.nodes = g.nodes.filter((n) => !gone.has(n.id));
+      g.edges = g.edges.filter((e) => !gone.has(e.source) && !gone.has(e.target));
+      let removed = 0;
+      for (const r of a.remove_edges ?? []) {
+        const before = g.edges.length;
+        g.edges = g.edges.filter((e) => !(r.id ? e.id === r.id : (e.source === r.source && (e.sourceHandle ?? null) === (r.source_handle ?? null))));
+        if (g.edges.length === before) throw new ToolError(`Conexão não encontrada: ${JSON.stringify(r)}`);
+        removed += before - g.edges.length;
+      }
+      for (const e of a.add_edges ?? []) {
+        // uma saída liga em um bloco só: a nova substitui a antiga da mesma saída
+        g.edges = g.edges.filter((x) => !(x.source === e.source && (x.sourceHandle ?? null) === (e.source_handle ?? null)));
+        g.edges.push({ id: `e_${e.source}_${e.source_handle ?? 'out'}_${e.target}`.slice(0, 200), source: e.source, target: e.target, sourceHandle: e.source_handle ?? null });
+      }
+      // posição para blocos novos sem posição: ao lado de quem liga neles
+      for (const n of g.nodes) if (!n.position) {
+        const from = g.edges.find((e) => e.target === n.id); const src = from ? g.nodes.find((x) => x.id === from.source) : null;
+        n.position = src?.position ? { x: src.position.x + 340, y: src.position.y + 160 } : { x: 0, y: 0 };
+      }
+      const p = await prepareMcpGraph(ctx, g);
+      const backupId = await backupFlow(ctx, a.flow_id);
+      const f = (await callRoute<{ flow: any }>(flowsRouter, ctx, 'PUT', `/${a.flow_id}`, { body: { graph: p.graph } })).body.flow;
+      return {
+        result: { flow_id: f.id, name: f.name, status: f.status, blocks: f.graph?.nodes?.length, connections: f.graph?.edges?.length, removed_connections: removed, warnings: p.warnings, backup_id: backupId },
+        summary: `fluxo atualizado em partes: ${f.name} (cópia anterior guardada)`,
+      };
+    },
+  },
+  {
     name: 'flow_backups', title: 'Fluxos: cópias anteriores',
     description: 'Lista as cópias que o Converza guarda de um fluxo antes de cada troca de grafo pelo MCP (as 15 últimas) e restaura uma delas (restore_backup_id). Restaurar também guarda uma cópia do estado atual.',
     group: 'flows', write: true,
@@ -509,6 +573,12 @@ const agentFields = {
   flow_id: z.string().uuid().nullable().optional(), flow_when: z.string().max(500).optional(),
   handoff_when: z.string().max(500).optional(), handoff_message: z.string().max(500).optional(),
   audience: z.enum(['all', 'ads', 'tags']).optional(), audience_tags: z.array(z.string().max(40)).max(30).optional(),
+  automations: z.array(z.object({
+    key: z.string().max(40), trigger: z.enum(['invalid_media', 'reply_limit', 'finish', 'handoff', 'intent']), when: z.string().max(400).optional(),
+    action: z.enum(['handoff', 'flow', 'close', 'reply', 'tag']), flow_id: z.string().uuid().nullable().optional(), node_id: z.string().max(120).nullable().optional(),
+    tag: z.string().max(40).nullable().optional(), department_id: z.string().uuid().nullable().optional(), message: z.string().max(1000).optional(),
+  })).max(20).optional(),
+  stages: z.array(z.object({ name: z.string().max(60), goal: z.string().max(600), advance_when: z.string().max(300).optional() })).max(12).optional(),
 };
 const agentProps = {
   name: str('Nome'), description: str('Descrição curta'), role: { type: 'string', enum: ['sales', 'support', 'recovery', 'custom'] }, enabled: bool('Atendendo (cuidado: responde clientes de verdade)'),
@@ -517,8 +587,15 @@ const agentProps = {
   flow_id: { type: ['string', 'null'], description: 'Fluxo que o agente dispara (ex.: checkout)' }, flow_when: str('Quando disparar o fluxo'),
   handoff_when: str('Quando passar para a equipe'), handoff_message: str('Mensagem ao passar'),
   audience: { type: 'string', enum: ['all', 'ads', 'tags'], description: 'Quem ele atende' }, audience_tags: { type: 'array', items: { type: 'string' } },
+  automations: {
+    type: 'array', description: 'Automações: as do sistema (invalid_media, reply_limit, finish, handoff) e até 10 "intent" (quando acontecer X, faça Y). action=flow com node_id começa o fluxo nesse bloco (se o bloco espera resposta sem pergunta, a mensagem do cliente entra como resposta).',
+    items: { type: 'object', properties: { key: { type: 'string' }, trigger: { type: 'string', enum: ['invalid_media', 'reply_limit', 'finish', 'handoff', 'intent'] }, when: { type: 'string' }, action: { type: 'string', enum: ['handoff', 'flow', 'close', 'reply', 'tag'] }, flow_id: { type: ['string', 'null'] }, node_id: { type: ['string', 'null'] }, tag: { type: ['string', 'null'] }, department_id: { type: ['string', 'null'] }, message: { type: 'string' } }, required: ['key', 'trigger', 'action'] },
+  },
+  stages: { type: 'array', description: 'Etapas da conversa (até 12)', items: { type: 'object', properties: { name: { type: 'string' }, goal: { type: 'string' }, advance_when: { type: 'string' } }, required: ['name', 'goal'] } },
 };
 function agentBody(a: Record<string, any>) {
+  if (Array.isArray(a.automations)) a = { ...a, automations: a.automations.map((x: any) => ({ key: x.key, trigger: x.trigger, when: x.when, action: x.action, flowId: x.flow_id ?? null, nodeId: x.node_id ?? null, tag: x.tag ?? null, departmentId: x.department_id ?? null, message: x.message ?? '' })) };
+  if (Array.isArray(a.stages)) a = { ...a, stages: a.stages.map((x: any) => ({ name: x.name, goal: x.goal, ...(x.advance_when ? { advanceWhen: x.advance_when } : {}) })) };
   const map: Record<string, string> = { instructions: 'systemPrompt', flow_id: 'flowId', flow_when: 'flowWhen', handoff_when: 'handoffWhen', handoff_message: 'handoffMessage', audience_tags: 'audienceTags' };
   return Object.fromEntries(Object.entries(a).filter(([k, v]) => v !== undefined && !['agent_id', 'from_site_url', 'notes'].includes(k)).map(([k, v]) => [map[k] ?? k, v]));
 }

@@ -43,6 +43,8 @@ export type AutomationAction = 'handoff' | 'flow' | 'close' | 'reply' | 'tag';
 export interface AgentAutomation {
   key: string; trigger: AutomationTrigger; when?: string; action: AutomationAction;
   flowId?: string | null; tag?: string | null; departmentId?: string | null; message?: string;
+  /** começa o fluxo neste bloco (vazio = do começo) */
+  nodeId?: string | null;
 }
 
 export const SYSTEM_TRIGGERS: AutomationTrigger[] = ['invalid_media', 'reply_limit', 'finish', 'handoff'];

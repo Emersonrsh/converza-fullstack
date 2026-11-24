@@ -12,7 +12,7 @@ import { downloadMedia, sendMediaId, sendText, uploadMedia, type WaConnection } 
 import { emitToAccount } from '../realtime/io';
 import { hasTokens } from '../modules/tokens';
 import { systemNote } from '../modules/conversationStore';
-import { startFlowForContact } from '../flows/runner';
+import { startFlowForContact, startFlowManually } from '../flows/runner';
 import { enqueueAgentJob, type AgentJobData } from '../queue';
 import { toOggOpus } from '../utils/audio';
 import { signedMediaPath } from '../utils/mediaSign';
@@ -249,7 +249,13 @@ async function respond(d: AgentJobData): Promise<void> {
     await record(accountId, agent.id, conv.id, 'error', 'a IA devolveu uma resposta vazia', tokens);
     return;
   }
-  const ctx: Ctx = { accountId, agent, conv, contact, flows: loaded.flows, lastText: lastInbound?.transcript || lastInbound?.body || '' };
+  const ctx: Ctx = {
+    accountId, agent, conv, contact, flows: loaded.flows, lastText: lastInbound?.transcript || lastInbound?.body || '',
+    lastIn: lastInbound ? {
+      waId: (lastInbound as any).waMessageId ?? null,
+      mediaMsgId: ['audio', 'image', 'document', 'video', 'sticker'].includes(String((lastInbound as any).type)) && (lastInbound as any).waMediaId ? String((lastInbound as any).id) : null,
+    } : null,
+  };
   const out = await runAutomation(ctx, usable, texts, parsed.reason, tokens, { asAudio, voiceId: voice?.providerVoiceId ?? null });
   await record(accountId, agent.id, conv.id, out.outcome, out.detail, tokens + out.tokens, out.audioChars);
 }
@@ -257,6 +263,8 @@ async function respond(d: AgentJobData): Promise<void> {
 interface Ctx {
   accountId: string; agent: Agent; conv: Conv; contact: Contact;
   flows: Record<string, { name: string; active: boolean }>; lastText: string;
+  /** mensagem do cliente que o agente está respondendo (entra como resposta se o fluxo começar numa espera) */
+  lastIn?: { waId: string | null; mediaMsgId: string | null } | null;
 }
 
 /** Envia as mensagens (texto ou voz), na ordem, com um respiro entre elas. */
@@ -327,6 +335,16 @@ async function runAutomation(ctx: Ctx, auto: AgentAutomation | null, texts: stri
   if (!auto) return { outcome: 'replied', detail: null, ...base };
   if (auto.action === 'flow' && auto.flowId && ctx.flows[auto.flowId]) {
     const f = ctx.flows[auto.flowId];
+    if (auto.nodeId) {
+      // etapa exata: começa nesse bloco (aproveita o que o cliente já respondeu nesse fluxo); se o bloco espera
+      // uma resposta sem perguntar nada, a mensagem que o cliente acabou de mandar já entra como resposta
+      const r = await startFlowManually(accountId, auto.flowId, contact.id, conv.connectionId, auto.nodeId,
+        { text: ctx.lastText, waId: ctx.lastIn?.waId ?? null, mediaMsgId: ctx.lastIn?.mediaMsgId ?? null });
+      await addTag(accountId, contact, auto.tag);
+      const status = r === 'started' ? `levou o cliente para uma etapa do fluxo “${f.name}”.` : r === 'bad_node' ? `tentou levar o cliente para uma etapa que não existe mais no fluxo “${f.name}”.` : r === 'busy' ? `pediu o fluxo “${f.name}”, que está terminando um envio.` : `tentou disparar o fluxo “${f.name}”, mas ele não está ativo.`;
+      await systemNote(accountId, conv.id, `🤖 ${agent.name} ${status}${why}`);
+      return { outcome: 'flow', detail: reason || f.name, ...base };
+    }
     const r = await startFlowForContact(accountId, auto.flowId, contact.id, { lastMessage: ctx.lastText, connectionId: conv.connectionId });
     await addTag(accountId, contact, auto.tag);
     const status = r === 'started' ? `disparou o fluxo “${f.name}”.` : r === 'running' ? `pediu o fluxo “${f.name}”, que já está em andamento para este contato.` : `tentou disparar o fluxo “${f.name}”, mas ele não está ativo.`;

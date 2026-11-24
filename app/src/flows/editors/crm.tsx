@@ -133,6 +133,11 @@ export function AiAgentEditor({ d, set, lookups }: EditorProps) {
             onChange={(agentId) => set({ agentId })} placeholder="Escolha o agente" testId="agent-picker" empty="Nenhum agente criado" />
         </Field>
       )}
+      {!remove && (
+        <ToggleCard title="Responder agora a mensagem do cliente" testId="agent-reply-now"
+          desc="Use nas saídas em que o fluxo não entendeu (incerto, dúvida, não é comprovante): o agente responde essa mensagem na hora. Ligue este bloco de volta na espera para o fluxo continuar de onde estava."
+          checked={!!d.replyNow} onChange={(replyNow) => set({ replyNow })} />
+      )}
       <HowItWorks>
         {remove ? 'Use depois de um atendimento do agente (por exemplo, quando ele dispara este fluxo) para devolver a conversa à automação normal.'
           : 'A partir daqui, as próximas mensagens do cliente vão para o agente (as respostas consomem tokens de IA). Esperas que já estavam abertas neste fluxo continuam valendo.'}

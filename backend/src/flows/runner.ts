@@ -542,14 +542,27 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
       }
       await updateConversation({ departmentId: null });
     },
-    async assignAgent(agentId) {
+    async assignAgent(agentId, opts) {
       if (agentId) {
         if (!isUuid(agentId)) return;
         const [a] = await db.select({ id: schema.agents.id, name: schema.agents.name }).from(schema.agents)
           .where(and(eq(schema.agents.id, agentId), eq(schema.agents.accountId, p.accountId))).limit(1);
         if (!a) { console.warn('[flow] agente não existe:', agentId); return; }
+        const before = await conversation();
         await updateConversation({ aiAgentId: a.id, botPaused: false });
-        await note(`🤖 Conversa entregue ao agente de IA “${a.name}”.`);
+        if (before.aiAgentId !== a.id) await note(`🤖 Conversa entregue ao agente de IA “${a.name}”.`);
+        if (opts?.replyNow) {
+          // o agente responde a mensagem que o fluxo não entendeu (o fluxo segue esperando no mesmo ponto)
+          const conv = await conversation();
+          const [lastIn] = await db.select({ id: schema.messages.id }).from(schema.messages)
+            .where(and(eq(schema.messages.conversationId, conv.id), eq(schema.messages.direction, 'in')))
+            .orderBy(desc(schema.messages.createdAt)).limit(1);
+          if (lastIn) {
+            const { scheduleAgentReply } = await import('../ai/agent');
+            const ok = await scheduleAgentReply(p.accountId, conv.id, lastIn.id).catch((err) => { console.error('[flow] agente responder:', (err as Error).message); return false; });
+            if (!ok) await note(`⚠️ O agente “${a.name}” não respondeu: confira se ele está ligado e se a IA está configurada.`);
+          }
+        }
         return;
       }
       const conv = await conversation();
@@ -1295,7 +1308,8 @@ export async function resumeHeldRun(accountId: string, contactId: string, runId:
  * uma vez por contato, conexão…) e começa o fluxo agora nesta conversa. Se ele já estava rodando
  * ou pausado para o contato, recomeça do início.
  */
-export async function startFlowManually(accountId: string, flowId: string, contactId: string, connectionId: string | null, fromNodeId?: string | null):
+export async function startFlowManually(accountId: string, flowId: string, contactId: string, connectionId: string | null, fromNodeId?: string | null,
+  feed?: { text: string; waId: string | null; mediaMsgId: string | null } | null):
   Promise<'started' | 'inactive' | 'busy' | 'bad_node'> {
   if (!isUuid(flowId)) return 'inactive';
   const [flow] = await db.select().from(schema.flows)
@@ -1310,8 +1324,21 @@ export async function startFlowManually(accountId: string, flowId: string, conta
       .orderBy(desc(schema.flowRuns.startedAt)).limit(1);
     if (last) vars = normalizeState(last.context).vars ?? {};
   }
-  const state = carryState({ lastMessage: '', vars, connectionId });
-  return (await startRun(flow, contactId, state, { ignoreReentry: true, manual: true, fromNodeId: fromNodeId ?? null })) ? 'started' : 'busy';
+  const state = carryState({ lastMessage: feed?.text ?? '', vars, connectionId });
+  if (feed?.mediaMsgId) state.mediaMsgId = feed.mediaMsgId;
+  if (feed?.waId) state.lastWaId = feed.waId;
+  if (!(await startRun(flow, contactId, state, { ignoreReentry: true, manual: true, fromNodeId: fromNodeId ?? null }))) return 'busy';
+  if (feed && fromNodeId) {
+    // parou numa espera que não pergunta nada (ex.: "aguarda comprovante"): a mensagem do cliente é a resposta
+    const [run] = await db.select({ status: schema.flowRuns.status, nodeId: schema.flowRuns.currentNodeId }).from(schema.flowRuns)
+      .where(and(eq(schema.flowRuns.flowId, flow.id), eq(schema.flowRuns.contactId, contactId), eq(schema.flowRuns.status, 'waiting_input')))
+      .orderBy(desc(schema.flowRuns.startedAt)).limit(1);
+    const node = run?.nodeId ? normalizeGraph(flow.graph).nodes.find((n) => n.id === run.nodeId) : null;
+    if (node?.type === 'ask' && !String((node.data as Dict)?.text ?? '').trim()) {
+      await triggerFlowsForInbound({ accountId, contactId, text: feed.text, connectionId, source: 'inbound_message', waId: feed.waId, mediaMsgId: feed.mediaMsgId, onlyResume: true });
+    }
+  }
+  return 'started';
 }
 
 /** Última execução deste fluxo com o contato (para marcar "onde parou" ao escolher a etapa). */

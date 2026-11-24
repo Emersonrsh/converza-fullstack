@@ -139,6 +139,7 @@ const fieldsSchema = z.object({
     when: z.string().trim().max(400, 'Gatilho muito longo (até 400 letras)').optional(),
     action: z.enum(['handoff', 'flow', 'close', 'reply', 'tag']),
     flowId: z.string().uuid().nullable().optional(),
+    nodeId: z.string().trim().max(120).nullable().optional(),
     tag: z.string().trim().max(40).nullable().optional(),
     departmentId: z.string().uuid().nullable().optional(),
     message: z.string().max(1000, 'Mensagem muito longa (até 1.000 letras)').optional(),
@@ -203,7 +204,7 @@ async function checkRefs(accountId: string, f: Fields) {
     if (h) { f.handoffMessage = h.message ?? ''; f.handoffTag = h.tag?.trim() || null; f.handoffDepartmentId = h.action === 'handoff' ? h.departmentId ?? null : null; }
     f.automations = list.map((x) => ({
       key: x.key, trigger: x.trigger, action: x.action, ...(x.trigger === 'intent' ? { when: x.when?.trim() } : {}),
-      flowId: x.action === 'flow' ? x.flowId ?? null : null, tag: x.tag?.trim() || null,
+      flowId: x.action === 'flow' ? x.flowId ?? null : null, nodeId: x.action === 'flow' ? x.nodeId?.trim() || null : null, tag: x.tag?.trim() || null,
       departmentId: x.action === 'handoff' ? x.departmentId ?? null : null, message: x.message?.trim() ?? '',
     }));
   }

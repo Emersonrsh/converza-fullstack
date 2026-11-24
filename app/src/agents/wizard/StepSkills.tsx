@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from '../../api';
+import { BLOCKS, type BlockType } from '../../flows/blocks';
 import { Link } from 'react-router-dom';
 import { Icon } from '../../icons';
 import { cx } from '../../components/ui';
@@ -34,7 +36,7 @@ export function StepSkills({ draft, set, opt, ro }: StepProps) {
   const deptName = (id?: string | null) => opt.departments.find((d) => d.id === id)?.name;
 
   function summary(a: Automation): string {
-    if (a.action === 'flow') return a.flowId ? `Dispara o fluxo “${flowName(a.flowId) ?? 'removido'}”` : 'Escolha o fluxo';
+    if (a.action === 'flow') return a.flowId ? `Dispara o fluxo “${flowName(a.flowId) ?? 'removido'}”${a.nodeId ? ' numa etapa escolhida' : ''}` : 'Escolha o fluxo';
     if (a.action === 'handoff') return `Passa para a equipe${a.departmentId ? ` (setor ${deptName(a.departmentId) ?? ''})` : ''}${a.tag ? ` e marca “${a.tag}”` : ''}`;
     if (a.action === 'tag') return a.tag ? `Marca a etiqueta “${a.tag}” e segue a conversa` : 'Escolha a etiqueta';
     if (a.action === 'close') return 'Encerra o atendimento (vai para Resolvidos)';
@@ -82,10 +84,11 @@ export function StepSkills({ draft, set, opt, ro }: StepProps) {
             </div>
             {a.action === 'flow' && (
               <div><Lbl req>Fluxo</Lbl>
-                <select className="select" value={a.flowId ?? ''} onChange={(e) => update(a.key, { flowId: e.target.value || null })} data-testid="auto-flow">
+                <select className="select" value={a.flowId ?? ''} onChange={(e) => update(a.key, { flowId: e.target.value || null, nodeId: null })} data-testid="auto-flow">
                   <option value="">Escolha um fluxo…</option>
                   {opt.flows.map((f) => <option key={f.id} value={f.id}>{f.name}{f.status === 'active' ? '' : ' (pausado)'}</option>)}
                 </select>
+                {a.flowId && <FlowStepPicker flowId={a.flowId} value={a.nodeId ?? ''} onChange={(nodeId) => update(a.key, { nodeId: nodeId || null })} />}
                 {pausedFlow && <div className="hint"><Icon name="alert" size={14} />Esse fluxo está pausado: ative em <Link to={`/flows/${a.flowId}`}>Fluxos</Link> para o agente conseguir disparar.</div>}
                 {!opt.flows.length && <small className="faint">Nenhum fluxo ainda — crie um em <Link to="/flows">Fluxos</Link>.</small>}
               </div>
@@ -131,6 +134,36 @@ export function StepSkills({ draft, set, opt, ro }: StepProps) {
         {!ro && intents.length < MAX_CUSTOM && <button type="button" className="btn sm wz-add" onClick={addIntent} data-testid="auto-add"><Icon name="plus" size={14} />Adicionar automação</button>}
       </Block>
       <datalist id="wz-tags">{opt.tags.map((t) => <option key={t.name} value={t.name} />)}</datalist>
+    </div>
+  );
+}
+
+/** Etapa do fluxo onde o agente coloca o cliente (vazio = do começo). */
+function FlowStepPicker({ flowId, value, onChange }: { flowId: string; value: string; onChange: (id: string) => void }) {
+  const [nodes, setNodes] = useState<{ id: string; label: string }[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.get<{ flow: { graph: { nodes: { id: string; type: string; data?: Record<string, any> }[] } } }>(`/flows/${flowId}`).then((r) => {
+      if (!alive) return;
+      const label = (n: { id: string; type: string; data?: Record<string, any> }) => {
+        const kind = BLOCKS[n.type as BlockType]?.label ?? n.type;
+        const t = String(n.data?.title ?? '').trim();
+        const txt = String(n.data?.text ?? n.data?.items?.find?.((i: any) => i?.type === 'text')?.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 50);
+        return `${kind}${t ? ` · ${t}` : ''}${!t && txt ? ` · ${txt}` : ''}`;
+      };
+      setNodes(r.flow.graph.nodes.filter((n) => n.type !== 'trigger').map((n) => ({ id: n.id, label: label(n) })));
+    }).catch(() => alive && setNodes([]));
+    return () => { alive = false; };
+  }, [flowId]);
+  return (
+    <div style={{ marginTop: 8 }}>
+      <Lbl>Começar em</Lbl>
+      <select className="select" value={value} onChange={(e) => onChange(e.target.value)} data-testid="auto-step" disabled={!nodes}>
+        <option value="">Do começo do fluxo</option>
+        {(nodes ?? []).map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
+        {value && nodes && !nodes.some((n) => n.id === value) && <option value={value}>Etapa removida do fluxo</option>}
+      </select>
+      <small className="faint">Se a etapa for uma espera sem pergunta (ex.: aguardar comprovante), a mensagem que o cliente acabou de mandar já entra como resposta.</small>
     </div>
   );
 }

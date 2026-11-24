@@ -119,7 +119,8 @@ export interface FlowExecutor {
   /** avisa alguém (outro número) pelo WhatsApp */
   notify(n: NotifySpec): Promise<{ ok: boolean; info: string }>;
   setDepartment(departmentId: string | null): Promise<void>;
-  assignAgent(agentId: string | null): Promise<void>;
+  /** replyNow: o agente já responde a última mensagem do cliente (a que o fluxo não entendeu) */
+  assignAgent(agentId: string | null, opts?: { replyNow?: boolean }): Promise<void>;
   kanbanAction(action: 'add' | 'move' | 'remove', boardId: string, columnId: string): Promise<void>;
   /** nome / e-mail / campo personalizado com esse nome: grava no contato (true = gravou) */
   saveToContact(key: string, value: string): Promise<boolean>;
@@ -839,7 +840,7 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
       return go(null);
 
     case 'ai_agent':
-      await exec.assignAgent(d.action === 'remove' ? null : d.agentId ? String(d.agentId) : null);
+      await exec.assignAgent(d.action === 'remove' ? null : d.agentId ? String(d.agentId) : null, { replyNow: d.action !== 'remove' && !!d.replyNow });
       return go(null);
 
     case 'kanban': {

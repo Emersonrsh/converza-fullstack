@@ -52,6 +52,8 @@ export type AutoAction = 'handoff' | 'flow' | 'close' | 'reply' | 'tag';
 export interface Automation {
   key: string; trigger: AutoTrigger; when?: string; action: AutoAction;
   flowId?: string | null; tag?: string | null; departmentId?: string | null; message?: string;
+  /** começa o fluxo neste bloco (vazio = do começo) */
+  nodeId?: string | null;
 }
 export interface Stage { name: string; goal: string; advanceWhen?: string }
 

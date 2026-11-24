@@ -75,7 +75,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // renova o token ao entrar e a cada 6 horas com o app aberto
   useEffect(() => {
     if (!user) return;
-    const renew = () => { api.post<{ token: string }>('/auth/refresh', {}).then((r) => { if (r?.token && getToken()) setToken(r.token); }).catch(() => undefined); };
+    const renew = () => {
+      const sent = getToken();
+      // só troca se ninguém entrou com outra conta enquanto a renovação estava no ar
+      api.post<{ token: string }>('/auth/refresh', {}).then((r) => { if (r?.token && sent && getToken() === sent) setToken(r.token); }).catch(() => undefined);
+    };
     renew();
     const t = setInterval(renew, 6 * 3600_000);
     return () => clearInterval(t);
