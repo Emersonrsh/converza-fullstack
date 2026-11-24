@@ -77,14 +77,23 @@ const normEmail = (e: unknown) => { const s = String(e ?? '').trim().toLowerCase
 export { normPhone, normEmail };
 
 /** Link de primeiro acesso / nova senha (vale 7 dias, uso único). */
+const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+function shortCode(n: number): string {
+  const b = randomBytes(n * 2);
+  let out = '';
+  for (let i = 0; out.length < n && i < b.length; i++) if (b[i] < 256 - (256 % ALPHABET.length)) out += ALPHABET[b[i] % ALPHABET.length];
+  return out.length === n ? out : shortCode(n);
+}
+
 export async function issueMemberLink(memberId: string, slug: string, courseId?: string | null): Promise<string> {
-  const token = randomBytes(24).toString('base64url');
+  // código curto (10 letras e números, ~59 bits): o link fica converza.pro/e/<código>
+  const token = shortCode(10);
   await db.insert(schema.memberTokens).values({
-    memberId, tokenHash: createHash('sha256').update(token).digest('hex'), expiresAt: new Date(Date.now() + 10 * 365 * 24 * 3600_000), // o link é o único jeito de entrar: vale sempre
+    memberId, tokenHash: createHash('sha256').update(token).digest('hex'), courseId: courseId && /^[0-9a-f-]{36}$/i.test(courseId) ? courseId : null, expiresAt: new Date(Date.now() + 10 * 365 * 24 * 3600_000), // o link é o único jeito de entrar: vale sempre
   });
   // no endereço do app: o WhatsApp mostra a prévia com a capa do curso (quem clica vai direto para a área)
-  const { memberEnterUrl } = await import('./membersPreview');
-  return memberEnterUrl(slug, token, courseId);
+  void slug;
+  return `${appBase()}/e/${token}`;
 }
 
 /**

@@ -337,6 +337,13 @@
       "when": 1795560000000,
       "tag": "0047_smart_agent",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1795570000000,
+      "tag": "0048_member_short_links",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 import { Platform } from './pages/Platform';
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { API_BASE } from './api';
 import { useAuth } from './auth';
 import { Spinner } from './components/ui';
 import { Layout } from './components/Layout';
@@ -38,6 +39,9 @@ export default function App() {
   const loc = useLocation();
   // Converza Members: área do aluno, com login próprio
   // link de acesso da área de membros (converza.pro/entrar/<área>?t=…): leva para a área
+  // link curto (converza.pro/e/<código>): o servidor descobre a área e devolve para ela
+  const short = /^\/e\/([A-Za-z0-9]{10,20})\/?$/.exec(loc.pathname);
+  if (short) { window.location.replace(`${API_BASE.replace(/\/api\/v1\/?$/, '')}/e/${short[1]}`); return null; }
   const enter = /^\/entrar\/([a-z0-9-]{1,60})\/?$/i.exec(loc.pathname);
   if (enter) return <Navigate to={`/m/${enter[1].toLowerCase()}/entrar${loc.search}`} replace />;
   if (loc.pathname.startsWith('/m/')) return <Suspense fallback={<div style={{ height: '100vh', background: '#070d0e' }} />}><MembersArea /></Suspense>;

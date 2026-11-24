@@ -7,7 +7,7 @@
  */
 import { Router, type Request } from 'express';
 import { createHash } from 'node:crypto';
-import { and, desc, eq, gt, isNull } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
 import sharp from 'sharp';
 import { db, schema } from '../db';
 import { readObjectBuffer } from '../storage/objects';
@@ -34,11 +34,15 @@ export async function previewInfo(slug: string, courseId?: string | null, token?
     [course] = await db.select(pick).from(schema.memberCourses)
       .where(and(eq(schema.memberCourses.id, courseId), eq(schema.memberCourses.accountId, acc.id), eq(schema.memberCourses.published, true))).limit(1);
   }
-  if (!course && token && /^[A-Za-z0-9_-]{20,80}$/.test(token)) {
+  if (!course && token && /^[A-Za-z0-9_-]{10,80}$/.test(token)) {
     // só lê: o token continua valendo para a pessoa entrar
-    const [t] = await db.select({ memberId: schema.memberTokens.memberId }).from(schema.memberTokens)
+    const [t] = await db.select({ memberId: schema.memberTokens.memberId, courseId: schema.memberTokens.courseId }).from(schema.memberTokens)
       .where(and(eq(schema.memberTokens.tokenHash, createHash('sha256').update(token).digest('hex')), gt(schema.memberTokens.expiresAt, new Date()))).limit(1);
-    if (t) {
+    if (t?.courseId) {
+      [course] = await db.select(pick).from(schema.memberCourses)
+        .where(and(eq(schema.memberCourses.id, t.courseId), eq(schema.memberCourses.accountId, acc.id), eq(schema.memberCourses.published, true))).limit(1);
+    }
+    if (t && !course) {
       [course] = await db.select(pick).from(schema.memberAccess)
         .innerJoin(schema.memberCourses, eq(schema.memberCourses.id, schema.memberAccess.courseId))
         .where(and(eq(schema.memberAccess.memberId, t.memberId), eq(schema.memberAccess.accountId, acc.id), isNull(schema.memberAccess.revokedAt), eq(schema.memberCourses.published, true)))
@@ -77,9 +81,9 @@ export async function coverJpeg(key: string, width = 1200): Promise<Buffer | nul
 
 const q1 = (v: unknown) => (typeof v === 'string' ? v : Array.isArray(v) ? String(v[0] ?? '') : '');
 
-function page(req: Request, info: PreviewInfo | null, appUrl: string) {
+function page(req: Request, info: PreviewInfo | null, appUrl: string, slug?: string) {
   const self = `${apiBase(req)}${req.originalUrl.split('?')[0]}`;
-  const img = info?.coverKey ? `${apiBase(req)}/m/${esc(req.params.slug)}/capa${info.courseId ? `?c=${info.courseId}` : ''}` : null;
+  const img = info?.coverKey ? `${apiBase(req)}/m/${esc(slug ?? String(req.params.slug ?? ''))}/capa${info.courseId ? `?c=${info.courseId}` : ''}` : null;
   const title = esc(info?.title ?? 'Área de membros');
   const desc = esc(info?.description ?? 'Seus cursos e materiais em um só lugar.');
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
@@ -124,6 +128,30 @@ export const membersEnterRouter = Router();
 membersEnterRouter.get('/:slug', (req, res, next) => { serve(req, res, true).catch(next); });
 membersPreviewRouter.get('/:slug', (req, res, next) => { serve(req, res, false).catch(next); });
 
+/** Área de membros do link curto (o código é o próprio token). */
+export async function shortLinkSlug(code: string): Promise<string | null> {
+  if (!/^[A-Za-z0-9]{10,20}$/.test(code)) return null;
+  const r = await db.execute(sql`select a.members_slug as slug from member_tokens t join member_users u on u.id = t.member_id
+    join accounts a on a.id = u.account_id where t.token_hash = ${createHash('sha256').update(code).digest('hex')} and t.expires_at > now() limit 1`);
+  return ((r.rows[0] as { slug?: string } | undefined)?.slug) ?? null;
+}
+
+/** converza.pro/e/<código>: o robô do WhatsApp lê a prévia com a capa; a pessoa vai para a área de membros. */
+export const membersShortRouter = Router();
+membersShortRouter.get('/:code', async (req, res, next) => {
+  try {
+    const code = String(req.params.code ?? '');
+    const slug = await shortLinkSlug(code);
+    if (!slug) return res.redirect(302, appBase());
+    const appUrl = `${appBase()}/m/${encodeURIComponent(slug)}/entrar?t=${encodeURIComponent(code)}`;
+    if (!BOT.test(String(req.get('user-agent') ?? ''))) return res.redirect(302, appUrl);
+    const info = await previewInfo(slug, null, code).catch(() => null);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(page(req, info, appUrl, slug));
+  } catch (err) { next(err); }
+});
+
 /** Capa pública (é a vitrine do curso, a mesma que aparece na prévia). */
 membersPreviewRouter.get('/:slug/capa', async (req, res, next) => {
   try {
@@ -154,12 +182,14 @@ const esc2 = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  */
 export async function memberLinkPreview(text: string, thumb: (img: Buffer) => Promise<{ jpegThumbnail?: Buffer; highQualityThumbnail?: any }>): Promise<Record<string, any> | null> {
   const hosts = [...new Set([previewBase(), appBase()])].map(esc2).join('|');
-  const m = new RegExp(`(?:${hosts})/(?:m/([a-z0-9-]{1,60})(?:/entrar)?|entrar/([a-z0-9-]{1,60}))(?:\\?[^\\s]*)?`, 'i').exec(text);
+  const m = new RegExp(`(?:${hosts})/(?:m/([a-z0-9-]{1,60})(?:/entrar)?|entrar/([a-z0-9-]{1,60})|e/([A-Za-z0-9]{10,20}))(?:\\?[^\\s]*)?`, 'i').exec(text);
   if (!m) return null;
   const url = m[0];
   let params: URLSearchParams;
   try { params = new URL(url).searchParams; } catch { return null; }
-  const info = await previewInfo((m[1] ?? m[2]).toLowerCase(), params.get('c'), params.get('t'));
+  const shortSlug = m[3] ? await shortLinkSlug(m[3]) : null;
+  if (m[3] && !shortSlug) return null;
+  const info = m[3] ? await previewInfo(shortSlug!, null, m[3]) : await previewInfo((m[1] ?? m[2]).toLowerCase(), params.get('c'), params.get('t'));
   if (!info) return null;
   const out: Record<string, any> = { 'canonical-url': url, 'matched-text': url, title: info.title, description: info.description };
   if (info.coverKey) {

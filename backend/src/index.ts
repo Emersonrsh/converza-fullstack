@@ -46,7 +46,7 @@ import { globalsRouter } from './modules/globals';
 import { translationsRouter, startTranslationSweep } from './modules/translations';
 import { aiUsageRouter } from './modules/aiUsage';
 import { trackingRouter, trackingPublicRouter } from './modules/tracking';
-import { membersEnterRouter, membersPreviewRouter } from './modules/membersPreview';
+import { membersEnterRouter, membersPreviewRouter, membersShortRouter } from './modules/membersPreview';
 import { apiKeysRouter } from './modules/apiKeys';
 import { mcpRouter } from './mcp/server';
 import { integrationsRouter } from './modules/integrations';
@@ -113,6 +113,7 @@ app.use('/mcp', mcpRouter);
 app.use('/t', trackingPublicRouter);
 app.use('/m', membersPreviewRouter);
 app.use('/entrar', membersEnterRouter);
+app.use('/e', membersShortRouter);
 // avisos de pagamento da Asaas e da Paddle (sem login — token / assinatura de cada gateway)
 app.use('/api/v1/billing-hooks', billingHooksRouter);
 

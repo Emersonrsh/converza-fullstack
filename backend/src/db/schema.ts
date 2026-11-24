@@ -1471,6 +1471,8 @@ export const memberTokens = pgTable('member_tokens', {
   id: uuid('id').primaryKey().defaultRandom(),
   memberId: uuid('member_id').notNull().references(() => memberUsers.id, { onDelete: 'cascade' }),
   tokenHash: text('token_hash').notNull(),
+  /** curso do link (a prévia mostra a capa dele) */
+  courseId: uuid('course_id'),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   usedAt: timestamp('used_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

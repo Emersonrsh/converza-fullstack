@@ -155,13 +155,16 @@ membersAreaRouter.post('/:slug/enter', asyncHandler(async (req) => {
 membersAreaRouter.post('/:slug/magic', asyncHandler(async (req, res) => {
   const area = await areaOf(req.params.slug);
   const t = String(req.body?.token ?? '');
-  if (t.length < 20) throw new AppError(422, 'Link inválido');
+  if (!/^[A-Za-z0-9_-]{10,80}$/.test(t)) throw new AppError(422, 'Link inválido');
+  // limite por IP: dificulta sair testando códigos
+  const limits = [{ key: `mmagic-ip:${clientIp(req)}`, max: 40, windowSec: 900 }];
+  await assertUnderLimits(limits, 'entrada');
   const hash = createHash('sha256').update(t).digest('hex');
   // o link vale sempre (é o único jeito de entrar); usedAt guarda só o último uso
   const [row] = await db.update(schema.memberTokens).set({ usedAt: new Date() })
     .where(and(eq(schema.memberTokens.tokenHash, hash), gt(schema.memberTokens.expiresAt, new Date())))
     .returning({ memberId: schema.memberTokens.memberId });
-  if (!row) throw new AppError(410, 'Este link não vale mais.');
+  if (!row) { await countAttempt(limits); throw new AppError(410, 'Este link não vale mais.'); }
   const [m] = await db.select().from(schema.memberUsers).where(and(eq(schema.memberUsers.id, row.memberId), eq(schema.memberUsers.accountId, area.accountId))).limit(1);
   if (!m) throw new AppError(410, 'Este link não é desta área de membros.');
   const [{ n }] = (await db.execute(sql`select count(*)::int as n from member_access where member_id = ${m.id} and revoked_at is null`)).rows as { n: number }[];
