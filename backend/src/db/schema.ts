@@ -343,11 +343,13 @@ export interface AgentAutomation {
   trigger: 'invalid_media' | 'reply_limit' | 'finish' | 'handoff' | 'intent';
   /** só nas personalizadas: quando o cliente demonstrar essa intenção */
   when?: string;
-  action: 'handoff' | 'flow' | 'close' | 'reply' | 'tag';
+  action: 'handoff' | 'flow' | 'close' | 'reply' | 'tag' | 'revoke';
   flowId?: string | null;
   tag?: string | null;
   departmentId?: string | null;
   message?: string;
+  nodeId?: string | null;
+  stepLabel?: string | null;
 }
 export interface AgentStage { name: string; goal: string; advanceWhen?: string }
 
@@ -416,6 +418,10 @@ export const agents = pgTable('agents', {
   /** etapas que a conversa segue, em ordem */
   stages: jsonb('stages').$type<AgentStage[]>().notNull().default([]),
   shareCode: text('share_code').unique(),
+  /** custom = criado na aba Agentes de IA; smart = Automatização inteligente da conta (um por conta, escondido da lista) */
+  kind: text('kind').notNull().default('custom'),
+  /** Automatização inteligente: setores em que ela assume o atendimento (vazio = os de suporte, pelo nome) */
+  supportDepartmentIds: uuid('support_department_ids').array().notNull().default(sql`'{}'::uuid[]`),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({

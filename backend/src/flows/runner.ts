@@ -538,9 +538,16 @@ function createDbExecutor(p: { accountId: string; flowId: string; contactId: str
           .where(and(eq(schema.departments.id, departmentId), eq(schema.departments.accountId, p.accountId))).limit(1);
         if (!d) { console.warn('[flow] setor não existe:', departmentId); return; }
         await updateConversation({ departmentId: d.id });
+        // setor de suporte: a Automatização inteligente (se ligada) assume e leva o cliente até a compra
+        const conv = await conversation();
+        await (await import('../ai/smartAgent')).smartTakeOver(p.accountId, conv.id, 'support', d.id).catch((err) => console.error('[smart] suporte:', (err as Error).message));
         return;
       }
       await updateConversation({ departmentId: null });
+    },
+    async stalled() {
+      const conv = await conversation();
+      await (await import('../ai/smartAgent')).smartTakeOver(p.accountId, conv.id, 'stall').catch((err) => console.error('[smart] fluxo parado:', (err as Error).message));
     },
     async assignAgent(agentId, opts) {
       if (agentId) {

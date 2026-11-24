@@ -1,5 +1,6 @@
 import express, { Router, type Request } from 'express';
 import { z } from 'zod';
+import { emitToAccount } from '../realtime/io';
 import { randomBytes } from 'crypto';
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
@@ -80,7 +81,7 @@ async function limitInfo(accountId: string) {
   // redução agendada para a próxima renovação: o limite já segue a quantidade nova
   const scheduled = active && sub?.pendingInstances != null && sub.pendingInstances < instances ? sub.pendingInstances : null;
   const max = agentLimitFor(scheduled ?? instances, active);
-  const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(schema.agents).where(eq(schema.agents.accountId, accountId));
+  const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(schema.agents).where(and(eq(schema.agents.accountId, accountId), eq(schema.agents.kind, 'custom')));
   return { used: Number(n), max, instances, scheduledInstances: scheduled, active, perConnection: AGENTS_PER_CONNECTION };
 }
 
@@ -137,7 +138,7 @@ const fieldsSchema = z.object({
     key: z.string().trim().min(1).max(40),
     trigger: z.enum(['invalid_media', 'reply_limit', 'finish', 'handoff', 'intent']),
     when: z.string().trim().max(400, 'Gatilho muito longo (até 400 letras)').optional(),
-    action: z.enum(['handoff', 'flow', 'close', 'reply', 'tag']),
+    action: z.enum(['handoff', 'flow', 'close', 'reply', 'tag', 'revoke']),
     flowId: z.string().uuid().nullable().optional(),
     nodeId: z.string().trim().max(120).nullable().optional(),
     tag: z.string().trim().max(40).nullable().optional(),
@@ -295,7 +296,7 @@ async function insertAgent(accountId: string, f: Fields) {
 
 agentsRouter.get('/', asyncHandler(async (req, res) => {
   const accountId = req.accountId!;
-  const list = await db.select().from(schema.agents).where(eq(schema.agents.accountId, accountId)).orderBy(asc(schema.agents.createdAt));
+  const list = await db.select().from(schema.agents).where(and(eq(schema.agents.accountId, accountId), eq(schema.agents.kind, 'custom'))).orderBy(asc(schema.agents.createdAt));
   const [agents, limit, tokens] = await Promise.all([present(accountId, list), limitInfo(accountId), getTokenState(accountId)]);
   res.json({ agents, limit, aiEnabled: aiEnabled(), voiceEnabled: voiceEnabled(), balance: tokens.balance, house: tokens.house });
 }));
@@ -671,6 +672,36 @@ agentsRouter.delete('/voices/:id', asyncHandler(async (req, res) => {
 }));
 
 /* ============================================================ por agente */
+
+/* ------------------------------------------------ Automatização inteligente (agente da conta) */
+
+async function smartState(accountId: string) {
+  const { smartRow, compileSmart } = await import('../ai/smartAgent');
+  const row = await smartRow(accountId);
+  const c = await compileSmart(accountId);
+  const [{ n }] = row ? (await db.execute(sql`select count(distinct conversation_id)::int as n from agent_runs where agent_id = ${row.id} and created_at > now() - interval '30 days'`)).rows as { n: number }[] : [{ n: 0 }];
+  return { enabled: !!row?.enabled, offers: c.offers, steps: c.steps, conversations30: Number(n), aiEnabled: aiEnabled(), notes: row?.systemPrompt ?? '' };
+}
+
+agentsRouter.get('/smart', asyncHandler(async (req, res) => { res.json({ smart: await smartState(req.accountId!) }); }));
+
+agentsRouter.put('/smart', asyncHandler(async (req, res) => {
+  managerOnly(req);
+  const accountId = req.accountId!;
+  const body = z.object({ enabled: z.boolean().optional(), notes: z.string().max(4000).optional() }).parse(req.body ?? {});
+  const { smartRow, forgetSmart } = await import('../ai/smartAgent');
+  const row = await smartRow(accountId, true);
+  if (!row) throw new AppError(500, 'Não foi possível preparar a Automatização inteligente');
+  await db.update(schema.agents).set({
+    ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+    ...(body.notes !== undefined ? { systemPrompt: body.notes.trim() } : {}),
+    updatedAt: new Date(),
+  }).where(eq(schema.agents.id, row.id));
+  forgetSmart(accountId);
+  const smart = await smartState(accountId);
+  emitToAccount(accountId, 'smart:updated', { smart });
+  res.json({ smart });
+}));
 
 agentsRouter.get('/:id', asyncHandler(async (req, res) => {
   const a = await ownAgent(req.accountId!, req.params.id);

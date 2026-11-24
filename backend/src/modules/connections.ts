@@ -418,7 +418,7 @@ connectionsRouter.get('/:id', asyncHandler(async (req, res) => {
     // atende só este número (é pausado se a conexão for excluída)
     exclusive: sql<boolean>`${schema.agents.connectionIds} = array[${c.id}::uuid]`,
   }).from(schema.agents)
-    .where(and(eq(schema.agents.accountId, accountId), sql`(${c.id}::uuid = any(${schema.agents.connectionIds}) or cardinality(${schema.agents.connectionIds}) = 0)`));
+    .where(and(eq(schema.agents.accountId, accountId), eq(schema.agents.kind, 'custom'), sql`(${c.id}::uuid = any(${schema.agents.connectionIds}) or cardinality(${schema.agents.connectionIds}) = 0)`));
   res.json({
     connection: { ...publicConnection(c), pin: req.role !== 'agent' ? c.pin : null },
     stats: { conversations: Number(stats?.conversations ?? 0), inbound30: Number(stats?.inbound ?? 0), outbound30: Number(stats?.outbound ?? 0) },

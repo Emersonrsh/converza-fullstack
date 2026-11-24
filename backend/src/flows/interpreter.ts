@@ -119,6 +119,8 @@ export interface FlowExecutor {
   /** avisa alguém (outro número) pelo WhatsApp */
   notify(n: NotifySpec): Promise<{ ok: boolean; info: string }>;
   setDepartment(departmentId: string | null): Promise<void>;
+  /** a resposta do cliente não fez o fluxo andar (a IA que interpreta não entendeu): a Automatização inteligente pode entrar */
+  stalled?(): Promise<void>;
   /** replyNow: o agente já responde a última mensagem do cliente (a que o fluxo não entendeu) */
   assignAgent(agentId: string | null, opts?: { replyNow?: boolean }): Promise<void>;
   kanbanAction(action: 'add' | 'move' | 'remove', boardId: string, columnId: string): Promise<void>;
@@ -426,6 +428,25 @@ export function messageItems(d: Dict): Dict[] {
 }
 
 /** Regras do Condicional (o formato antigo era uma regra só no próprio bloco). */
+/**
+ * A IA que interpreta a resposta (com condições ou conferindo comprovante) não chegou a uma saída com nome
+ * (ou chegou numa de dúvida/incerto) e o caminho seguinte não fala nada com o cliente: o fluxo "parou".
+ */
+export function aiStalled(d: Dict, handle: string | null, graph: FlowGraph, nodeId: string): boolean {
+  const conds: Dict[] = Array.isArray(d.conditions) ? d.conditions : [];
+  if (!conds.length && !d.detectReceipt) return false;
+  if (d.send) return false; // a própria IA já respondeu
+  const cond = handle ? conds.find((c) => c.id === handle) : null;
+  const unclear = handle === null || handle === 'error' || (!!cond && /d[uú]vida|incert|n[aã]o entend|outro|outra/i.test(String(cond.label ?? '')));
+  if (!unclear) return false;
+  const next = edgeFrom(graph, nodeId, handle);
+  const t = next ? graph.nodes.find((n) => n.id === next.target) : null;
+  if (!t) return true;
+  if (['message', 'menu', 'template', 'carousel', 'ai_agent', 'department', 'goto_flow', 'ai_reply', 'pix', 'payment', 'card', 'xpag', 'handoff', 'chat_status'].includes(t.type)) return false;
+  if (t.type === 'ask' && String(t.data?.text ?? '').trim()) return false;
+  return true;
+}
+
 export function conditionRules(d: Dict): Dict[] {
   if (Array.isArray(d.rules)) return d.rules.filter((r: Dict) => r && typeof r === 'object');
   return d.field !== undefined || d.op !== undefined ? [d] : [];
@@ -1033,8 +1054,9 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
     case 'ai': {
       const r = await runAiBlock(d, state, exec, await scope());
       // falha sem a saída "Falha" ligada: segue o caminho normal
-      if (r.handle === 'error' && !edgeFrom(graph, node.id, 'error')) return go(null);
-      return go(r.handle);
+      const handle = r.handle === 'error' && !edgeFrom(graph, node.id, 'error') ? null : r.handle;
+      if (exec.stalled && aiStalled(d, handle, graph, node.id)) await exec.stalled();
+      return go(handle);
     }
 
     case 'ai_reply': {

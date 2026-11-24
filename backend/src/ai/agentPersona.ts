@@ -6,9 +6,10 @@ import { basesText } from '../modules/knowledge';
 type AgentLike = Partial<typeof schema.agents.$inferSelect>;
 
 /** Instruções do agente (persona) já com bases, etapas e as ações das automações; usado na resposta real e no teste. */
-export async function loadPersona(accountId: string, a: AgentLike): Promise<{
+export async function loadPersona(accountId: string, a: AgentLike, ctx?: { contactId?: string }): Promise<{
   persona: AgentPersona; automations: AgentAutomation[]; flows: Record<string, { name: string; active: boolean }>;
 }> {
+  if (a.kind === 'smart' && accountId) return (await import('./smartAgent')).smartPersona(accountId, a, ctx?.contactId);
   const automations = resolveAutomations({
     automations: a.automations as AgentAutomation[] | undefined, flowId: a.flowId, flowWhen: a.flowWhen, flowTag: a.flowTag,
     handoffMessage: a.handoffMessage, handoffTag: a.handoffTag, handoffDepartmentId: a.handoffDepartmentId,

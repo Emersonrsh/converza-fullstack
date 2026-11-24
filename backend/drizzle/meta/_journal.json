@@ -330,6 +330,13 @@
       "when": 1795550000000,
       "tag": "0046_member_links_permanent",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1795560000000,
+      "tag": "0047_smart_agent",
+      "breakpoints": true
     }
   ]
 }

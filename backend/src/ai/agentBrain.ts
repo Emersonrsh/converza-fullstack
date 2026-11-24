@@ -39,12 +39,14 @@ export interface AgentStage { name: string; goal: string; advanceWhen?: string }
 export interface PromptAction { code: string; text: string }
 
 export type AutomationTrigger = 'invalid_media' | 'reply_limit' | 'finish' | 'handoff' | 'intent';
-export type AutomationAction = 'handoff' | 'flow' | 'close' | 'reply' | 'tag';
+export type AutomationAction = 'handoff' | 'flow' | 'close' | 'reply' | 'tag' | 'revoke';
 export interface AgentAutomation {
   key: string; trigger: AutomationTrigger; when?: string; action: AutomationAction;
   flowId?: string | null; tag?: string | null; departmentId?: string | null; message?: string;
   /** começa o fluxo neste bloco (vazio = do começo) */
   nodeId?: string | null;
+  /** nome da etapa (Automatização inteligente: a IA escolhe a etapa pelo nome) */
+  stepLabel?: string | null;
 }
 
 export const SYSTEM_TRIGGERS: AutomationTrigger[] = ['invalid_media', 'reply_limit', 'finish', 'handoff'];
@@ -98,8 +100,10 @@ export function resolveAutomations(a: {
 /** O que dizer à IA sobre cada ação que ela pode escolher. flowNames: id → nome (só fluxos ativos). */
 export function promptActions(list: AgentAutomation[], flowNames: Record<string, string>, handoffWhen: string): PromptAction[] {
   const effect = (x: AgentAutomation) => {
+    if (x.action === 'flow' && x.nodeId && x.stepLabel) return x.flowId && flowNames[x.flowId] ? `leva o cliente para a etapa “${x.stepLabel}” do fluxo “${flowNames[x.flowId]}” (o fluxo envia tudo dali em diante; junto, mande no máximo uma mensagem curta)` : null;
     if (x.action === 'flow') return x.flowId && flowNames[x.flowId] ? `dispara o fluxo “${flowNames[x.flowId]}” (não mande links de pagamento por conta própria: o fluxo envia; junto, mande uma mensagem curta avisando)` : null;
     if (x.action === 'handoff') return 'passa a conversa para a equipe e você para de responder';
+    if (x.action === 'revoke') return 'tira o acesso do cliente aos cursos que ele recebeu antes de pagar (a área de membros para de abrir); responda com educação, sem ameaça';
     if (x.action === 'close') return 'encerra o atendimento';
     if (x.action === 'tag') return x.tag ? `marca o contato com a etiqueta “${x.tag}” e você continua a conversa normalmente` : null;
     return 'envia uma mensagem pronta da empresa';

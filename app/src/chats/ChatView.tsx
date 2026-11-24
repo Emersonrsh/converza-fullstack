@@ -9,6 +9,7 @@ import type { ChatDetail, ChatMessage, QuickReply, ReplyPreview } from './types'
 
 /** Reações rápidas (as mesmas do WhatsApp); o servidor aceita só estas. */
 export const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+import { SmartToggle } from './SmartToggle';
 import { FlowLauncher, FlowPauseButton, RESUME_OPEN_EVENT, openResume, useFlowRuns } from './FlowControls';
 const ResumeFlowModal = lazy(() => import('./ResumeFlowModal').then((m) => ({ default: m.ResumeFlowModal })));
 
@@ -248,6 +249,8 @@ export function ChatView({
           <b>{detail.contact.name || fmtPhone(detail.contact.phone)}</b>
           <span>{fmtPhone(detail.contact.phone)}{detail.connection ? ` · via ${detail.connection.name}` : ' · sem conexão'}</span>
         </div>
+        <span className="spacer" />
+        <SmartToggle />
         <span className="spacer" />
         {detail.department && !resolved && <span className="pill" style={{ background: `${detail.department.color}22`, color: detail.department.color }} title="Setor da conversa" data-testid="cv-dept">{detail.department.name}</span>}
         {!resolved && !c.botPaused && <button type="button" className="pill teal cv-bot" onClick={onTogglePanel} title="Fluxos e agentes de IA podem responder esta conversa">🤖 Automação ativa</button>}

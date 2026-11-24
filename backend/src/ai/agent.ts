@@ -43,12 +43,18 @@ async function pickAgent(accountId: string, conversationId: string) {
   const [contact] = await db.select().from(schema.contacts).where(eq(schema.contacts.id, conv.contactId)).limit(1);
   if (!contact) return null;
   // entregue pelo bloco "Agente de IA" do fluxo: esse agente atende, sem olhar as regras de quem ele atende
+  const smart = agents.find((a) => a.kind === 'smart') ?? null;
   if (conv.aiAgentId) {
     const chosen = agents.find((a) => a.id === conv.aiAgentId);
-    if (chosen) return { agent: chosen, conv, contact };
+    // a Automatização inteligente para quando alguém da equipe assume a conversa
+    if (chosen && !(chosen.kind === 'smart' && conv.assignedUserId)) return { agent: chosen, conv, contact };
+    if (chosen) return null;
   }
-  const [agent] = eligibleAgents(agents, { connectionId: conv.connectionId, tags: contact.tags ?? [], fromAd: !!contact.sourceId || contact.origin === 'ad' });
-  return agent ? { agent, conv, contact } : null;
+  const [agent] = eligibleAgents(agents.filter((a) => a.kind !== 'smart'), { connectionId: conv.connectionId, tags: contact.tags ?? [], fromAd: !!contact.sourceId || contact.origin === 'ad' });
+  if (agent) return { agent, conv, contact };
+  // ninguém atende: a Automatização inteligente cuida de quem veio pelos fluxos (e não está com a equipe)
+  if (smart && !conv.assignedUserId && conv.status !== 'resolved' && (await (await import('./smartAgent')).cameFromFlows(accountId, contact.id))) return { agent: smart, conv, contact };
+  return null;
 }
 
 /** Chamado a cada mensagem recebida que nenhum fluxo tratou. true = um agente vai responder. */
@@ -161,7 +167,7 @@ async function respond(d: AgentJobData): Promise<void> {
   // limite de respostas por dia nesta conversa → passa para a equipe
   const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(schema.messages)
     .where(and(eq(schema.messages.conversationId, conv.id), eq(schema.messages.agentId, agent.id), gte(schema.messages.createdAt, new Date(Date.now() - DAY_MS))));
-  const loaded = await loadPersona(accountId, agent);
+  const loaded = await loadPersona(accountId, agent, { contactId: contact.id });
   if (Number(n) >= agent.maxRepliesPerDay) {
     const auto = loaded.automations.find((x) => x.trigger === 'reply_limit') ?? { key: 'reply_limit', trigger: 'reply_limit' as const, action: 'handoff' as const };
     const why = `chegou ao limite de ${agent.maxRepliesPerDay} respostas por dia nesta conversa`;
@@ -371,6 +377,20 @@ async function runAutomation(ctx: Ctx, auto: AgentAutomation | null, texts: stri
     if (row) emitToAccount(accountId, 'conversation:updated', { conversation: row });
     await systemNote(accountId, conv.id, `✅ ${agent.name} encerrou o atendimento.${why}`);
     return { outcome: 'closed', detail: reason || null, ...base };
+  }
+  if (auto.action === 'revoke') {
+    // só o que foi entregue antes do pagamento (pelos fluxos); o que foi comprado ou liberado à mão continua
+    const rows = (await db.execute(sql`select a.course_id as "courseId" from member_access a join member_users u on u.id = a.member_id
+      where u.account_id = ${accountId} and u.contact_id = ${contact.id} and a.revoked_at is null and a.source = 'flow'`)).rows as { courseId: string }[];
+    if (rows.length) {
+      const { flowMembersAccess } = await import('../modules/members');
+      const r = await flowMembersAccess(accountId, contact.id, { action: 'revoke', courseIds: rows.map((x) => x.courseId), moduleIds: [] });
+      await addTag(accountId, contact, auto.tag ?? 'Acesso revogado');
+      await systemNote(accountId, conv.id, `🔒 ${agent.name} tirou o acesso a ${r.courses.map((t) => `“${t}”`).join(', ') || 'os cursos'}: o cliente recusou o pagamento.${why}`);
+    } else {
+      await systemNote(accountId, conv.id, `🔒 ${agent.name} quis tirar o acesso, mas o cliente não tem cursos recebidos antes do pagamento.${why}`);
+    }
+    return { outcome: 'automation', detail: reason || 'acesso revogado', ...base };
   }
   if (auto.action === 'tag') {
     await addTag(accountId, contact, auto.tag);

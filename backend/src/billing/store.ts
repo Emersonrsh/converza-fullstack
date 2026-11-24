@@ -101,7 +101,7 @@ export async function connectionsInUse(accountId: string) {
 }
 
 export async function agentsInUse(accountId: string) {
-  const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.agents).where(eq(schema.agents.accountId, accountId));
+  const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.agents).where(and(eq(schema.agents.accountId, accountId), eq(schema.agents.kind, 'custom')));
   return Number(n);
 }
 
