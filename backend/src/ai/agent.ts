@@ -167,7 +167,7 @@ async function respond(d: AgentJobData): Promise<void> {
   // limite de respostas por dia nesta conversa → passa para a equipe
   const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(schema.messages)
     .where(and(eq(schema.messages.conversationId, conv.id), eq(schema.messages.agentId, agent.id), gte(schema.messages.createdAt, new Date(Date.now() - DAY_MS))));
-  const loaded = await loadPersona(accountId, agent, { contactId: contact.id });
+  const loaded = await loadPersona(accountId, agent, { contactId: contact.id, connectionId: conv.connectionId });
   if (Number(n) >= agent.maxRepliesPerDay) {
     const auto = loaded.automations.find((x) => x.trigger === 'reply_limit') ?? { key: 'reply_limit', trigger: 'reply_limit' as const, action: 'handoff' as const };
     const why = `chegou ao limite de ${agent.maxRepliesPerDay} respostas por dia nesta conversa`;
@@ -379,6 +379,11 @@ async function runAutomation(ctx: Ctx, auto: AgentAutomation | null, texts: stri
     return { outcome: 'closed', detail: reason || null, ...base };
   }
   if (auto.action === 'revoke') {
+    // quem pagou (venda aprovada ou em análise, acesso por venda ou à mão) nunca perde o acesso pela IA
+    if (await (await import('./smartAgent')).contactPaid(accountId, contact.id)) {
+      await systemNote(accountId, conv.id, `🔒 ${agent.name} quis tirar o acesso, mas não tirou: este cliente tem pagamento registrado.${why}`);
+      return { outcome: 'replied', detail: 'não revogou: cliente pagou', ...base };
+    }
     // só o que foi entregue antes do pagamento (pelos fluxos); o que foi comprado ou liberado à mão continua
     const rows = (await db.execute(sql`select a.course_id as "courseId" from member_access a join member_users u on u.id = a.member_id
       where u.account_id = ${accountId} and u.contact_id = ${contact.id} and a.revoked_at is null and a.source = 'flow'`)).rows as { courseId: string }[];
