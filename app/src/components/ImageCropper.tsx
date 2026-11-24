@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Modal } from './ui';
 import { Icon } from '../icons';
 
@@ -67,7 +68,8 @@ export function ImageCropper({ file, width, height, title, hint, onCancel, onDon
     } finally { setBusy(false); }
   }
 
-  return (
+  // no corpo da página: dentro do editor (coluna fixa ao rolar), o popup ficava atrás dos módulos
+  return createPortal(
     <Modal title={title} subtitle={`${width} × ${height} px`} onClose={onCancel} width={600}
       footer={<>
         <button type="button" className="btn" onClick={onCancel}>Cancelar</button>
@@ -81,6 +83,7 @@ export function ImageCropper({ file, width, height, title, hint, onCancel, onDon
         <input type="range" min={1} max={3} step={0.01} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} style={{ flex: 1 }} aria-label="Zoom" data-testid="crop-zoom" />
       </div>
       <div className="cf-hint" style={{ marginTop: 8 }}>{hint ?? 'Arraste a imagem para enquadrar. O que está dentro do quadro é exatamente o que aparece.'}</div>
-    </Modal>
+    </Modal>,
+    document.body,
   );
 }
