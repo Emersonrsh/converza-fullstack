@@ -8,6 +8,7 @@ import {
   Duration, Field, FileOrUrl, HowItWorks, Picker, RichText, Section, Tabs, ToggleCard, VarInput, moveItem, UNITS,
 } from './fields';
 import type { D, EditorProps, Tpl } from './types';
+import { MembersEditor } from './members';
 
 const SHORT_UNITS = UNITS.filter(([u]) => u !== 'seconds');
 
@@ -16,6 +17,7 @@ const SHORT_UNITS = UNITS.filter(([u]) => u !== 'seconds');
 export const CONTENT_TYPES: [string, string, string][] = [
   ['text', 'Texto', 'chat'], ['image', 'Imagem', 'image'], ['video', 'Vídeo', 'video'], ['audio', 'Áudio', 'mic'],
   ['interval', 'Intervalo', 'clock'], ['contact', 'Contato', 'contact'], ['file', 'Arquivo', 'file'], ['sticker', 'Sticker', 'sticker'],
+  ['members', 'Converza Members', 'book'],
 ];
 const contentLabel = (t: string) => CONTENT_TYPES.find((c) => c[0] === t)?.[1] ?? t;
 const contentIcon = (t: string) => CONTENT_TYPES.find((c) => c[0] === t)?.[2] ?? 'file';
@@ -26,6 +28,7 @@ function newItem(type: string): D {
     case 'text': return { id, type, text: '' };
     case 'interval': return { id, type, amount: 3, unit: 'seconds' };
     case 'contact': return { id, type, name: '', phone: '' };
+    case 'members': return { id, type, action: 'grant', courseIds: [], moduleIds: [], courseModules: {}, sendMessage: true, text: '' };
     default: return { id, type, url: '', fileId: '', fileName: '', caption: '', filename: '' };
   }
 }
@@ -107,7 +110,7 @@ function RangeDelay({ min, max, onChange, testId }: { min: number; max: number; 
   );
 }
 
-function ItemBody({ it, upd, vars, i }: { it: D; upd: (p: D) => void; vars: string[]; i: number }) {
+function ItemBody({ it, upd, vars, i, ep }: { it: D; upd: (p: D) => void; vars: string[]; i: number; ep: EditorProps }) {
   const media = (kind: 'image' | 'video' | 'audio' | 'document' | 'sticker') => (
     <FileOrUrl kind={kind} url={it.url ?? ''} fileId={it.fileId ?? ''} fileName={it.fileName} vars={vars} testId={`item-${i}-file`}
       onChange={(v) => upd(v)} />
@@ -167,12 +170,16 @@ function ItemBody({ it, upd, vars, i }: { it: D; upd: (p: D) => void; vars: stri
           <Field label="Telefone (com DDD)" required><VarInput value={it.phone ?? ''} onChange={(phone) => upd({ phone })} vars={vars} placeholder="+55 11 99999-0000" testId={`item-${i}-cphone`} /></Field>
         </div>
       );
+    case 'members':
+      // o mesmo editor do bloco Área de membros, guardado no próprio conteúdo
+      return <div className="bm-members" data-testid={`item-${i}-members`}><MembersEditor {...ep} d={it} set={upd} /></div>;
     default:
       return null;
   }
 }
 
-export function MessageEditor({ d, set, vars }: EditorProps) {
+export function MessageEditor(ep: EditorProps) {
+  const { d, set, vars } = ep;
   const items: D[] = Array.isArray(d.items) ? d.items : [];
   const [adding, setAdding] = useState(false);
   const put = (list: D[]) => set({ items: list });
@@ -199,7 +206,7 @@ export function MessageEditor({ d, set, vars }: EditorProps) {
                 <button type="button" className="btn icon sm ghost" disabled={i === items.length - 1} onClick={() => put(moveItem(items, i, 1))} aria-label="Descer">↓</button>
                 <button type="button" className="btn icon sm ghost" onClick={() => put(items.filter((_, j) => j !== i))} aria-label="Remover conteúdo"><Icon name="trash" size={14} /></button>
               </div>
-              <ItemBody it={it} i={i} vars={vars} upd={(p) => upd(i, p)} />
+              <ItemBody it={it} i={i} vars={vars} ep={ep} upd={(p) => upd(i, p)} />
             </div>
           ))}
         </div>

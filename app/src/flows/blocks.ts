@@ -461,7 +461,7 @@ export type PreviewPart =
   | { k: 'note'; text: string }
   | { k: 'img'; fileId?: string; url?: string; name: string; caption?: string };
 
-const ITEM_ICON: Record<string, string> = { text: 'chat', interval: 'clock', image: 'image', video: 'video', audio: 'mic', file: 'file', sticker: 'sticker', contact: 'contact' };
+const ITEM_ICON: Record<string, string> = { text: 'chat', interval: 'clock', image: 'image', video: 'video', audio: 'mic', file: 'file', sticker: 'sticker', contact: 'contact', members: 'book' };
 const ITEM_NAME: Record<string, string> = { image: 'Imagem', video: 'Vídeo', audio: 'Áudio', file: 'Arquivo', sticker: 'Sticker' };
 const EVENT_PT: Record<string, string> = {
   Purchase: 'Compra', Lead: 'Lead', InitiateCheckout: 'Início de checkout', AddToCart: 'Adicionar ao carrinho', AddPaymentInfo: 'Dados de pagamento',
@@ -493,6 +493,10 @@ export function preview(type: string, d: Record<string, any>, lk: Lookups): Prev
           } else parts.push({ k: 'row', icon: 'clock', text: `Delay: ${Number(it.amount ?? 3)}${unitShort[it.unit ?? 'seconds'] ?? 's'}` });
         }
         else if (t === 'contact') parts.push({ k: 'row', icon: 'contact', text: `Contato: ${short(it.name, 40) || 'sem nome'}` });
+        else if (t === 'members') {
+          const n = (Array.isArray(it.courseIds) ? it.courseIds.length : 0);
+          parts.push({ k: 'row', icon: 'book', text: it.action === 'revoke' ? 'Members: tirar acesso' : n ? `Members: liberar ${n} curso${n > 1 ? 's' : ''}` : 'Members: escolha o curso' });
+        }
         else if ((t === 'image' || t === 'sticker') && (it.fileId || /^https?:\/\//i.test(String(it.url ?? '').trim()))) {
           const name = it.fileName || (it.url ? String(it.url).split('/').pop() : '') || ITEM_NAME[t];
           parts.push({ k: 'img', fileId: it.fileId || undefined, url: it.fileId ? undefined : String(it.url).trim(), name: short(name, 48), caption: it.caption ? short(it.caption, 60) : undefined });

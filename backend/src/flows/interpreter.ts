@@ -521,6 +521,32 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
   const scope = async () => scopeOf(await exec.getContact(), state, exec.extras ? await exec.extras() : {});
   const go = (handle: string | null) => ({ next: nextOf(graph, node.id, handle) });
 
+  /** Área de membros (bloco ou conteúdo da Mensagem): libera/tira cursos e, ao liberar, manda o link. */
+  const membersStep = async (d: Dict): Promise<boolean> => {
+    const ids = (v: unknown) => (Array.isArray(v) ? v.map(String).filter(Boolean) : []);
+    const courseIds = ids(d.courseIds), moduleIds = ids(d.moduleIds);
+    const action = d.action === 'revoke' ? 'revoke' : 'grant';
+    if (!courseIds.length && !moduleIds.length) { exec.note('⚠️ Nenhum curso escolhido na Área de membros.'); return false; }
+    if (!exec.membersAccess) { exec.note('⚠️ Área de membros indisponível aqui.'); return false; }
+    const cm: Record<string, string[]> = {};
+    if (action === 'grant' && d.courseModules && typeof d.courseModules === 'object') {
+      for (const [cid, list] of Object.entries(d.courseModules as Dict)) if (courseIds.includes(cid) && Array.isArray(list)) cm[cid] = list.map(String);
+    }
+    const unlockRest = action === 'grant' && (d.unlockRestOnSale || d.unlockRestAfter)
+      ? { onSale: !!d.unlockRestOnSale, productId: d.unlockRestProductId ? String(d.unlockRestProductId) : null, afterDays: d.unlockRestAfter ? Math.max(1, Math.round(Number(d.unlockRestDays) || 7)) : null }
+      : undefined;
+    const r = await exec.membersAccess({ action, courseIds, moduleIds, courseModules: cm, unlockRest });
+    const membros = { link: r.link, area: r.area, cursos: r.courses.join(', '), modulos: r.modules.join(', ') };
+    state.vars.membros = membros;
+    if (!r.ok) { exec.note(`⚠️ Área de membros: ${r.info ?? 'não foi possível liberar'}`); return false; }
+    if (action === 'grant' && d.sendMessage !== false) {
+      const sc = await scope();
+      const text = render(String(d.text ?? '').trim() || MEMBERS_DEFAULT_TEXT, { ...sc, membros }).trim();
+      if (text) await exec.sendText(text);
+    }
+    return true;
+  };
+
   switch (node.type) {
     case 'trigger':
       return go(null);
@@ -529,7 +555,7 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
       const items = messageItems(d);
       const start = Math.max(0, Number(state.cursor[node.id] ?? 0) || 0);
       delete state.cursor[node.id];
-      const s = await scope();
+      let s = await scope();
       for (let i = start; i < items.length; i++) {
         const it = items[i];
         const type = String(it.type ?? 'text');
@@ -553,6 +579,10 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
             state.cursor[node.id] = i + 1;
             return { kind: 'delay', nodeId: node.id, seconds: secs };
           }
+        } else if (type === 'members') {
+          // Converza Members dentro da Mensagem: libera e manda o link; os conteúdos seguintes já veem {{membros.link}}
+          await membersStep(it);
+          s = await scope();
         } else if (type === 'contact') {
           const name = render(it.name, s).trim();
           const phone = render(it.phone, s).replace(/[^\d+]/g, '');
@@ -837,27 +867,7 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
     }
 
     case 'members': {
-      const ids = (v: unknown) => (Array.isArray(v) ? v.map(String).filter(Boolean) : []);
-      const courseIds = ids(d.courseIds), moduleIds = ids(d.moduleIds);
-      const action = d.action === 'revoke' ? 'revoke' : 'grant';
-      if (!courseIds.length && !moduleIds.length) { exec.note('⚠️ Nenhum curso escolhido no bloco Área de membros.'); return go(null); }
-      if (!exec.membersAccess) { exec.note('⚠️ Área de membros indisponível aqui.'); return go(null); }
-      const cm: Record<string, string[]> = {};
-      if (action === 'grant' && d.courseModules && typeof d.courseModules === 'object') {
-        for (const [cid, list] of Object.entries(d.courseModules as Dict)) if (courseIds.includes(cid) && Array.isArray(list)) cm[cid] = list.map(String);
-      }
-      const unlockRest = action === 'grant' && (d.unlockRestOnSale || d.unlockRestAfter)
-        ? { onSale: !!d.unlockRestOnSale, productId: d.unlockRestProductId ? String(d.unlockRestProductId) : null, afterDays: d.unlockRestAfter ? Math.max(1, Math.round(Number(d.unlockRestDays) || 7)) : null }
-        : undefined;
-      const r = await exec.membersAccess({ action, courseIds, moduleIds, courseModules: cm, unlockRest });
-      const membros = { link: r.link, area: r.area, cursos: r.courses.join(', '), modulos: r.modules.join(', ') };
-      state.vars.membros = membros;
-      if (!r.ok) { exec.note(`⚠️ Área de membros: ${r.info ?? 'não foi possível liberar'}`); return go(null); }
-      if (action === 'grant' && d.sendMessage !== false) {
-        const s = await scope();
-        const text = render(String(d.text ?? '').trim() || MEMBERS_DEFAULT_TEXT, { ...s, membros }).trim();
-        if (text) await exec.sendText(text);
-      }
+      await membersStep(d);
       return go(null);
     }
 

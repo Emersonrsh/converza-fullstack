@@ -49,6 +49,13 @@ export function validateFlow(nodes: N[], edges: E[], lk: Lookups): Issue[] {
             else if (String(it.text).length > 4096) add(n.id, 'error', `${nm}${pos} passa de 4.096 caracteres (limite do WhatsApp).`);
           } else if (it.type === 'contact') {
             if (!String(it.name ?? '').trim() || !String(it.phone ?? '').trim()) add(n.id, 'error', `${nm}${pos}: o contato precisa de nome e telefone.`);
+          } else if (it.type === 'members') {
+            const ids: string[] = [...(Array.isArray(it.courseIds) ? it.courseIds : []), ...(Array.isArray(it.moduleIds) ? it.moduleIds : [])];
+            if (!ids.length) add(n.id, 'error', `${nm}${pos}: escolha pelo menos um curso do Converza Members.`);
+            else if (lk.courses.length) {
+              const known = new Set(lk.courses.flatMap((c) => [c.id, ...c.modules.map((m) => m.id)]));
+              if (ids.some((id) => !known.has(id))) add(n.id, 'error', `${nm}${pos}: um curso ou módulo escolhido não existe mais.`);
+            }
           } else if (it.type === 'interval') {
             if (i === items.length - 1) add(n.id, 'warn', `${nm}: o intervalo no fim do bloco não faz nada (use o Intervalo Inteligente para esperar antes do próximo bloco).`);
           } else {
