@@ -145,21 +145,10 @@ membersAreaRouter.post('/:slug/login', asyncHandler(async (req, res) => {
 }));
 
 /** Entrada só com o número de WhatsApp da compra (sem senha). */
-membersAreaRouter.post('/:slug/enter', asyncHandler(async (req, res) => {
-  const area = await areaOf(req.params.slug);
-  const phone = String(req.body?.phone ?? '').trim().slice(0, 40);
-  if (phoneVariants(phone).length === 0) throw new AppError(422, 'Digite o seu número de WhatsApp com o DDD.');
-  // limite por IP: dificulta sair testando números
-  const limits = [{ key: `menter-ip:${clientIp(req)}`, max: 30, windowSec: 900 }, { key: `menter:${area.accountId}:${phone.replace(/\D/g, '')}`, max: 10, windowSec: 900 }];
-  await assertUnderLimits(limits, 'entrada');
-  await countAttempt(limits);
-  const [m] = await db.select().from(schema.memberUsers).where(and(eq(schema.memberUsers.accountId, area.accountId),
-    sql`${schema.memberUsers.phone} in (${sql.join(phoneVariants(phone).map((p) => sql`${p}`), sql`, `)})`)).limit(1);
-  if (!m) throw new AppError(404, 'Não encontramos acesso para este número. Use o mesmo WhatsApp da compra.');
-  const [{ n }] = (await db.execute(sql`select count(*)::int as n from member_access where member_id = ${m.id} and revoked_at is null`)).rows as { n: number }[];
-  if (!n) throw new AppError(403, 'O acesso deste número está bloqueado. Fale com quem vendeu o curso.');
-  await db.update(schema.memberUsers).set({ lastLoginAt: new Date() }).where(eq(schema.memberUsers.id, m.id));
-  res.json({ token: sign(m), member: memberView(m) });
+// entrar só digitando o número foi desligado: o único jeito de entrar é o link que chega no WhatsApp
+membersAreaRouter.post('/:slug/enter', asyncHandler(async (req) => {
+  await areaOf(req.params.slug);
+  throw new AppError(410, 'Entre pelo link que você recebeu no WhatsApp.');
 }));
 
 /** Link de primeiro acesso / nova senha: entra e pede para criar a senha. */
@@ -168,12 +157,15 @@ membersAreaRouter.post('/:slug/magic', asyncHandler(async (req, res) => {
   const t = String(req.body?.token ?? '');
   if (t.length < 20) throw new AppError(422, 'Link inválido');
   const hash = createHash('sha256').update(t).digest('hex');
+  // o link vale sempre (é o único jeito de entrar); usedAt guarda só o último uso
   const [row] = await db.update(schema.memberTokens).set({ usedAt: new Date() })
-    .where(and(eq(schema.memberTokens.tokenHash, hash), isNull(schema.memberTokens.usedAt), gt(schema.memberTokens.expiresAt, new Date())))
+    .where(and(eq(schema.memberTokens.tokenHash, hash), gt(schema.memberTokens.expiresAt, new Date())))
     .returning({ memberId: schema.memberTokens.memberId });
-  if (!row) throw new AppError(410, 'Este link já foi usado ou expirou.');
+  if (!row) throw new AppError(410, 'Este link não vale mais.');
   const [m] = await db.select().from(schema.memberUsers).where(and(eq(schema.memberUsers.id, row.memberId), eq(schema.memberUsers.accountId, area.accountId))).limit(1);
   if (!m) throw new AppError(410, 'Este link não é desta área de membros.');
+  const [{ n }] = (await db.execute(sql`select count(*)::int as n from member_access where member_id = ${m.id} and revoked_at is null`)).rows as { n: number }[];
+  if (!n) throw new AppError(403, 'O seu acesso está bloqueado. Fale com quem vendeu o curso.');
   await db.update(schema.memberUsers).set({ lastLoginAt: new Date() }).where(eq(schema.memberUsers.id, m.id));
   res.json({ token: sign(m), member: memberView(m) });
 }));

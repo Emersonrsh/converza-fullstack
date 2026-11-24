@@ -323,6 +323,13 @@
       "when": 1795540000000,
       "tag": "0045_member_course_preview",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1795550000000,
+      "tag": "0046_member_links_permanent",
+      "breakpoints": true
     }
   ]
 }

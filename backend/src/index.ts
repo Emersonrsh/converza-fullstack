@@ -46,7 +46,7 @@ import { globalsRouter } from './modules/globals';
 import { translationsRouter, startTranslationSweep } from './modules/translations';
 import { aiUsageRouter } from './modules/aiUsage';
 import { trackingRouter, trackingPublicRouter } from './modules/tracking';
-import { membersPreviewRouter } from './modules/membersPreview';
+import { membersEnterRouter, membersPreviewRouter } from './modules/membersPreview';
 import { apiKeysRouter } from './modules/apiKeys';
 import { mcpRouter } from './mcp/server';
 import { integrationsRouter } from './modules/integrations';
@@ -112,6 +112,7 @@ app.use('/mcp', mcpRouter);
 // link rastreável (público): conta o clique e abre o WhatsApp com a mensagem pronta
 app.use('/t', trackingPublicRouter);
 app.use('/m', membersPreviewRouter);
+app.use('/entrar', membersEnterRouter);
 // avisos de pagamento da Asaas e da Paddle (sem login — token / assinatura de cada gateway)
 app.use('/api/v1/billing-hooks', billingHooksRouter);
 

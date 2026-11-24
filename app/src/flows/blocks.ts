@@ -61,7 +61,7 @@ export const AI_MODELS: [string, string][] = [['', 'Padrão da plataforma']];
 
 export const rid = (p: string) => `${p}_${Math.random().toString(36).slice(2, 8)}`;
 
-export const MEMBERS_TEXT = 'Pronto! Seu acesso a {{membros.cursos}} está liberado 🎉\n\nToque no link para entrar:\n{{membros.link}}\n\nDas próximas vezes, acesse {{membros.area}} e digite este número de WhatsApp.';
+export const MEMBERS_TEXT = 'Pronto! Seu acesso a {{membros.cursos}} está liberado 🎉\n\nToque no link para entrar:\n{{membros.link}}';
 
 const DEFAULT_PROMPT = 'Você é um assistente útil.\nSempre responda em português do Brasil.\nSeja claro e objetivo.';
 

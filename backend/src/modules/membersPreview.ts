@@ -115,6 +115,13 @@ async function serve(req: Request, res: import('express').Response, entrar: bool
 }
 
 membersPreviewRouter.get('/:slug/entrar', (req, res, next) => { serve(req, res, true).catch(next); });
+
+/**
+ * Link de acesso no endereço do app (converza.pro/entrar/<área>?t=…). O site encaminha /entrar/* para cá
+ * (regra de reescrita) para o WhatsApp ler a prévia; sem a regra, o próprio app leva para a área de membros.
+ */
+export const membersEnterRouter = Router();
+membersEnterRouter.get('/:slug', (req, res, next) => { serve(req, res, true).catch(next); });
 membersPreviewRouter.get('/:slug', (req, res, next) => { serve(req, res, false).catch(next); });
 
 /** Capa pública (é a vitrine do curso, a mesma que aparece na prévia). */
@@ -135,6 +142,11 @@ export function previewBase(): string {
   return config.publicApiUrl || appBase();
 }
 
+/** Link de acesso que vai para o cliente: sempre no endereço do app. */
+export function memberEnterUrl(slug: string, token: string, courseId?: string | null): string {
+  return `${appBase()}/entrar/${slug}?t=${token}${courseId ? `&c=${courseId}` : ''}`;
+}
+
 const esc2 = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /**
  * WhatsApp por QR Code: o próprio Converza monta a prévia do link da área de membros (título, descrição e capa),
@@ -142,12 +154,12 @@ const esc2 = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  */
 export async function memberLinkPreview(text: string, thumb: (img: Buffer) => Promise<{ jpegThumbnail?: Buffer; highQualityThumbnail?: any }>): Promise<Record<string, any> | null> {
   const hosts = [...new Set([previewBase(), appBase()])].map(esc2).join('|');
-  const m = new RegExp(`(?:${hosts})/m/([a-z0-9-]{1,60})(?:/entrar)?(?:\\?[^\\s]*)?`, 'i').exec(text);
+  const m = new RegExp(`(?:${hosts})/(?:m/([a-z0-9-]{1,60})(?:/entrar)?|entrar/([a-z0-9-]{1,60}))(?:\\?[^\\s]*)?`, 'i').exec(text);
   if (!m) return null;
   const url = m[0];
   let params: URLSearchParams;
   try { params = new URL(url).searchParams; } catch { return null; }
-  const info = await previewInfo(m[1].toLowerCase(), params.get('c'), params.get('t'));
+  const info = await previewInfo((m[1] ?? m[2]).toLowerCase(), params.get('c'), params.get('t'));
   if (!info) return null;
   const out: Record<string, any> = { 'canonical-url': url, 'matched-text': url, title: info.title, description: info.description };
   if (info.coverKey) {

@@ -120,30 +120,33 @@ function AuthShell({ info, children }: { info: Info; children: ReactNode }) {
   );
 }
 
+/** Sem link: entrar é sempre pelo link do WhatsApp; aqui o cliente só pede o link de novo. */
 function Login({ slug, info, api }: { slug: string; info: Info; api: Api }) {
-  const nav = useNavigate();
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setBusy(true); setErr(null);
-    try { const r = await api.call<{ token: string }>('POST', '/enter', { phone }); api.setToken(r.token); nav(`/m/${slug}`, { replace: true }); }
+    try { await api.call('POST', '/forgot', { login: phone }); setSent(true); }
     catch (e2) { setErr((e2 as Error).message); }
     setBusy(false);
   }
 
   return (
     <AuthShell info={info}>
-      <h2>Entrar</h2>
-      <p className="mbr-muted">Digite o número de WhatsApp que você usou na compra.</p>
-      <form onSubmit={submit} className="mbr-form">
-        <label><span>WhatsApp com DDD</span>
-          <input className="mbr-input" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" placeholder="(11) 99999-9999" required autoFocus data-testid="mbr-login" /></label>
-        <small className="mbr-hint">Número de fora do Brasil: digite com o código do país (ex.: +52 55 1234 5678).</small>
-        {err && <div className="mbr-err" data-testid="mbr-err">{err}</div>}
-        <button className="mbr-btn primary" disabled={busy || phone.replace(/\D/g, '').length < 8} data-testid="mbr-submit">{busy ? 'Entrando…' : 'Entrar'}</button>
-      </form>
+      <h2>Entre pelo seu link</h2>
+      <p className="mbr-muted">O acesso é sempre pelo link que você recebeu no WhatsApp. Procure a mensagem na conversa e toque no link.</p>
+      {sent ? <div className="mbr-ok" data-testid="mbr-sent">Se este número tiver acesso, o link chega no seu WhatsApp em instantes.</div> : (
+        <form onSubmit={submit} className="mbr-form">
+          <label><span>Não acha a mensagem? Receba o link de novo</span>
+            <input className="mbr-input" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" placeholder="(11) 99999-9999" required data-testid="mbr-login" /></label>
+          <small className="mbr-hint">Use o mesmo WhatsApp da compra. Fora do Brasil, digite com o código do país.</small>
+          {err && <div className="mbr-err" data-testid="mbr-err">{err}</div>}
+          <button className="mbr-btn primary" disabled={busy || phone.replace(/\D/g, '').length < 8} data-testid="mbr-submit">{busy ? 'Enviando…' : 'Enviar o link no WhatsApp'}</button>
+        </form>
+      )}
     </AuthShell>
   );
 }
@@ -177,8 +180,8 @@ function Enter({ slug, info, api }: { slug: string; info: Info; api: Api }) {
     <AuthShell info={info}>
       {!err ? <div className="mbr-loading inline"><span className="mbr-spin" /></div> : <>
         <h2>Link indisponível</h2>
-        <div className="mbr-err" data-testid="mbr-enter-err">{err.replace(/ Peça um novo em “Esqueci minha senha”\./, '')} Entre com o seu número de WhatsApp.</div>
-        <Link className="mbr-btn primary" to={`/m/${slug}`}>Entrar com o WhatsApp</Link>
+        <div className="mbr-err" data-testid="mbr-enter-err">{err}</div>
+        <Link className="mbr-btn primary" to={`/m/${slug}`}>Receber o link de novo</Link>
       </>}
     </AuthShell>
   );

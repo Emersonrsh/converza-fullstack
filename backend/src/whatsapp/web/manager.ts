@@ -549,7 +549,7 @@ async function contentOf(s: Session, jid: string, op: WebOp): Promise<{ content:
       return { content: { text: op.fallback }, opts };
     case 'text': {
       // link da área de membros: vai com a prévia (capa do curso), montada pelo próprio Converza
-      const lp = /\/m\/[a-z0-9-]/i.test(op.text) && s.sock
+      const lp = /\/(?:m|entrar)\/[a-z0-9-]/i.test(op.text) && s.sock
         ? await memberLinkPreview(op.text, (img) => s.sock!.linkThumb(img)).catch((err) => { log(s, `prévia do link: ${(err as Error).message}`); return null; })
         : null;
       return { content: lp ? { text: op.text, linkPreview: lp } : { text: op.text }, opts };

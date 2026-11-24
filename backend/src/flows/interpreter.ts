@@ -67,7 +67,7 @@ export interface MembersAccessSpec {
   unlockRest?: { onSale: boolean; productId: string | null; afterDays: number | null };
 }
 export interface MembersAccessResult { ok: boolean; info?: string; link: string; area: string; courses: string[]; modules: string[] }
-export const MEMBERS_DEFAULT_TEXT = 'Pronto! Seu acesso a {{membros.cursos}} está liberado 🎉\n\nToque no link para entrar:\n{{membros.link}}\n\nDas próximas vezes, acesse {{membros.area}} e digite este número de WhatsApp.';
+export const MEMBERS_DEFAULT_TEXT = 'Pronto! Seu acesso a {{membros.cursos}} está liberado 🎉\n\nToque no link para entrar:\n{{membros.link}}';
 
 export interface FlowExecutor {
   getContact(): Promise<ContactSnapshot>;
@@ -546,7 +546,9 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
     if (!r.ok) { exec.note(`⚠️ Área de membros: ${r.info ?? 'não foi possível liberar'}`); return false; }
     if (action === 'grant' && d.sendMessage !== false) {
       const sc = await scope();
-      const text = render(String(d.text ?? '').trim() || MEMBERS_DEFAULT_TEXT, { ...sc, membros }).trim();
+      // o parágrafo antigo "Das próximas vezes, acesse {{membros.area}}…" saiu: entrar é sempre pelo link
+      const own = String(d.text ?? '').replace(/\n*Das próximas vezes, acesse \{\{\s*membros\.area\s*\}\} e digite (?:este|o seu) número de WhatsApp\.?/g, '').trim();
+      const text = render(own || MEMBERS_DEFAULT_TEXT, { ...sc, membros }).trim();
       if (text) await exec.sendText(text);
     }
     return true;

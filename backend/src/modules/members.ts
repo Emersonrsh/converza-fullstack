@@ -80,11 +80,11 @@ export { normPhone, normEmail };
 export async function issueMemberLink(memberId: string, slug: string, courseId?: string | null): Promise<string> {
   const token = randomBytes(24).toString('base64url');
   await db.insert(schema.memberTokens).values({
-    memberId, tokenHash: createHash('sha256').update(token).digest('hex'), expiresAt: new Date(Date.now() + 7 * 24 * 3600_000),
+    memberId, tokenHash: createHash('sha256').update(token).digest('hex'), expiresAt: new Date(Date.now() + 10 * 365 * 24 * 3600_000), // o link é o único jeito de entrar: vale sempre
   });
-  // pela API: o WhatsApp mostra a prévia com a capa do curso (quem clica vai direto para o app)
-  const { previewBase } = await import('./membersPreview');
-  return `${previewBase()}/m/${slug}/entrar?t=${token}${courseId ? `&c=${courseId}` : ''}`;
+  // no endereço do app: o WhatsApp mostra a prévia com a capa do curso (quem clica vai direto para a área)
+  const { memberEnterUrl } = await import('./membersPreview');
+  return memberEnterUrl(slug, token, courseId);
 }
 
 /**
@@ -105,7 +105,7 @@ export async function sendMemberAccess(accountId: string, memberId: string, opts
     : opts.reason === 'sale' && courses ? `Seu acesso a ${courses} está liberado${mods ? `, com ${mods}` : ''}`
       : opts.reason === 'sale' && mods ? `${opts.moduleTitles!.length > 1 ? 'Novos módulos liberados' : 'Novo módulo liberado'} na área de membros: ${mods}`
         : 'Seu acesso à área de membros está liberado';
-  const text = `${first ? `Olá, ${first}! ` : ''}${intro} 🎉\n\nToque no link para entrar:\n${link}\n\nDas próximas vezes, acesse ${appBase()}/m/${slug} e digite este número de WhatsApp.`;
+  const text = `${first ? `Olá, ${first}! ` : ''}${intro} 🎉\n\nToque no link para entrar:\n${link}\n\nGuarde esta mensagem: é sempre por este link que você entra.`;
   let whatsapp = false;
   let email = false;
   let error: string | undefined;
@@ -126,7 +126,7 @@ export async function sendMemberAccess(accountId: string, memberId: string, opts
   }
   if (m.email && emailConfigured()) {
     const title = opts.reason === 'forgot' ? 'Entrar na área de membros' : 'Seu acesso está liberado';
-    const paras = [first ? `Olá, ${escapeHtml(first)}!` : 'Olá!', `${escapeHtml(intro)}${courses ? '' : ''} em <b>${escapeHtml(look.title)}</b>.`, `Clique no botão para entrar. Das próximas vezes, acesse ${escapeHtml(`${appBase()}/m/${slug}`)} e digite o seu número de WhatsApp.`];
+    const paras = [first ? `Olá, ${escapeHtml(first)}!` : 'Olá!', `${escapeHtml(intro)}${courses ? '' : ''} em <b>${escapeHtml(look.title)}</b>.`, 'Clique no botão para entrar. Guarde este e-mail: é sempre por este link que você entra.'];
     const r = await sendMail({ to: m.email, subject: `${title} · ${look.title}`, html: layout(title, paras, { label: 'Entrar na área de membros', url: link }), text: plainText(title, paras.map((p) => p.replace(/<[^>]+>/g, '')), { label: 'Entrar na área de membros', url: link }) });
     email = r.sent;
     if (!r.sent && !error) error = r.error;

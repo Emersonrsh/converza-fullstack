@@ -107,7 +107,7 @@ export function MembersEditor({ d, set, vars, lookups }: EditorProps) {
           <ToggleCard title="Mandar o link de acesso na conversa" desc="Uma mensagem com o link que entra direto na área (vale 7 dias, uma vez). Depois, o cliente entra digitando o número." checked={d.sendMessage !== false} onChange={(sendMessage) => set({ sendMessage })} testId="mb-send" />
           {d.sendMessage !== false && (
             <Field label="Mensagem">
-              <RichText value={d.text ?? MEMBERS_TEXT} onChange={(text) => set({ text })} vars={[...vars, 'membros.link', 'membros.area', 'membros.cursos', 'membros.modulos']} rows={5} testId="mb-text" />
+              <RichText value={(d.text ?? MEMBERS_TEXT).replace(/\n*Das próximas vezes, acesse \{\{\s*membros\.area\s*\}\} e digite (?:este|o seu) número de WhatsApp\.?/g, '')} onChange={(text) => set({ text })} vars={[...vars, 'membros.link', 'membros.area', 'membros.cursos', 'membros.modulos']} rows={5} testId="mb-text" />
             </Field>
           )}
           <div className="bm-hint fx-mb-after">Depois deste bloco você pode usar {'{{membros.link}}'}, {'{{membros.area}}'}, {'{{membros.cursos}}'} e {'{{membros.modulos}}'} em outras mensagens.</div>

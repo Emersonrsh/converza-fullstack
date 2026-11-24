@@ -37,6 +37,9 @@ export default function App() {
   const { user, accounts, loading, offline, retry } = useAuth();
   const loc = useLocation();
   // Converza Members: área do aluno, com login próprio
+  // link de acesso da área de membros (converza.pro/entrar/<área>?t=…): leva para a área
+  const enter = /^\/entrar\/([a-z0-9-]{1,60})\/?$/i.exec(loc.pathname);
+  if (enter) return <Navigate to={`/m/${enter[1].toLowerCase()}/entrar${loc.search}`} replace />;
   if (loc.pathname.startsWith('/m/')) return <Suspense fallback={<div style={{ height: '100vh', background: '#070d0e' }} />}><MembersArea /></Suspense>;
   // página de pagamento da Paddle: pública (o link pode ser aberto sem login)
   if (loc.pathname === '/pagamento') return <PaddleCheckout />;
