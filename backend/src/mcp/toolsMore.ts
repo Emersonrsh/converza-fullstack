@@ -71,6 +71,39 @@ const MEMBERS: ToolDef[] = [
     },
   },
   {
+    name: 'save_product', title: 'Criar ou editar produto',
+    description: 'Cria um produto (sem product_id) ou edita (com product_id). price = valor padrão (fallback, maior que zero); min_price e max_price = faixa aceita para uma venda (o padrão precisa ficar dentro). currency = moeda ISO (padrão BRL). Use o id no bloco Registrar venda (productId) e na validação de valor do comprovante.',
+    group: 'sales', write: true,
+    inputSchema: S({
+      product_id: str('Produto a editar (vazio = criar)', { format: 'uuid' }), name: str('Nome'), currency: str('Moeda ISO 4217 (ex.: BRL)'),
+      price: { type: 'number', description: 'Valor padrão (fallback)' }, min_price: { type: ['number', 'null'], description: 'Preço mínimo' },
+      max_price: { type: ['number', 'null'], description: 'Preço máximo' }, cost: { type: 'number', description: 'Custo por venda' }, checkout_url: str('Link de pagamento (https)'),
+    }),
+    args: z.object({
+      product_id: z.string().uuid().optional(), name: z.string().trim().min(1).max(160).optional(), currency: z.string().trim().length(3).optional(),
+      price: z.number().positive().optional(), min_price: z.number().nonnegative().nullable().optional(), max_price: z.number().nonnegative().nullable().optional(),
+      cost: z.number().nonnegative().optional(), checkout_url: z.string().max(2000).optional(),
+    }),
+    async run(ctx, a) {
+      const body: Record<string, unknown> = {};
+      if (a.name !== undefined) body.name = a.name;
+      if (a.currency !== undefined) body.currency = a.currency.toUpperCase();
+      if (a.price !== undefined) body.price = a.price;
+      if (a.min_price !== undefined) body.minPrice = a.min_price;
+      if (a.max_price !== undefined) body.maxPrice = a.max_price;
+      if (a.cost !== undefined) body.cost = a.cost;
+      if (a.checkout_url !== undefined) body.checkoutUrl = a.checkout_url;
+      const view = (p: any) => ({ product_id: p.id, name: p.name, currency: p.currency, price: Number(p.price), min_price: p.minPrice == null ? null : Number(p.minPrice), max_price: p.maxPrice == null ? null : Number(p.maxPrice) });
+      if (!a.product_id) {
+        if (!a.name || a.price === undefined) throw new ToolError('Para criar, informe name e price.');
+        const r = await callRoute<{ product: any }>(settingsRouter, ctx, 'POST', '/products', { body });
+        return { result: view(r.body.product), summary: `produto criado: ${r.body.product.name}` };
+      }
+      const r = await callRoute<{ product: any }>(settingsRouter, ctx, 'PATCH', `/products/${a.product_id}`, { body });
+      return { result: view(r.body.product), summary: `produto atualizado: ${r.body.product.name}` };
+    },
+  },
+  {
     name: 'members_save_course', title: 'Converza Members: criar ou editar curso',
     description: 'Cria um curso (sem course_id) ou edita (com course_id). product_id liga o curso a um produto: a venda aprovada desse produto libera o curso sozinha. Curso novo nasce como rascunho; published=true publica.',
     group: 'members', write: true,
