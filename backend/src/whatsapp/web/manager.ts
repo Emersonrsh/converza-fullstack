@@ -8,6 +8,7 @@
  * - O que chega vira o mesmo formato do webhook da Cloud API, então chats, fluxos, agentes e disparos
  *   funcionam igual nos dois tipos de conexão.
  */
+import { memberLinkPreview } from '../../modules/membersPreview';
 import { createHash, randomBytes, randomInt, randomUUID } from 'crypto';
 import { safeDownload } from '../../flows/http';
 import QRCode from 'qrcode';
@@ -546,8 +547,13 @@ async function contentOf(s: Session, jid: string, op: WebOp): Promise<{ content:
     case 'interactive':
     case 'poll':
       return { content: { text: op.fallback }, opts };
-    case 'text':
-      return { content: { text: op.text }, opts };
+    case 'text': {
+      // link da área de membros: vai com a prévia (capa do curso), montada pelo próprio Converza
+      const lp = /\/m\/[a-z0-9-]/i.test(op.text) && s.sock
+        ? await memberLinkPreview(op.text, (img) => s.sock!.linkThumb(img)).catch((err) => { log(s, `prévia do link: ${(err as Error).message}`); return null; })
+        : null;
+      return { content: lp ? { text: op.text, linkPreview: lp } : { text: op.text }, opts };
+    }
     case 'contacts':
       return { content: { contacts: { displayName: op.displayName, contacts: op.vcards.map((vcard) => ({ vcard })) } }, opts };
     case 'react': {

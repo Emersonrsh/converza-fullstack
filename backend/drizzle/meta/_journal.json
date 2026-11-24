@@ -316,6 +316,13 @@
       "when": 1795480000000,
       "tag": "0044_product_price_range",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1795540000000,
+      "tag": "0045_member_course_preview",
+      "breakpoints": true
     }
   ]
 }

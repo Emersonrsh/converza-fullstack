@@ -13,7 +13,8 @@ import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { config } from '../config';
 import { asyncHandler, AppError, isUuid } from '../utils/http';
-import { deleteObject, putObject, signedUrl, storeDriver } from '../storage/objects';
+import { deleteObject, putBuffer, putObject, signedUrl, storeDriver } from '../storage/objects';
+import sharp from 'sharp';
 import { emailConfigured, escapeHtml, layout, plainText, sendMail } from '../email/mailer';
 
 export const membersRouter = Router();
@@ -76,12 +77,14 @@ const normEmail = (e: unknown) => { const s = String(e ?? '').trim().toLowerCase
 export { normPhone, normEmail };
 
 /** Link de primeiro acesso / nova senha (vale 7 dias, uso único). */
-export async function issueMemberLink(memberId: string, slug: string): Promise<string> {
+export async function issueMemberLink(memberId: string, slug: string, courseId?: string | null): Promise<string> {
   const token = randomBytes(24).toString('base64url');
   await db.insert(schema.memberTokens).values({
     memberId, tokenHash: createHash('sha256').update(token).digest('hex'), expiresAt: new Date(Date.now() + 7 * 24 * 3600_000),
   });
-  return `${appBase()}/m/${slug}/entrar?t=${token}`;
+  // pela API: o WhatsApp mostra a prévia com a capa do curso (quem clica vai direto para o app)
+  const { previewBase } = await import('./membersPreview');
+  return `${previewBase()}/m/${slug}/entrar?t=${token}${courseId ? `&c=${courseId}` : ''}`;
 }
 
 /**
@@ -312,7 +315,7 @@ export async function flowMembersAccess(accountId: string, contactId: string, p:
     // módulos marcados não ficam mais pendentes
     for (const m of on) await db.delete(schema.memberPendingUnlocks).where(and(eq(schema.memberPendingUnlocks.memberId, member.id), eq(schema.memberPendingUnlocks.moduleId, m.id)));
   }
-  const link = await issueMemberLink(member.id, slug);
+  const link = await issueMemberLink(member.id, slug, courses[0]?.id ?? mods[0]?.courseId ?? null);
   const all = courses.map((x) => x.title);
   for (const r of mods) if (!courses.some((x) => x.id === r.courseId)) {
     const [t] = await db.select({ title: schema.memberCourses.title }).from(schema.memberCourses).where(eq(schema.memberCourses.id, r.courseId)).limit(1);
@@ -478,7 +481,7 @@ membersRouter.get('/courses/:id', asyncHandler(async (req, res) => {
     join member_modules m on m.id = r.module_id join products p on p.id = r.product_id
     where m.course_id = ${c.id} order by r.created_at`)).rows as { id: string; moduleId: string; productId: string; productName: string }[];
   res.json({
-    course: { ...c, coverKey: undefined, coverUrl: await coverUrl(c.coverKey, req), members },
+    course: { ...c, coverKey: undefined, previewKey: undefined, coverUrl: await coverUrl(c.coverKey, req), previewUrl: await coverUrl(c.previewKey, req), members },
     modules: await Promise.all(modules.map(async (m) => ({
       id: m.id, title: m.title, sort: m.sort, coverUrl: await coverUrl(m.coverKey, req), locked: m.locked, unlockAfterDays: m.unlockAfterDays, isBonus: m.isBonus,
       unlockRules: rules.filter((r) => r.moduleId === m.id).map(({ moduleId: _m, ...r }) => r),
@@ -499,7 +502,7 @@ membersRouter.patch('/courses/:id', asyncHandler(async (req, res) => {
   if (p.data.published !== undefined) patch.published = p.data.published;
   if (p.data.sort !== undefined) patch.sort = p.data.sort;
   const [row] = Object.keys(patch).length ? await db.update(schema.memberCourses).set(patch).where(eq(schema.memberCourses.id, c.id)).returning() : [c];
-  res.json({ course: { ...row, coverKey: undefined, coverUrl: await coverUrl(row.coverKey, req) } });
+  res.json({ course: { ...row, coverKey: undefined, previewKey: undefined, coverUrl: await coverUrl(row.coverKey, req), previewUrl: await coverUrl(row.previewKey, req) } });
 }));
 
 membersRouter.delete('/courses/:id', asyncHandler(async (req, res) => {
@@ -508,7 +511,41 @@ membersRouter.delete('/courses/:id', asyncHandler(async (req, res) => {
   const files = await db.select({ f: schema.memberLessons.fileKey }).from(schema.memberLessons).where(eq(schema.memberLessons.courseId, c.id));
   const covers = await db.select({ f: schema.memberModules.coverKey }).from(schema.memberModules).where(eq(schema.memberModules.courseId, c.id));
   await db.delete(schema.memberCourses).where(eq(schema.memberCourses.id, c.id));
-  for (const k of [c.coverKey, ...files.map((x) => x.f), ...covers.map((x) => x.f)]) await deleteObject(k);
+  for (const k of [c.coverKey, c.previewKey, ...files.map((x) => x.f), ...covers.map((x) => x.f)]) await deleteObject(k);
+  res.status(204).end();
+}));
+
+/** Tamanho exato da prévia de link do WhatsApp/Facebook (1,91:1). */
+export const PREVIEW_W = 1200, PREVIEW_H = 628;
+
+/** Imagem da prévia do link: o app manda já recortada; aqui ela é gravada sempre em 1200×628 (JPEG). */
+membersRouter.post('/courses/:id/preview', asyncHandler(async (req, res) => {
+  managerOnly(req);
+  const c = await ownCourse(req, req.params.id);
+  const type = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+  if (!IMAGE_TYPES[type]) throw new AppError(415, 'Use uma imagem JPG, PNG ou WebP.');
+  const parts: Buffer[] = []; let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_IMAGE) throw new AppError(413, 'Imagem grande demais: o limite é 5 MB.');
+    parts.push(chunk as Buffer);
+  }
+  let jpg: Buffer;
+  try {
+    jpg = await sharp(Buffer.concat(parts)).rotate().resize(PREVIEW_W, PREVIEW_H, { fit: 'cover', position: 'centre' }).jpeg({ quality: 85, mozjpeg: true }).toBuffer();
+  } catch { throw new AppError(415, 'Não foi possível ler essa imagem.'); }
+  const key = `m/${req.accountId}/previews/${randomUUID()}.jpg`;
+  await putBuffer(key, jpg, 'image/jpeg');
+  await db.update(schema.memberCourses).set({ previewKey: key }).where(eq(schema.memberCourses.id, c.id));
+  await deleteObject(c.previewKey);
+  res.json({ previewUrl: await coverUrl(key, req) });
+}));
+
+membersRouter.delete('/courses/:id/preview', asyncHandler(async (req, res) => {
+  managerOnly(req);
+  const c = await ownCourse(req, req.params.id);
+  await db.update(schema.memberCourses).set({ previewKey: null }).where(eq(schema.memberCourses.id, c.id));
+  await deleteObject(c.previewKey);
   res.status(204).end();
 }));
 

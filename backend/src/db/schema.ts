@@ -1353,6 +1353,8 @@ export const memberCourses = pgTable('member_courses', {
   title: text('title').notNull(),
   description: text('description'),
   coverKey: text('cover_key'),
+  /** imagem da prévia do link no WhatsApp: sempre 1200×628 (a capa é vertical, 2:3) */
+  previewKey: text('preview_key'),
   productId: uuid('product_id').references(() => products.id, { onDelete: 'set null' }),
   published: boolean('published').notNull().default(false),
   sort: integer('sort').notNull().default(0),

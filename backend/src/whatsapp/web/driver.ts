@@ -35,6 +35,8 @@ export interface DriverSocket {
   pollVoteHashes(msg: any, secret: Buffer): Buffer[] | null;
   /** devolve a mensagem enviada (formato do Baileys: key.id é o id da mensagem) */
   sendMessage(jid: string, content: Record<string, any>, opts?: Record<string, any>): Promise<any>;
+  /** imagem da prévia de link: sobe para o WhatsApp (prévia grande) e devolve também a miniatura */
+  linkThumb(image: Buffer): Promise<{ jpegThumbnail?: Buffer; highQualityThumbnail?: any }>;
   /** número → JID de verdade no WhatsApp (o celular antigo pode estar sem o 9) */
   onWhatsApp(phone: string): Promise<{ jid: string; exists: boolean } | null>;
   readMessages(keys: { remoteJid: string; id: string; fromMe: boolean }[]): Promise<void>;
@@ -131,6 +133,10 @@ const baileysDriver: Driver = {
 
     return {
       sendMessage: (jid, content, opts) => sock.sendMessage(jid, content as any, opts as any),
+      async linkThumb(image) {
+        const { imageMessage } = await B.prepareWAMessageMedia({ image } as any, { upload: sock.waUploadToServer, mediaTypeOverride: 'thumbnail-link' } as any);
+        return { jpegThumbnail: imageMessage?.jpegThumbnail ? Buffer.from(imageMessage.jpegThumbnail) : undefined, highQualityThumbnail: imageMessage ?? undefined };
+      },
       pollVoteHashes(msg, secret) {
         const upd = B.normalizeMessageContent(msg.message)?.pollUpdateMessage;
         const pollId = upd?.pollCreationMessageKey?.id;
@@ -267,6 +273,9 @@ const mockDriver: Driver = {
         const id = `3EB0${randomBytes(8).toString('hex').toUpperCase()}`;
         mock.sent.push({ connectionId, jid, content: { interactive: spec }, id, at: Date.now() });
         return { key: { id, remoteJid: jid, fromMe: true } };
+      },
+      async linkThumb(image) {
+        return { jpegThumbnail: image.subarray(0, 64), highQualityThumbnail: { mimetype: 'image/jpeg', fileLength: image.length } };
       },
       pollVoteHashes(msg) {
         // simulador: o "voto" traz o texto da opção em claro

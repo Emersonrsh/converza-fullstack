@@ -1,6 +1,7 @@
 /**
  * Converza Members — painel da empresa: cursos (módulos e aulas em PDF), membros e aparência da área.
  */
+import { ImageCropper } from '../components/ImageCropper';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { api, apiFetch, getAccountId, getToken, API_BASE } from '../api';
@@ -10,7 +11,7 @@ import { Modal, Spinner, TopbarActions, cx, toast } from '../components/ui';
 import { ConfirmModal } from '../kanban/modals';
 
 interface CourseRow {
-  id: string; title: string; description: string | null; coverUrl: string | null; productId: string | null; productName: string | null;
+  id: string; title: string; description: string | null; coverUrl: string | null; previewUrl?: string | null; productId: string | null; productName: string | null;
   published: boolean; modules: number; lessons: number; lessonsWithFile: number; members: number;
 }
 interface Settings { slug: string; url: string; title: string; subtitle: string; color: string; bannerUrl: string | null; storage: 'r2' | 'local' | null }
@@ -399,6 +400,8 @@ function CourseEditor() {
   const [newMod, setNewMod] = useState('');
   const [coverUp, setCoverUp] = useState<number | null>(null);
   const coverRef = useRef<HTMLInputElement>(null);
+  const previewRef = useRef<HTMLInputElement>(null);
+  const [cropFile, setCropFile] = useState<File | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -444,6 +447,12 @@ function CourseEditor() {
     try { await upload(`/members/courses/${id}/cover`, file, setCoverUp); await load(); } catch (e) { toast((e as Error).message); }
     setCoverUp(null);
   }
+  async function savePreview(blob: Blob) {
+    try {
+      await upload(`/members/courses/${id}/preview`, new File([blob], 'previa.jpg', { type: 'image/jpeg' }));
+      setCropFile(null); await load(); toast('Prévia do link salva');
+    } catch (e) { toast((e as Error).message); }
+  }
 
   return (
     <div className="mbx">
@@ -459,6 +468,21 @@ function CourseEditor() {
             {coverUp !== null && <span className="mbx-cover-up">{Math.round(coverUp * 100)}%</span>}
           </div>
           <input ref={coverRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => { const x = e.target.files?.[0]; if (x) void cover(x); e.target.value = ''; }} />
+          <label className="label" style={{ marginTop: 10 }}>Prévia do link no WhatsApp</label>
+          <div className="mbx-preview" onClick={() => canEdit && storage && previewRef.current?.click()} role="button" title="Escolher a imagem da prévia (1200 × 628)" data-testid="mbx-preview">
+            {c.previewUrl
+              ? <img src={c.previewUrl} alt="" />
+              : c.coverUrl
+                ? <><img src={c.coverUrl} alt="" /><span className="tag">automática: recorte da capa</span></>
+                : <span className="mbx-cover-ph"><Icon name="image" size={22} /><small>1200 × 628</small></span>}
+          </div>
+          <small className="faint" style={{ display: 'block', marginTop: 4 }}>
+            Aparece quando o link de acesso é enviado no WhatsApp. Envie qualquer imagem e enquadre no tamanho exato (1200 × 628).
+            {c.previewUrl && canEdit && <> <button type="button" className="linklike" onClick={() => void api.del(`/members/courses/${id}/preview`).then(load).catch((e) => toast((e as Error).message))}>Usar recorte da capa</button></>}
+          </small>
+          <input ref={previewRef} type="file" accept="image/jpeg,image/png,image/webp" hidden data-testid="mbx-preview-file"
+            onChange={(e) => { const x = e.target.files?.[0]; if (x) setCropFile(x); e.target.value = ''; }} />
+          {cropFile && <ImageCropper file={cropFile} width={1200} height={628} title="Prévia do link no WhatsApp" onCancel={() => setCropFile(null)} onDone={savePreview} />}
           <div className="mbx-pub"><span className={cx('pill dot', c.published ? 'green' : '')} data-testid="mbx-status">{c.published ? 'Publicado' : 'Rascunho'}</span><small className="faint">{c.members} membro(s) · {lessonsTotal} aula(s)</small></div>
           <label className="label">Nome</label>
           <input className="input" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} disabled={!canEdit} data-testid="mbx-edit-title" />
