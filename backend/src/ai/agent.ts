@@ -336,6 +336,14 @@ async function runAutomation(ctx: Ctx, auto: AgentAutomation | null, texts: stri
   if (auto.action === 'flow' && auto.flowId && ctx.flows[auto.flowId]) {
     const f = ctx.flows[auto.flowId];
     if (auto.nodeId) {
+      // o fluxo já está esperando nesse bloco (ex.: o agente respondeu a mensagem que o fluxo não entendeu):
+      // não recomeça, senão a mesma mensagem voltaria para o fluxo e para o agente sem parar
+      const [here] = await db.select({ id: schema.flowRuns.id }).from(schema.flowRuns).where(and(eq(schema.flowRuns.flowId, auto.flowId),
+        eq(schema.flowRuns.contactId, contact.id), eq(schema.flowRuns.status, 'waiting_input'), eq(schema.flowRuns.currentNodeId, auto.nodeId))).limit(1);
+      if (here) {
+        await systemNote(accountId, conv.id, `🤖 ${agent.name} quis levar o cliente para uma etapa do fluxo “${f.name}”, mas ele já está esperando nela.${why}`);
+        return { outcome: 'replied', detail: null, ...base };
+      }
       // etapa exata: começa nesse bloco (aproveita o que o cliente já respondeu nesse fluxo); se o bloco espera
       // uma resposta sem perguntar nada, a mensagem que o cliente acabou de mandar já entra como resposta
       const r = await startFlowManually(accountId, auto.flowId, contact.id, conv.connectionId, auto.nodeId,
