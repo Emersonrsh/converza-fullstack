@@ -24,9 +24,12 @@ function toNode(n: FlowNode, stoppedAt: string | null): BlockFlowNode {
  * "Retomar fluxo": mostra o fluxo inteiro (só leitura) e deixa escolher o bloco de onde ele volta a rodar.
  * O bloco onde parou já vem marcado: retomar nele continua do ponto exato (ex.: a mensagem que falhou).
  */
-export function ResumeFlowModal({ convId, runId, flowId, flowName, stoppedAt, failed, onClose }: {
-  convId: string; runId: string; flowId: string; flowName: string; stoppedAt: string | null; failed: boolean; onClose: () => void;
+export function ResumeFlowModal({ convId, runId, flowId, flowName, stoppedAt, failed, onClose, mode = 'resume', onStart, lastInfo }: {
+  convId: string; runId?: string; flowId: string; flowName: string; stoppedAt: string | null; failed: boolean; onClose: () => void;
+  /** 'start': dispara o fluxo a partir do bloco escolhido (de uma execução que já terminou ou nunca rodou) */
+  mode?: 'resume' | 'start'; onStart?: (nodeId: string) => Promise<boolean>; lastInfo?: string | null;
 }) {
+  const starting = mode === 'start';
   const [flow, setFlow] = useState<Flow | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pick, setPick] = useState<string | null>(stoppedAt);
@@ -68,32 +71,41 @@ export function ResumeFlowModal({ convId, runId, flowId, flowName, stoppedAt, fa
   async function go() {
     if (!pick) return;
     setBusy(true);
-    const ok = await resumeRun(convId, { runId, nodeId: same ? null : pick });
+    const ok = starting ? await onStart!(pick) : await resumeRun(convId, { runId, nodeId: same ? null : pick });
     setBusy(false);
     if (ok) onClose();
   }
 
   return (
-    <Modal title="Retomar fluxo" subtitle={flowName} icon="play" width={1080} onClose={onClose}
+    <Modal title={starting ? 'Disparar a partir de uma etapa' : 'Retomar fluxo'} subtitle={flowName} icon="play" width={1080} onClose={onClose}
       footer={
         <div className="rfm-ft">
           <span className="rfm-pick" data-testid="resume-pick">
             {pick
-              ? <>Volta a rodar a partir de <b>{pickedName}</b>{same ? (failed ? ' — reenvia o que não saiu e segue' : ' — onde ele parou') : ' — do começo desse bloco'}</>
-              : 'Clique no bloco de onde o fluxo deve voltar a rodar'}
+              ? starting
+                ? <>Começa a partir de <b>{pickedName}</b>{same ? ' — onde ele parou da última vez' : ''}</>
+                : <>Volta a rodar a partir de <b>{pickedName}</b>{same ? (failed ? ' — reenvia o que não saiu e segue' : ' — onde ele parou') : ' — do começo desse bloco'}</>
+              : starting ? 'Clique no bloco de onde o fluxo deve começar' : 'Clique no bloco de onde o fluxo deve voltar a rodar'}
           </span>
           <button type="button" className="btn ghost" onClick={onClose}>Cancelar</button>
           <button type="button" className="btn primary" disabled={!pick || busy} onClick={() => void go()} data-testid="resume-go">
-            <Icon name="play" size={14} />{busy ? 'Retomando…' : 'Retomar fluxo'}
+            <Icon name="play" size={14} />{busy ? (starting ? 'Disparando…' : 'Retomando…') : (starting ? 'Disparar daqui' : 'Retomar fluxo')}
           </button>
         </div>
       }>
       <div className="rfm-hint">
         <Icon name="info" size={14} />
-        <span>
-          {failed ? 'O fluxo parou porque uma mensagem não saiu.' : 'O fluxo está pausado.'} O bloco com borda tracejada é onde ele parou.
-          Clique em outro bloco para recomeçar dali.
-        </span>
+        {starting ? (
+          <span>
+            {stoppedAt ? <>{lastInfo ?? 'O bloco com borda tracejada é onde ele parou da última vez com este contato.'} </> : 'Este contato ainda não passou por este fluxo. '}
+            Clique no bloco de onde ele deve começar; as respostas que o cliente já deu neste fluxo continuam valendo.
+          </span>
+        ) : (
+          <span>
+            {failed ? 'O fluxo parou porque uma mensagem não saiu.' : 'O fluxo está pausado.'} O bloco com borda tracejada é onde ele parou.
+            Clique em outro bloco para recomeçar dali.
+          </span>
+        )}
       </div>
       <div className="rfm-canvas" data-testid="resume-canvas">
         {err && <div className="hint warn"><Icon name="alert" size={14} />{err}</div>}

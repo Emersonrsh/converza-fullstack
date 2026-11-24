@@ -152,6 +152,8 @@ export interface RunState {
   quoteNext: string | null;
   /** fluxo de entrada da jornada: o fluxo aberto por "ir para fluxo" herda (vendas da jornada viram um pedido só) */
   journeyFlowId?: string | null;
+  /** último bloco por onde o contato passou (fica depois que o fluxo termina, para "escolher etapa") */
+  lastNodeId?: string | null;
   /** identifica a espera atual (o tempo limite de uma espera antiga não vale para a nova) */
   waitToken: string | null;
   /** mensagens juntadas pelo "buffer" do Aguarda Resposta */
@@ -213,6 +215,7 @@ export function normalizeState(raw: unknown): RunState {
     typed: obj(r.typed),
     ...(r.held && typeof r.held === 'object' ? { held: { ...(r.held as Dict) } } : {}),
     journeyFlowId: r.journeyFlowId ? String(r.journeyFlowId) : null,
+    lastNodeId: r.lastNodeId ? String(r.lastNodeId) : null,
   };
 }
 
@@ -502,6 +505,7 @@ export async function runFrom(graph: FlowGraph, startId: string | null | undefin
     }
     if (!resume) await exec.onEnter(node.id);
     resume = false;
+    state.lastNodeId = node.id;
     let r: StepResult;
     try { r = await step(graph, node, state, exec); } catch (err) {
       // quem parou o fluxo precisa saber em qual bloco (para retomar dali)

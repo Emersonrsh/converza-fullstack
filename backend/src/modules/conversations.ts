@@ -11,7 +11,7 @@ import {
   markRead, mediaKind, sendMediaId, sendReaction, sendSticker, sendTemplate, sendText, uploadMedia, WhatsAppError, type MediaKind, type TemplateSend,
 } from '../whatsapp/cloud-api';
 import { emitToAccount } from '../realtime/io';
-import { ACTIVE_RUN_STATUSES, HELD_RUN_STATUSES, pauseRunsForContact, resumeHeldRun, startFlowManually, stopRunsForContact } from '../flows/runner';
+import { ACTIVE_RUN_STATUSES, HELD_RUN_STATUSES, pauseRunsForContact, resumeHeldRun, startFlowManually, lastRunOf, stopRunsForContact } from '../flows/runner';
 import { ensureConversation, systemNote } from './conversationStore';
 import { queueVisibility } from './queueRules';
 import { FfmpegMissingError, toOggOpus } from '../utils/audio';
@@ -681,17 +681,25 @@ conversationsRouter.get('/:id/flow-runs', asyncHandler(async (req, res) => {
 
 /** Dispara um fluxo nesta conversa agora (botão "Disparar fluxo"). */
 conversationsRouter.post('/:id/flows/start', asyncHandler(async (req, res) => {
-  const { flowId } = z.object({ flowId: z.string().uuid() }).parse(req.body);
+  const { flowId, nodeId } = z.object({ flowId: z.string().uuid(), nodeId: z.string().max(120).nullish() }).parse(req.body);
   const accountId = req.accountId!;
   const conv = await ownConversation(accountId, req.params.id);
   // quem dispara à mão quer a automação respondendo nesta conversa
   if (conv.botPaused) await setConv(accountId, conv.id, { botPaused: false });
-  const r = await startFlowManually(accountId, flowId, conv.contactId, conv.connectionId);
+  const r = await startFlowManually(accountId, flowId, conv.contactId, conv.connectionId, nodeId ?? null);
+  if (r === 'bad_node') throw new AppError(400, 'Esse bloco não existe mais no fluxo. Escolha outro.');
   if (r === 'inactive') throw new AppError(400, 'Esse fluxo está pausado ou arquivado na tela de Fluxos. Ative o fluxo antes de disparar.');
   if (r === 'busy') throw new AppError(409, 'O fluxo está terminando um envio agora. Tente de novo em alguns segundos.');
   const [f] = await db.select({ name: schema.flows.name }).from(schema.flows).where(eq(schema.flows.id, flowId)).limit(1);
-  await systemNote(accountId, conv.id, `▶️ ${await userName(req.user!.id)} disparou o fluxo “${f?.name ?? 'fluxo'}”`);
+  await systemNote(accountId, conv.id, `▶️ ${await userName(req.user!.id)} disparou o fluxo “${f?.name ?? 'fluxo'}”${nodeId ? ' a partir de uma etapa escolhida' : ''}`);
   res.status(201).json({ ok: true });
+}));
+
+/** Onde este fluxo parou da última vez com o contato da conversa. */
+conversationsRouter.get('/:id/flows/:flowId/last-run', asyncHandler(async (req, res) => {
+  if (!isUuid(req.params.flowId)) throw new AppError(404, 'Fluxo não encontrado');
+  const conv = await ownConversation(req.accountId!, req.params.id);
+  res.json({ run: await lastRunOf(req.accountId!, req.params.flowId, conv.contactId) });
 }));
 
 /** Pausa os fluxos desta conversa (todos ou um), guardando o ponto para retomar. */

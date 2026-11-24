@@ -3,6 +3,7 @@ import { api } from '../api';
 import { Icon } from '../icons';
 import { cx, toast } from '../components/ui';
 import type { ChatRun } from './types';
+import { ResumeFlowModal } from './ResumeFlowModal';
 
 /** avisa o painel do contato e o cabeçalho que os fluxos da conversa mudaram */
 export const FLOW_RUNS_EVENT = 'cv:flowruns';
@@ -77,16 +78,39 @@ export function FlowLauncher({ convId }: { convId: string }) {
     return (flows ?? []).filter((f) => !n || f.name.toLowerCase().includes(n)).sort((a, b) => a.name.localeCompare(b.name));
   }, [flows, q]);
 
-  async function start() {
-    if (!picked) return;
+  async function start(): Promise<boolean> {
+    if (!picked) return false;
     setBusy(true);
     try {
       await api.post(`/conversations/${convId}/flows/start`, { flowId: picked.id });
       toast(`Fluxo “${picked.name}” disparado`);
-      setOpen(false); setPicked(null); setQ('');
+      setOpen(false); setPicked(null); setQ(''); setStepFor(null);
       flowRunsChanged();
-    } catch (e) { toast(e instanceof Error ? e.message : 'Não foi possível disparar'); }
+      return true;
+    } catch (e) { toast(e instanceof Error ? e.message : 'Não foi possível disparar'); return false; }
     finally { setBusy(false); }
+  }
+
+  async function startFrom(flow: FlowItem, nodeId: string): Promise<boolean> {
+    try {
+      await api.post(`/conversations/${convId}/flows/start`, { flowId: flow.id, nodeId });
+      toast(`Fluxo “${flow.name}” disparado a partir da etapa escolhida`);
+      setStepFor(null); setPicked(null); setQ('');
+      flowRunsChanged();
+      return true;
+    } catch (e) { toast(e instanceof Error ? e.message : 'Não foi possível disparar'); return false; }
+  }
+
+  // "Escolher etapa": abre o fluxo com o bloco onde ele parou da última vez marcado
+  const [stepFor, setStepFor] = useState<{ flow: FlowItem; nodeId: string | null; info: string | null } | null>(null);
+  async function chooseStep() {
+    if (!picked) return;
+    try {
+      const r = await api.get<{ run: { status: string; nodeId: string | null; startedAt: string; finishedAt: string | null } | null }>(`/conversations/${convId}/flows/${picked.id}/last-run`);
+      const when = r.run ? new Date(r.run.finishedAt ?? r.run.startedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : null;
+      setStepFor({ flow: picked, nodeId: r.run?.nodeId ?? null, info: r.run?.nodeId ? `O bloco com borda tracejada é onde ele parou com este contato (${when}).` : null });
+      setOpen(false);
+    } catch (e) { toast(e instanceof Error ? e.message : 'Não foi possível abrir o fluxo'); }
   }
 
   return (
@@ -115,11 +139,20 @@ export function FlowLauncher({ convId }: { convId: string }) {
             </div>
           )}
           <div className="fl-pop-ft">
+            <button type="button" className="btn sm" disabled={!picked || busy} onClick={() => void chooseStep()} data-testid="flow-launch-step"
+              title="Abre o fluxo para escolher o bloco de onde ele começa (com o ponto onde parou da última vez marcado)">
+              <Icon name="flow" size={14} />Escolher etapa…
+            </button>
             <button type="button" className="btn sm primary" disabled={!picked || busy} onClick={() => void start()} data-testid="flow-launch-go">
-              <Icon name="play" size={14} />{busy ? 'Disparando…' : 'Ativar'}
+              <Icon name="play" size={14} />{busy ? 'Disparando…' : 'Do começo'}
             </button>
           </div>
         </div>
+      )}
+      {stepFor && (
+        <ResumeFlowModal mode="start" convId={convId} flowId={stepFor.flow.id} flowName={stepFor.flow.name} stoppedAt={stepFor.nodeId} failed={false}
+          lastInfo={stepFor.info} onClose={() => { setStepFor(null); setPicked(null); }}
+          onStart={(nodeId) => startFrom(stepFor.flow, nodeId)} />
       )}
     </div>
   );

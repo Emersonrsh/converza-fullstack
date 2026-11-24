@@ -838,7 +838,7 @@ async function loadRunnableFlow(run: RunRow): Promise<FlowRow | null> {
   return flow;
 }
 
-async function startRun(flow: FlowRow, contactId: string, state: RunState, opts: { ignoreReentry?: boolean; manual?: boolean } = {}): Promise<boolean> {
+async function startRun(flow: FlowRow, contactId: string, state: RunState, opts: { ignoreReentry?: boolean; manual?: boolean; fromNodeId?: string | null } = {}): Promise<boolean> {
   const graph = normalizeGraph(flow.graph);
   const t = triggerOf(flow.trigger, graph);
   const trigger = graph.nodes.find((n) => n.type === 'trigger');
@@ -879,7 +879,9 @@ async function startRun(flow: FlowRow, contactId: string, state: RunState, opts:
 
   // um fluxo por vez na conversa: o que estava ativo pausa (e pode ser retomado depois)
   await pauseOthersFor(flow, contactId, run.id).catch((err) => console.error('[flow] pausar os outros fluxos:', (err as Error).message));
-  await execute(run, flow, state, (exec) => runFrom(graph, trigger.id, state, exec));
+  const from = opts.fromNodeId && graph.nodes.some((n) => n.id === opts.fromNodeId) ? opts.fromNodeId : trigger.id;
+  if (from !== trigger.id) await db.update(schema.flowRuns).set({ currentNodeId: from }).where(eq(schema.flowRuns.id, run.id));
+  await execute(run, flow, state, (exec) => runFrom(graph, from, state, exec));
   return true;
 }
 
@@ -1293,12 +1295,30 @@ export async function resumeHeldRun(accountId: string, contactId: string, runId:
  * uma vez por contato, conexão…) e começa o fluxo agora nesta conversa. Se ele já estava rodando
  * ou pausado para o contato, recomeça do início.
  */
-export async function startFlowManually(accountId: string, flowId: string, contactId: string, connectionId: string | null):
-  Promise<'started' | 'inactive' | 'busy'> {
+export async function startFlowManually(accountId: string, flowId: string, contactId: string, connectionId: string | null, fromNodeId?: string | null):
+  Promise<'started' | 'inactive' | 'busy' | 'bad_node'> {
   if (!isUuid(flowId)) return 'inactive';
   const [flow] = await db.select().from(schema.flows)
     .where(and(eq(schema.flows.id, flowId), eq(schema.flows.accountId, accountId))).limit(1);
   if (!flow || flow.status !== 'active' || flow.archivedAt) return 'inactive';
-  const state = carryState({ lastMessage: '', vars: {}, connectionId });
-  return (await startRun(flow, contactId, state, { ignoreReentry: true, manual: true })) ? 'started' : 'busy';
+  let vars: Dict = {};
+  if (fromNodeId) {
+    if (!normalizeGraph(flow.graph).nodes.some((n) => n.id === fromNodeId)) return 'bad_node';
+    // começando no meio: aproveita o que o cliente já respondeu da última vez neste fluxo ({{comprovante}}, respostas…)
+    const [last] = await db.select({ context: schema.flowRuns.context }).from(schema.flowRuns)
+      .where(and(eq(schema.flowRuns.flowId, flow.id), eq(schema.flowRuns.contactId, contactId)))
+      .orderBy(desc(schema.flowRuns.startedAt)).limit(1);
+    if (last) vars = normalizeState(last.context).vars ?? {};
+  }
+  const state = carryState({ lastMessage: '', vars, connectionId });
+  return (await startRun(flow, contactId, state, { ignoreReentry: true, manual: true, fromNodeId: fromNodeId ?? null })) ? 'started' : 'busy';
+}
+
+/** Última execução deste fluxo com o contato (para marcar "onde parou" ao escolher a etapa). */
+export async function lastRunOf(accountId: string, flowId: string, contactId: string) {
+  const [r] = await db.select({ id: schema.flowRuns.id, status: schema.flowRuns.status, nodeId: sql<string | null>`coalesce(${schema.flowRuns.currentNodeId}, ${schema.flowRuns.context}->>'lastNodeId')`, startedAt: schema.flowRuns.startedAt, finishedAt: schema.flowRuns.finishedAt })
+    .from(schema.flowRuns)
+    .where(and(eq(schema.flowRuns.accountId, accountId), eq(schema.flowRuns.flowId, flowId), eq(schema.flowRuns.contactId, contactId)))
+    .orderBy(desc(schema.flowRuns.startedAt)).limit(1);
+  return r ?? null;
 }
