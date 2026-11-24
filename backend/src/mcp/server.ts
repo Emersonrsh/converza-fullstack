@@ -73,7 +73,16 @@ export async function handleRpc(msg: unknown, ctx: RpcCtx, log: (c: CallLog) => 
         return err(id, -32602, `Ferramenta desconhecida ou não liberada para esta chave: ${name || '(sem nome)'}`);
       }
       const started = Date.now();
-      const parsed = tool.args.safeParse(params.arguments ?? {});
+      let parsed = tool.args.safeParse(params.arguments ?? {});
+      // clientes com a lista de ferramentas antiga mandam listas/objetos como texto JSON: aceita
+      if (!parsed.success && params.arguments && typeof params.arguments === 'object') {
+        const fixed: Record<string, unknown> = { ...(params.arguments as Record<string, unknown>) };
+        let changed = false;
+        for (const [k, v] of Object.entries(fixed)) {
+          if (typeof v === 'string' && /^\s*[[{]/.test(v)) { try { fixed[k] = JSON.parse(v); changed = true; } catch { /* fica como veio */ } }
+        }
+        if (changed) { const again = tool.args.safeParse(fixed); if (again.success) parsed = again; }
+      }
       if (!parsed.success) {
         const issue = parsed.error.issues[0];
         const text = `Argumentos inválidos${issue?.path?.length ? ` (${issue.path.join('.')})` : ''}: ${issue?.message ?? 'confira o formato'}`;
