@@ -60,6 +60,8 @@ interface Session {
   jids: Map<string, string>;
   sentIds: Map<string, number>;
   waiters: (() => void)[];
+  /** mensagens que chegaram sem dar para ler (criptografia): esperam a reentrega antes de virar aviso */
+  unreadable: Map<string, NodeJS.Timeout>;
 }
 
 const sessions = new Map<string, Session>();
@@ -140,7 +142,7 @@ async function startLocal(connectionId: string, opts: { pairingPhone?: string | 
     connectionId, accountId: conn.accountId, gen: 0, sock: null, state: 'starting', me: null, qrCount: 0,
     pairingPhone: opts.pairingPhone ? opts.pairingPhone.replace(/\D/g, '') : null, pairingCode: null,
     attempts: 0, badSessions: 0, stopped: false, reconnectTimer: null, lockTimer: null, downSince: null,
-    sendChain: Promise.resolve(), inChain: Promise.resolve(), lastSendAt: 0, jids: new Map(), sentIds: new Map(), waiters: [],
+    sendChain: Promise.resolve(), inChain: Promise.resolve(), lastSendAt: 0, jids: new Map(), sentIds: new Map(), waiters: [], unreadable: new Map(),
   };
   sessions.set(connectionId, s);
   s.lockTimer = setInterval(() => {
@@ -397,6 +399,22 @@ async function onIncoming(s: Session, msg: any, type: string) {
     if (!msg) return;
   }
   const key = msg?.key;
+  if (key?.id && !msg?.message && Number(msg?.messageStubType) === 2 && !key.fromMe) {
+    // não deu para ler (sessão de criptografia com o celular do cliente): o WhatsApp pede para reenviar
+    // e normalmente a mensagem chega em segundos. Se não chegar, o lead entra mesmo assim (com um aviso),
+    // senão ele some do Chats e o fluxo nunca começa.
+    if (!s.unreadable.has(String(key.id))) {
+      const t = setTimeout(() => {
+        s.unreadable.delete(String(key.id));
+        s.inChain = s.inChain.then(() => onUnreadable(s, msg)).catch((err) => log(s, `mensagem ilegível: ${(err as Error).message}`));
+      }, UNREADABLE_WAIT_MS);
+      t.unref?.();
+      s.unreadable.set(String(key.id), t);
+      log(s, `mensagem ${String(key.id).slice(0, 8)} chegou sem dar para ler (${String(msg.messageStubParameters?.[0] ?? 'sem detalhe')}); esperando a reentrega`);
+    }
+    return;
+  }
+  if (key?.id && s.unreadable.has(String(key.id))) { clearTimeout(s.unreadable.get(String(key.id))!); s.unreadable.delete(String(key.id)); }
   if (!key?.id || !msg.message) return;
   if (s.sentIds.has(String(key.id))) return; // envio do próprio Converza
   // mensagens muito antigas (o servidor guarda as que chegaram com a sessão fora do ar): só até 3 dias
@@ -441,6 +459,27 @@ async function onIncoming(s: Session, msg: any, type: string) {
   await feedWebhook(s, 'messages', {
     contacts: [{ wa_id: peer.id, profile: { name: msg.pushName ? String(msg.pushName) : undefined } }],
     messages: [{ ...cloud, from: peer.id }],
+  });
+}
+
+const UNREADABLE_WAIT_MS = Number(process.env.WA_WEB_UNREADABLE_WAIT_MS) || 45_000;
+
+/** A reentrega não veio: registra o lead com um aviso no lugar da mensagem (o fluxo de primeira mensagem dispara). */
+async function onUnreadable(s: Session, msg: any) {
+  const key = msg.key;
+  let pnOfLid: string | null = null;
+  if (isLidJid(String(key.remoteJid ?? '')) && !isPnJid(String(key.remoteJidAlt ?? '')) && s.sock) pnOfLid = await s.sock.pnForLid(String(key.remoteJid));
+  const peer = peerOf(key, pnOfLid);
+  if (!peer) return;
+  if (peer.lidOnly) await rememberLidPeer(s.connectionId, peer.id, peer.jid);
+  else s.jids.set(peer.id, peer.jid);
+  const ts = Number(typeof msg.messageTimestamp === 'object' ? msg.messageTimestamp?.low : msg.messageTimestamp);
+  await feedWebhook(s, 'messages', {
+    contacts: [{ wa_id: peer.id, profile: { name: msg.pushName ? String(msg.pushName) : undefined } }],
+    messages: [{
+      id: `${String(key.id)}-ilegivel`, from: peer.id, timestamp: String(Number.isFinite(ts) && ts > 0 ? ts : Math.floor(Date.now() / 1000)),
+      type: 'unsupported', unsupported: { unreadable: true, text: '⚠️ O cliente mandou uma mensagem que não deu para ler neste aparelho (abra no celular). Se precisar, peça para ele reenviar.' },
+    }],
   });
 }
 

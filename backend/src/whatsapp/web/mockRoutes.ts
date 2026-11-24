@@ -112,6 +112,11 @@ waMockRouter.post('/:connectionId/inbound', asyncHandler(async (req, res) => {
     message = b.quotedId ? { extendedTextMessage: { text: String(b.text ?? ''), ...ctx } } : { conversation: String(b.text ?? '') };
   }
   const ts = b.timestamp ? Number(b.timestamp) : Math.floor(Date.now() / 1000);
+  if (b.unreadable) {
+    // chegou sem dar para ler (o Baileys entrega só o "stub" CIPHERTEXT, sem conteúdo)
+    mock.emit(req.params.connectionId, [{ key, messageStubType: 2, messageStubParameters: ['Bad MAC'], messageTimestamp: ts, pushName: b.name ?? undefined }], 'notify');
+    return res.json({ ok: true, id: msgId });
+  }
   mock.emit(req.params.connectionId, [{ key, message, messageTimestamp: ts, pushName: b.name ?? undefined }], b.offline ? 'append' : 'notify');
   res.json({ ok: true, id: msgId });
 }));

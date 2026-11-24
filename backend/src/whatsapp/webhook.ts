@@ -286,8 +286,11 @@ async function handleInbound(accountId: string, connectionId: string, m: any, pr
     catch (err) { console.error('[trackeamento] chegada:', (err as Error).message); }
   }
 
+  // mensagem ilegível (QR) de um lead novo: o fluxo de boas-vindas começa mesmo assim, sem texto
+  const unreadableLead = !!m.unsupported?.unreadable && isFirstMessage;
+  if (unreadableLead) text = '';
   // reações não disparam automação; atendimento humano: nenhuma automação responde
-  if (silent || conv.botPaused) return;
+  if ((silent && !unreadableLead) || conv.botPaused) return;
 
   const mediaMsgId = ['audio', 'image', 'document', 'video', 'sticker'].includes(mediaType) && msg.waMediaId ? msg.id : null;
   const inbound = {
