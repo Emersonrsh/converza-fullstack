@@ -22,6 +22,11 @@ export function NewChatModal({ connections, onClose, onCreated, initial }: {
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  // a lista de números pode chegar depois de o modal abrir: sem isto, o seletor mostrava o primeiro número
+  // mas o valor ficava vazio e o botão "Iniciar conversa" não habilitava
+  useEffect(() => {
+    if (connections.length && !connections.some((c) => c.id === connectionId)) setConnectionId(connections[0].id);
+  }, [connections, connectionId]);
 
   useEffect(() => {
     if (mode !== 'contact') return;
