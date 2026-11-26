@@ -401,6 +401,8 @@ function Builder({ flowId }: { flowId: string }) {
     });
   }, [rf, snapshot, link]);
 
+  const selectedCount = useMemo(() => nodes.filter((n) => n.selected && n.type !== 'trigger').length, [nodes]);
+
   const onBeforeDelete: OnBeforeDelete<BlockFlowNode, Edge> = useCallback(async ({ nodes: ns, edges: es }) => {
     const keep = ns.filter((n) => n.type !== 'trigger');
     if (!keep.length && !es.length) return false;
@@ -502,7 +504,17 @@ function Builder({ flowId }: { flowId: string }) {
     if (outsKey(oldOuts) !== outsKey(newOuts)) setEdges((es) => remapEdges(es, id, oldOuts, newOuts));
   }, [snapshot]);
 
+  /** Exclui os blocos selecionados (Ctrl/⌘ + clique ou Ctrl + arrastar), menos o gatilho; desfaz com Ctrl+Z. */
+  const deleteSelected = useCallback(() => {
+    const sel = nodesRef.current.filter((n) => n.selected && n.type !== 'trigger');
+    if (!sel.length) return;
+    void rf.deleteElements({ nodes: sel.map((n) => ({ id: n.id })) });
+  }, [rf]);
+
   const deleteNode = useCallback((id: string) => {
+    // lixeira de um bloco que faz parte de uma seleção: exclui a seleção inteira
+    const sel = nodesRef.current.filter((n) => n.selected && n.type !== 'trigger');
+    if (sel.length > 1 && sel.some((n) => n.id === id)) { deleteSelected(); return; }
     if (nodesRef.current.find((n) => n.id === id)?.type === 'trigger') return;
     snapshot();
     setNodes((ns) => ns.filter((n) => n.id !== id));
@@ -844,6 +856,14 @@ function Builder({ flowId }: { flowId: string }) {
                 onConnectEnd={onConnectEnd}
                 isValidConnection={isValidConnection}
                 onBeforeDelete={onBeforeDelete}
+                multiSelectionKeyCode={['Control', 'Meta', 'Shift']}
+                selectionKeyCode={['Shift', 'Control', 'Meta']}
+                onNodeContextMenu={(e, n) => {
+                  // Mac: Ctrl + clique vira clique direito; aqui ele também marca/desmarca o bloco
+                  if (!e.ctrlKey) return;
+                  e.preventDefault();
+                  setNodes((ns) => ns.map((x) => (x.id === n.id ? { ...x, selected: !x.selected } : x)));
+                }}
                 onNodeDragStart={snapshot}
                 onNodeDoubleClick={(_, n) => setEditingId(n.id)}
                 onPaneClick={() => { setPicker(null); setIssuesOpen(false); }}
@@ -867,6 +887,14 @@ function Builder({ flowId }: { flowId: string }) {
             </EdgeHoverContext.Provider>
           </BuilderContext.Provider>
 
+          {selectedCount > 1 && (
+            <div className="fb-float bc fb-selbar" data-testid="sel-bar">
+              <span><b>{selectedCount}</b> blocos selecionados</span>
+              <button type="button" className="btn sm" onClick={duplicateSelection} data-testid="sel-dup"><Icon name="copy" size={14} />Duplicar</button>
+              <button type="button" className="btn sm danger" onClick={deleteSelected} data-testid="sel-del"><Icon name="trash" size={14} />Excluir</button>
+              <button type="button" className="btn sm ghost" onClick={deselect} title="Esc">Cancelar</button>
+            </div>
+          )}
           <div className="fb-float tl">
             <button type="button" className={cx('fb-chip', errorCount ? 'warn' : issues.length ? 'warn' : 'ok')} onClick={() => setIssuesOpen((v) => !v)} data-testid="issues-chip">
               <Icon name={issues.length ? 'alert' : 'check'} size={14} />
