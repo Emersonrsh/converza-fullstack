@@ -1438,6 +1438,8 @@ export const memberPendingUnlocks = pgTable('member_pending_unlocks', {
   kind: text('kind').notNull(),
   /** venda: só deste produto (null = qualquer venda aprovada do contato) */
   productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }),
+  /** venda: só libera quando o contato tiver pago pelo menos este valor (faixas por valor pago) */
+  minAmount: numeric('min_amount', { precision: 12, scale: 2 }),
   unlockAt: timestamp('unlock_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ memberIdx: index('member_pending_unlocks_member_idx').on(t.memberId) }));

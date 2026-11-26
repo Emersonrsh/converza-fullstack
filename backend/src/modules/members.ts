@@ -155,14 +155,18 @@ export async function grantFromSale(saleId: string): Promise<void> {
       .where(and(eq(schema.memberCourses.accountId, sale.accountId), eq(schema.memberCourses.productId, sale.productId))) : [];
     const rules = sale.productId ? await rulesForProduct(sale.accountId, sale.productId) : [];
     // módulos que um bloco de fluxo deixou "liberar na venda aprovada"
-    const [{ n: waiting }] = (await db.execute(sql`select count(*)::int as n from member_pending_unlocks where account_id = ${sale.accountId} and kind = 'sale' and (product_id is null or product_id = ${sale.productId ?? null}::uuid)`)).rows as { n: number }[];
+    // faixas por valor: soma tudo o que o contato já pagou (do produto da pendência, ou de qualquer produto)
+    const paidAll = sale.contactId ? await paidByContact(sale.accountId, sale.contactId, null) : Number(sale.amount);
+    const paidProduct = sale.contactId && sale.productId ? await paidByContact(sale.accountId, sale.contactId, sale.productId) : Number(sale.amount);
+    const saleWhere = sql`kind = 'sale' and ((product_id is null and (min_amount is null or min_amount <= ${paidAll + 0.001})) or (product_id = ${sale.productId ?? null}::uuid and (min_amount is null or min_amount <= ${paidProduct + 0.001})))`;
+    const [{ n: waiting }] = (await db.execute(sql`select count(*)::int as n from member_pending_unlocks where account_id = ${sale.accountId} and ${saleWhere}`)).rows as { n: number }[];
     if (!courses.length && !rules.length && !waiting) return;
     const member = courses.length || rules.length ? await buyerOf(sale) : await existingBuyer(sale);
     if (!member) return;
     const fresh: string[] = [];
     for (const course of courses) if (await grantCourse(sale.accountId, member.id, course.id, sale.id)) fresh.push(course.title);
     const mods = await unlockByRules(sale.accountId, member.id, rules, sale.id);
-    if (waiting) for (const t of await releasePending(member.id, sql`kind = 'sale' and (product_id is null or product_id = ${sale.productId ?? null}::uuid)`, sale.id)) if (!mods.includes(t)) mods.push(t);
+    if (waiting) for (const t of await releasePending(member.id, saleWhere, sale.id)) if (!mods.includes(t)) mods.push(t);
     if (fresh.length || mods.length) {
       const r = await sendMemberAccess(sale.accountId, member.id, { courseTitles: fresh, moduleTitles: mods, reason: 'sale' });
       if (!r.whatsapp && !r.email) console.warn(`[membros] acesso liberado para ${member.id}, mas o aviso não saiu: ${r.error ?? 'sem WhatsApp nem e-mail'}`);
@@ -271,7 +275,22 @@ async function unlockByRules(accountId: string, memberId: string, rules: Rule[],
  * Bloco de fluxo "Área de membros": libera ou tira cursos (e módulos) do contato da conversa.
  * Liberar devolve um link de entrada direta (vale 7 dias, uma vez) para o fluxo mandar na conversa.
  */
-export async function flowMembersAccess(accountId: string, contactId: string, p: { action: 'grant' | 'revoke'; courseIds: string[]; moduleIds: string[]; courseModules?: Record<string, string[]>; unlockRest?: { onSale: boolean; productId: string | null; afterDays: number | null } }) {
+/** Quanto o contato já pagou (vendas aprovadas), de um produto ou de todos. */
+export async function paidByContact(accountId: string, contactId: string | null, productId: string | null): Promise<number> {
+  if (!contactId) return 0;
+  const r = await db.execute(sql`select coalesce(sum(amount), 0)::float as n from sales where account_id = ${accountId} and contact_id = ${contactId}
+    and status = 'approved' ${productId && isUuid(productId) ? sql`and product_id = ${productId}` : sql``}`);
+  return Number((r.rows[0] as { n: number } | undefined)?.n ?? 0);
+}
+
+/** Módulo → menor valor pago que o libera (cada faixa inclui as menores). */
+function tierThresholds(list: { min: number; modules: string[] }[]): Map<string, number> {
+  const t = new Map<string, number>();
+  for (const tier of [...list].sort((a, b) => a.min - b.min)) for (const m of tier.modules) if (!t.has(m)) t.set(m, tier.min);
+  return t;
+}
+
+export async function flowMembersAccess(accountId: string, contactId: string, p: { action: 'grant' | 'revoke'; courseIds: string[]; moduleIds: string[]; courseModules?: Record<string, string[]>; unlockRest?: { onSale: boolean; productId: string | null; afterDays: number | null }; tiers?: { productId: string | null; list: { min: number; modules: string[] }[] } }) {
   const empty = { link: '', area: '', courses: [] as string[], modules: [] as string[] };
   const [c] = await db.select().from(schema.contacts).where(and(eq(schema.contacts.id, contactId), eq(schema.contacts.accountId, accountId))).limit(1);
   if (!c) return { ok: false, info: 'contato não encontrado', ...empty };
@@ -303,9 +322,14 @@ export async function flowMembersAccess(accountId: string, contactId: string, p:
   await unlockByRules(accountId, member.id, mods, null, 'flow');
   // módulos escolhidos na entrega: os marcados ficam liberados, os outros bloqueados para este contato
   const liberated: string[] = mods.map((x) => x.moduleTitle);
+  // faixas por valor pago: o que o contato já pagou libera na hora; o resto espera a venda com o valor da faixa
+  const thresholds = p.tiers?.list.length ? tierThresholds(p.tiers.list) : new Map<string, number>();
+  const tierProduct = p.tiers?.productId && isUuid(p.tiers.productId) ? p.tiers.productId : null;
+  const paid = thresholds.size ? await paidByContact(accountId, contactId, tierProduct) : 0;
   for (const x of courses) {
-    const pick = p.courseModules?.[x.id];
-    if (!pick) continue;
+    const base = p.courseModules?.[x.id];
+    if (!base) continue;
+    const pick = [...base, ...[...thresholds].filter(([, min]) => min <= paid + 0.001).map(([id]) => id).filter((id) => !base.includes(id))];
     const all = await db.select({ id: schema.memberModules.id, title: schema.memberModules.title }).from(schema.memberModules).where(eq(schema.memberModules.courseId, x.id));
     const on = all.filter((m) => pick.includes(m.id));
     await unlockByRules(accountId, member.id, on.map((m) => ({ id: m.id, moduleId: m.id, moduleTitle: m.title, courseId: x.id })), null, 'flow');
@@ -317,6 +341,12 @@ export async function flowMembersAccess(accountId: string, contactId: string, p:
         .onConflictDoUpdate({ target: [schema.memberModuleOverrides.memberId, schema.memberModuleOverrides.moduleId], set: { state: 'locked', source: 'flow', saleId: null, createdAt: new Date() } });
       // o resto dos módulos libera depois: na venda aprovada e/ou depois de alguns dias (o que vier primeiro)
       await db.delete(schema.memberPendingUnlocks).where(and(eq(schema.memberPendingUnlocks.memberId, member.id), eq(schema.memberPendingUnlocks.moduleId, m.id)));
+      const min = thresholds.get(m.id);
+      if (min !== undefined) {
+        // módulo de uma faixa: só libera quando o pago chegar no valor dela (não libera por tempo)
+        await db.insert(schema.memberPendingUnlocks).values({ accountId, memberId: member.id, moduleId: m.id, kind: 'sale', productId: tierProduct, minAmount: min.toFixed(2) });
+        continue;
+      }
       const ur = p.unlockRest;
       if (ur?.onSale) await db.insert(schema.memberPendingUnlocks).values({ accountId, memberId: member.id, moduleId: m.id, kind: 'sale', productId: ur.productId && isUuid(ur.productId) ? ur.productId : null });
       if (ur?.afterDays && ur.afterDays > 0) await db.insert(schema.memberPendingUnlocks).values({ accountId, memberId: member.id, moduleId: m.id, kind: 'time', unlockAt: new Date(Date.now() + Math.min(3650, ur.afterDays) * 86_400_000) });

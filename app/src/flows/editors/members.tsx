@@ -83,6 +83,8 @@ export function MembersEditor({ d, set, vars, lookups }: EditorProps) {
         )}
       </Field>
 
+      {!revoke && courseIds.length > 0 && <PaidTiers d={d} set={set} lookups={lookups} courseIds={courseIds} />}
+
       {!revoke && (
         <>
           <ToggleCard title="Liberar o resto dos módulos na venda aprovada" desc="Os módulos desmarcados liberam sozinhos quando entrar uma venda aprovada deste contato. O cliente recebe um aviso." checked={!!d.unlockRestOnSale} onChange={(unlockRestOnSale) => set({ unlockRestOnSale })} testId="mb-rest-sale" />
@@ -103,8 +105,8 @@ export function MembersEditor({ d, set, vars, lookups }: EditorProps) {
               <span>dia(s) depois da entrega</span>
             </div>
           )}
-          {(d.unlockRestOnSale || d.unlockRestAfter) && <div className="bm-hint fx-mb-after">Com os dois ligados, vale o que acontecer primeiro. Só mexe nos módulos desmarcados acima.</div>}
-          <ToggleCard title="Mandar o link de acesso na conversa" desc="Uma mensagem com o link que entra direto na área (vale 7 dias, uma vez). Depois, o cliente entra digitando o número." checked={d.sendMessage !== false} onChange={(sendMessage) => set({ sendMessage })} testId="mb-send" />
+          {(d.unlockRestOnSale || d.unlockRestAfter) && <div className="bm-hint fx-mb-after">Com os dois ligados, vale o que acontecer primeiro. Só mexe nos módulos desmarcados acima{d.tiersOn ? ' que não estão em nenhuma faixa de valor' : ''}.</div>}
+          <ToggleCard title="Mandar o link de acesso na conversa" desc="Uma mensagem com o link curto que entra direto na área. É o link permanente do cliente: é sempre por ele que entra." checked={d.sendMessage !== false} onChange={(sendMessage) => set({ sendMessage })} testId="mb-send" />
           {d.sendMessage !== false && (
             <Field label="Mensagem">
               <RichText value={(d.text ?? MEMBERS_TEXT).replace(/\n*Das próximas vezes, acesse \{\{\s*membros\.area\s*\}\} e digite (?:este|o seu) número de WhatsApp\.?/g, '')} onChange={(text) => set({ text })} vars={[...vars, 'membros.link', 'membros.area', 'membros.cursos', 'membros.modulos']} rows={5} testId="mb-text" />
@@ -114,6 +116,72 @@ export function MembersEditor({ d, set, vars, lookups }: EditorProps) {
         </>
       )}
       {revoke && <div className="bm-hint">O cliente não recebe aviso. Para devolver, use outro bloco com “Liberar acesso”.</div>}
+    </>
+  );
+}
+
+interface Tier { id: string; min: number | string; modules: string[] }
+
+/** Faixas por valor pago: cada faixa libera mais módulos e inclui as menores. */
+function PaidTiers({ d, set, lookups, courseIds }: { d: EditorProps['d']; set: EditorProps['set']; lookups: EditorProps['lookups']; courseIds: string[] }) {
+  const tiers: Tier[] = Array.isArray(d.tiers) ? d.tiers : [];
+  const cm: Record<string, string[]> = d.courseModules && typeof d.courseModules === 'object' ? d.courseModules : {};
+  const courses = lookups.courses.filter((c) => courseIds.includes(c.id));
+  // módulos que não saem na entrega: são eles que as faixas liberam
+  const lockable = courses.flatMap((c) => c.modules.filter((m) => !(cm[c.id] ?? []).includes(m.id)).map((m) => ({ ...m, course: c.title })));
+  const sorted = [...tiers].sort((a, b) => Number(a.min) - Number(b.min));
+  const setTiers = (list: Tier[]) => set({ tiers: list });
+  const upd = (id: string, patch: Partial<Tier>) => setTiers(tiers.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  const add = () => {
+    const last = sorted[sorted.length - 1];
+    setTiers([...tiers, { id: `t${Date.now().toString(36)}`, min: last ? Number(last.min) + 10 : 20, modules: [] }]);
+  };
+  // módulos já liberados por uma faixa menor (aparecem marcados e travados nas maiores)
+  const below = (t: Tier) => new Set(sorted.filter((x) => Number(x.min) < Number(t.min)).flatMap((x) => x.modules));
+  const fmt = (v: number | string) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  return (
+    <>
+      <ToggleCard title="Liberar módulos conforme o valor pago" desc="Ex.: quem paga R$ 15 recebe os módulos 1 e 2; quem paga R$ 20, também o 3; quem paga R$ 40, tudo. Cada faixa inclui as menores."
+        checked={!!d.tiersOn} onChange={(tiersOn) => set({ tiersOn, ...(tiersOn && !tiers.length ? { tiers: [{ id: 't1', min: 20, modules: [] }] } : {}) })} testId="mb-tiers" />
+      {d.tiersOn && (
+        <div className="fx-mb-sub fx-mb-tiers" data-testid="mb-tiers-box">
+          {!lockable.length && <div className="bm-hint">Todos os módulos já saem na entrega. Desmarque acima os que devem depender do valor pago.</div>}
+          {sorted.map((t) => {
+            const inherited = below(t);
+            return (
+              <div key={t.id} className="fx-mb-tier" data-testid="mb-tier">
+                <div className="fx-mb-tier-hd">
+                  <span>A partir de</span>
+                  <span className="fx-mb-money">R$<input className="input" type="number" min={0.01} step="0.01" value={t.min} onChange={(e) => upd(t.id, { min: e.target.value })} data-testid="mb-tier-min" /></span>
+                  <span>pagos, libera:</span>
+                  <button type="button" className="btn icon sm ghost" onClick={() => setTiers(tiers.filter((x) => x.id !== t.id))} title="Remover faixa" data-testid="mb-tier-del"><Icon name="trash" size={14} /></button>
+                </div>
+                {lockable.map((m) => {
+                  const fromBelow = inherited.has(m.id);
+                  return (
+                    <label key={m.id} className={cx('fx-mb-row sm', fromBelow && 'dim')} data-testid="mb-tier-module">
+                      <input type="checkbox" disabled={fromBelow} checked={fromBelow || t.modules.includes(m.id)}
+                        onChange={(e) => upd(t.id, { modules: e.target.checked ? [...new Set([...t.modules, m.id])] : t.modules.filter((x) => x !== m.id) })} />
+                      <span>{m.isBonus && <Icon name="gift" size={12} />}<em>{m.title}</em>{courses.length > 1 && <small> · {m.course}</small>}{fromBelow && <small> · já na faixa menor</small>}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            );
+          })}
+          <button type="button" className="btn sm" onClick={add} data-testid="mb-tier-add"><Icon name="plus" size={14} />Adicionar faixa</button>
+          <Field label="Contar os pagamentos de">
+            <select className="select" value={d.tierProductId ?? ''} onChange={(e) => set({ tierProductId: e.target.value })} data-testid="mb-tier-product">
+              <option value="">Qualquer produto (soma das vendas aprovadas do contato)</option>
+              {lookups.products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </Field>
+          <div className="bm-hint fx-mb-after">
+            Se o cliente já pagou quando este bloco roda, libera na hora a faixa do valor pago. Se ainda não pagou, libera sozinho quando a venda for aprovada
+            {sorted.length ? ` (${sorted.map((t) => fmt(t.min)).join(', ')})` : ''}, somando tudo o que ele pagou. O cliente recebe um aviso.
+          </div>
+        </div>
+      )}
     </>
   );
 }

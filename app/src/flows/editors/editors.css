@@ -320,3 +320,11 @@
 .fx-mb-days .input{width:90px}
 .fx-mb-after{margin:-6px 0 14px}
 .fx-mb-days + .fx-mb-after{margin-top:-4px}
+
+.fx-mb-tiers{display:grid;gap:10px}
+.fx-mb-tier{border:1px solid var(--border);border-radius:10px;padding:8px 10px;display:grid;gap:2px}
+.fx-mb-tier-hd{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;margin-bottom:4px}
+.fx-mb-tier-hd .btn.icon{margin-left:auto}
+.fx-mb-money{display:inline-flex;align-items:center;gap:4px}
+.fx-mb-money .input{width:90px;height:30px;padding:0 8px}
+.fx-mb-row.dim{opacity:.6}

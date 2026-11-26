@@ -284,7 +284,8 @@ function memoryExecutor(state: SimState, outputs: SimOutput[], visited: string[]
       const names = deps.memberNames ? await deps.memberNames(p.courseIds, chosen) : { courses: [], modules: [] };
       const what = [...names.courses, ...names.modules.map((m) => `módulo ${m}`)].join(', ') || 'cursos escolhidos';
       const later = p.unlockRest ? [p.unlockRest.onSale ? 'na venda aprovada' : '', p.unlockRest.afterDays ? `em ${p.unlockRest.afterDays} dia(s)` : ''].filter(Boolean).join(' ou ') : '';
-      note(p.action === 'revoke' ? `🎓 Área de membros: tira o acesso a ${what} (na simulação nada muda)` : `🎓 Área de membros: libera ${what}${later ? `; o resto dos módulos libera ${later}` : ''} (na simulação nada muda)`);
+      const tiers = p.tiers?.list.length ? `; por valor pago: ${[...p.tiers.list].sort((a, b) => a.min - b.min).map((t) => `a partir de R$ ${t.min.toFixed(2).replace('.', ',')} libera mais ${t.modules.length} módulo(s)`).join(', ')}` : '';
+      note(p.action === 'revoke' ? `🎓 Área de membros: tira o acesso a ${what} (na simulação nada muda)` : `🎓 Área de membros: libera ${what}${later ? `; o resto dos módulos libera ${later}` : ''}${tiers} (na simulação nada muda)`);
       return { ok: true, link: 'https://converza.pro/entrar/exemplo?t=exemplo', area: 'https://converza.pro/m/exemplo', courses: names.courses, modules: names.modules };
     },
     async notifyApp(title, body) { note(`🔔 Aviso para a equipe no Converza: ${title} — ${body}`); },

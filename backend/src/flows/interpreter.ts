@@ -63,6 +63,8 @@ export interface MembersAccessSpec {
   action: 'grant' | 'revoke'; courseIds: string[]; moduleIds: string[];
   /** liberar: por curso, os módulos que ficam liberados na entrega (os outros ficam bloqueados para o contato) */
   courseModules?: Record<string, string[]>;
+  /** liberar: módulos por valor pago (cada faixa inclui as menores); conta as vendas aprovadas do produto (null = qualquer) */
+  tiers?: { productId: string | null; list: { min: number; modules: string[] }[] };
   /** módulos desmarcados: liberam na venda aprovada e/ou depois de alguns dias */
   unlockRest?: { onSale: boolean; productId: string | null; afterDays: number | null };
 }
@@ -561,7 +563,11 @@ async function step(graph: FlowGraph, node: FlowNode, state: RunState, exec: Flo
     const unlockRest = action === 'grant' && (d.unlockRestOnSale || d.unlockRestAfter)
       ? { onSale: !!d.unlockRestOnSale, productId: d.unlockRestProductId ? String(d.unlockRestProductId) : null, afterDays: d.unlockRestAfter ? Math.max(1, Math.round(Number(d.unlockRestDays) || 7)) : null }
       : undefined;
-    const r = await exec.membersAccess({ action, courseIds, moduleIds, courseModules: cm, unlockRest });
+    const tierList = action === 'grant' && d.tiersOn && Array.isArray(d.tiers)
+      ? (d.tiers as Dict[]).map((t) => ({ min: parseMoney(String(t?.min ?? '')), modules: ids(t?.modules) })).filter((t) => Number.isFinite(t.min) && t.min > 0 && t.modules.length)
+      : [];
+    const tiers = tierList.length ? { productId: d.tierProductId ? String(d.tierProductId) : null, list: tierList } : undefined;
+    const r = await exec.membersAccess({ action, courseIds, moduleIds, courseModules: cm, unlockRest, tiers });
     const membros = { link: r.link, area: r.area, cursos: r.courses.join(', '), modulos: r.modules.join(', ') };
     state.vars.membros = membros;
     if (!r.ok) { exec.note(`⚠️ Área de membros: ${r.info ?? 'não foi possível liberar'}`); return false; }
