@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 /**
  * Converza Members — área do aluno de cada empresa (/m/<slug>).
  * Login próprio do membro, vitrine dos cursos liberados, página do curso e leitor de PDF.
@@ -14,7 +15,8 @@ import './members.css';
 interface Info { title: string; subtitle: string; color: string; company: string; bannerUrl: string | null }
 interface Member { id: string; name: string | null; email: string | null; phone: string | null; hasPassword: boolean }
 interface LessonLite { id: string; title: string; hasFile: boolean; done: boolean }
-interface ModuleT { id: string; title: string; bonus?: boolean; coverUrl: string | null; locked: boolean; unlockAt: string | null; lessons: LessonLite[]; done: number; total: number }
+interface BuyT { price: number | null; currency: string; paid: number | null; tierMin: number | null; checkoutUrl: string | null; whatsappUrl: string | null }
+interface ModuleT { id: string; title: string; bonus?: boolean; coverUrl: string | null; locked: boolean; unlockAt: string | null; buy?: BuyT | null; lessons: LessonLite[]; done: number; total: number }
 interface CourseT { id: string; title: string; description: string | null; coverUrl: string | null; modules: ModuleT[]; done: number; total: number }
 interface Catalog { member: Member; courses: CourseT[]; continue: { lessonId: string; title: string; moduleTitle: string; courseId: string } | null }
 interface LessonFull {
@@ -232,6 +234,45 @@ function TopBar({ slug, member, onLogout }: { slug: string; member: Member; onLo
 
 const pct = (d: number, t: number) => (t ? Math.round((d / t) * 100) : 0);
 const dayMonth = (s: string) => new Date(s).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+const canBuy = (m: ModuleT) => !!m.buy && (!!m.buy.checkoutUrl || !!m.buy.whatsappUrl);
+const brl = (v: number, cur = 'BRL') => v.toLocaleString('pt-BR', { style: 'currency', currency: cur || 'BRL' });
+
+/** Folha de compra de um módulo bloqueado: quanto custa (ou quanto falta) e onde pagar. */
+function BuySheet({ m, course, onClose }: { m: ModuleT; course: string; onClose: () => void }) {
+  const b = m.buy!;
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
+  }, [onClose]);
+  const tier = b.tierMin != null;
+  // vai para a raiz da área (fora de seções com camadas próprias), mantendo as cores da área
+  const host = (document.querySelector('.mbr') as HTMLElement | null) ?? document.body;
+  return createPortal(
+    <div className="mbr-sheet-bg" onClick={onClose} data-testid="mbr-buy">
+      <div className="mbr-sheet" role="dialog" aria-modal="true" aria-label={`Liberar ${m.title}`} onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="mbr-sheet-x" onClick={onClose} aria-label="Fechar"><Icon name="close" size={18} /></button>
+        {m.coverUrl ? <img src={m.coverUrl} alt="" className="mbr-sheet-cover" /> : <span className="mbr-sheet-ic"><Icon name="lock" size={26} /></span>}
+        <small className="mbr-muted">{course}</small>
+        <h2>Liberar “{m.title}”</h2>
+        <p className="mbr-muted">{m.lessons.length ? `${m.lessons.length} aula(s) esperando por você.` : 'Conteúdo exclusivo deste módulo.'}</p>
+        {b.price != null && b.price > 0 && (
+          <div className="mbr-sheet-price" data-testid="mbr-buy-price">
+            {tier ? <><span>Falta só</span><b>{brl(b.price, b.currency)}</b><small>Você já contribuiu com {brl(b.paid ?? 0)}; a partir de {brl(b.tierMin ?? 0)} este módulo libera.</small></>
+              : <><span>Por</span><b>{brl(b.price, b.currency)}</b></>}
+          </div>
+        )}
+        {m.unlockAt && <p className="mbr-muted">Ou espere: ele libera sozinho em {dayMonth(m.unlockAt)}.</p>}
+        <div className="mbr-sheet-actions">
+          {b.checkoutUrl && <a className="mbr-btn primary" href={b.checkoutUrl} target="_blank" rel="noopener noreferrer" data-testid="mbr-buy-checkout"><Icon name="cart" size={16} />Comprar agora</a>}
+          {b.whatsappUrl && <a className={`mbr-btn${b.checkoutUrl ? '' : ' primary'}`} href={b.whatsappUrl} target="_blank" rel="noopener noreferrer" data-testid="mbr-buy-whatsapp"><Icon name="whatsapp" size={16} />{b.checkoutUrl ? 'Falar no WhatsApp' : 'Liberar pelo WhatsApp'}</a>}
+        </div>
+        <small className="mbr-faint">Assim que o pagamento for confirmado, o módulo libera aqui e você recebe um aviso.</small>
+      </div>
+    </div>,
+    host,
+  );
+}
+
 const lockText = (m: ModuleT) => (m.unlockAt ? `Libera em ${dayMonth(m.unlockAt)}` : 'Bloqueado');
 /** aulas que o aluno pode abrir agora (fora dos módulos bloqueados) */
 const openLessons = (c: CourseT) => c.modules.filter((m) => !m.locked).flatMap((m) => m.lessons);
@@ -241,16 +282,17 @@ function Home({ slug, info, cat }: { slug: string; info: Info; cat: Catalog }) {
   const first = cat.courses[0];
   const firstLesson = first ? (openLessons(first).find((l) => !l.done) ?? openLessons(first)[0]) : undefined;
   const [notice, setNotice] = useState<string | null>(null);
+  const [buy, setBuy] = useState<{ m: ModuleT; course: string } | null>(null);
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 3500); return () => clearTimeout(t); }, [notice]);
   const go = cat.continue ? cat.continue.lessonId : firstLesson?.id;
   const poster = (c: CourseT, m: ModuleT, i: number) => (
               <button type="button" key={m.id} className={`mbr-poster${m.locked ? ' locked' : ''}`} data-testid="mbr-module"
                 onClick={() => {
-                  if (m.locked) { setNotice(`“${m.title}” está bloqueado${m.unlockAt ? ` e libera em ${dayMonth(m.unlockAt)}` : ' por enquanto'}.`); return; }
+                  if (m.locked) { if (canBuy(m)) setBuy({ m, course: c.title }); else setNotice(`“${m.title}” está bloqueado${m.unlockAt ? ` e libera em ${dayMonth(m.unlockAt)}` : ' por enquanto'}.`); return; }
                   const l = m.lessons.find((x) => !x.done) ?? m.lessons[0]; if (l) nav(`/m/${slug}/aula/${l.id}`); else nav(`/m/${slug}/curso/${c.id}`);
                 }}>
                 {m.coverUrl ? <img src={m.coverUrl} alt="" loading="lazy" /> : <span className="mbr-poster-fill" style={{ '--h': `${((i + (m.bonus ? 5 : 0)) * 47) % 360}` } as CSSProperties}><span>{m.title}</span></span>}
-                {m.locked && <span className="mbr-lock" data-testid="mbr-module-lock"><Icon name="lock" size={22} /><b>{lockText(m)}</b></span>}
+                {m.locked && <span className="mbr-lock" data-testid="mbr-module-lock"><Icon name="lock" size={22} /><b>{lockText(m)}</b>{canBuy(m) && <em className="mbr-lock-buy">Toque para liberar</em>}</span>}
                 <span className="mbr-poster-info">
                   {m.bonus ? <small>Bônus</small> : !/^\s*m[óo]dulo\b/i.test(m.title) && <small>Módulo {i + 1}</small>}
                   <b>{m.title}</b>
@@ -309,6 +351,7 @@ function Home({ slug, info, cat }: { slug: string; info: Info; cat: Catalog }) {
         </section>
       ))}
       {notice && <div className="mbr-toast" data-testid="mbr-toast"><Icon name="lock" size={15} />{notice}</div>}
+      {buy && <BuySheet m={buy.m} course={buy.course} onClose={() => setBuy(null)} />}
     </main>
   );
 }
@@ -330,6 +373,7 @@ function CoursePage({ slug, cat }: { slug: string; cat: Catalog }) {
   const { courseId } = useParams();
   const c = cat.courses.find((x) => x.id === courseId);
   const nav = useNavigate();
+  const [buy, setBuy] = useState<{ m: ModuleT; course: string } | null>(null);
   if (!c) return <div className="mbr-empty in"><h2>Curso não encontrado</h2><Link className="mbr-btn" to={`/m/${slug}`}>Voltar</Link></div>;
   const next = openLessons(c).find((l) => !l.done) ?? openLessons(c)[0];
   return (
@@ -347,7 +391,7 @@ function CoursePage({ slug, cat }: { slug: string; cat: Catalog }) {
       {c.modules.map((m, k) => { const i = groupIdx(c.modules, m); return (<Fragment key={m.id}>
         {m.bonus && (k === 0 || !c.modules[k - 1].bonus) && <h2 className="mbr-group-t">Bônus</h2>}
         <section className={`mbr-mod${m.locked ? ' locked' : ''}`}>
-          <div className="mbr-mod-hd">{m.bonus ? <small>Bônus</small> : !/^\s*m[óo]dulo\b/i.test(m.title) && <small>Módulo {i + 1}</small>}<b>{m.title}</b>{m.locked ? <span className="mbr-lock-tag" data-testid="mbr-course-lock"><Icon name="lock" size={13} />{lockText(m)}</span> : <span>{m.done}/{m.total}</span>}</div>
+          <div className="mbr-mod-hd">{m.bonus ? <small>Bônus</small> : !/^\s*m[óo]dulo\b/i.test(m.title) && <small>Módulo {i + 1}</small>}<b>{m.title}</b>{m.locked ? <span className="mbr-lock-tag" data-testid="mbr-course-lock"><Icon name="lock" size={13} />{lockText(m)}</span> : <span>{m.done}/{m.total}</span>}{m.locked && canBuy(m) && <button type="button" className="mbr-btn primary sm" onClick={() => setBuy({ m, course: c.title })} data-testid="mbr-unlock"><Icon name="unlock" size={14} />Liberar</button>}</div>
           {m.locked ? m.lessons.map((l, j) => (
             <div key={l.id} className="mbr-lesson off"><span className="mbr-lesson-n">{j + 1}</span><span>{l.title}</span><Icon name="lock" size={14} /></div>
           )) : m.lessons.length ? m.lessons.map((l, j) => (
@@ -360,6 +404,7 @@ function CoursePage({ slug, cat }: { slug: string; cat: Catalog }) {
           )) : <div className="mbr-muted pad">Aulas em breve.</div>}
         </section>
       </Fragment>); })}
+      {buy && <BuySheet m={buy.m} course={buy.course} onClose={() => setBuy(null)} />}
     </main>
   );
 }

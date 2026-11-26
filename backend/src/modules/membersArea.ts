@@ -187,6 +187,61 @@ membersAreaRouter.post('/:slug/forgot', asyncHandler(async (req, res) => {
 
 /* ============================================================ com login */
 
+/* ---------------------------------------------- comprar um módulo bloqueado */
+
+interface BuyInfo {
+  /** valor a pagar para liberar (o que falta, numa faixa por valor pago) */
+  price: number | null; currency: string;
+  /** já pago, quando o módulo é de uma faixa por valor */
+  paid: number | null; tierMin: number | null;
+  checkoutUrl: string | null; whatsappUrl: string | null;
+}
+
+/**
+ * Como o aluno libera cada módulo bloqueado: faixa por valor pago (quanto falta), preço e link do módulo,
+ * produto de uma regra de venda (preço e link do checkout) e sempre o WhatsApp da empresa com a mensagem pronta.
+ */
+async function buyInfo(accountId: string, member: typeof schema.memberUsers.$inferSelect, mods: (typeof schema.memberModules.$inferSelect)[], courses: { id: string; title: string }[]): Promise<Map<string, BuyInfo>> {
+  const ids = mods.map((m) => m.id);
+  const inIds = sql.join(ids.map((i) => sql`${i}`), sql`, `);
+  const tiers = (await db.execute(sql`select module_id as "moduleId", min(min_amount)::float as min, max(product_id::text) as "productId" from member_pending_unlocks
+    where member_id = ${member.id} and kind = 'sale' and min_amount is not null and module_id in (${inIds}) group by module_id`)).rows as { moduleId: string; min: number; productId: string | null }[];
+  const rules = (await db.execute(sql`select r.module_id as "moduleId", p.price::float as price, p.currency, p.checkout_url as "checkoutUrl" from member_unlock_rules r
+    join products p on p.id = r.product_id where r.module_id in (${inIds}) order by p.price`)).rows as { moduleId: string; price: number; currency: string; checkoutUrl: string | null }[];
+  const { paidByContact } = await import('./members');
+  const paidCache = new Map<string, number>();
+  const paid = async (productId: string | null) => {
+    const k = productId ?? '*';
+    if (!paidCache.has(k)) paidCache.set(k, await paidByContact(accountId, member.contactId, productId));
+    return paidCache.get(k)!;
+  };
+  // número de WhatsApp da empresa: o da última conversa do aluno; senão, o primeiro conectado
+  const phoneRow = (await db.execute(sql`select coalesce(c.display_phone, '') as phone from conversations v join connections c on c.id = v.connection_id
+    where v.account_id = ${accountId} and v.contact_id = ${member.contactId ?? null}::uuid order by v.last_message_at desc nulls last limit 1`)).rows[0] as { phone?: string } | undefined;
+  const anyRow = phoneRow?.phone ? null : (await db.execute(sql`select coalesce(display_phone, '') as phone from connections where account_id = ${accountId} and display_phone is not null
+    order by (status = 'connected') desc, created_at limit 1`)).rows[0] as { phone?: string } | undefined;
+  const waNumber = String(phoneRow?.phone || anyRow?.phone || '').replace(/\D/g, '');
+  const money = (v: number, cur: string) => v.toLocaleString('pt-BR', { style: 'currency', currency: cur || 'BRL' });
+  const out = new Map<string, BuyInfo>();
+  for (const m of mods) {
+    const course = courses.find((c) => c.id === m.courseId)?.title ?? '';
+    const t = tiers.find((x) => x.moduleId === m.id);
+    const r = rules.find((x) => x.moduleId === m.id);
+    let price: number | null = m.buyPrice != null ? Number(m.buyPrice) : null;
+    let currency = 'BRL';
+    let tierPaid: number | null = null;
+    if (t) { tierPaid = await paid(t.productId); price = Math.max(0, Math.round((t.min - tierPaid) * 100) / 100); }
+    else if (price == null && r) { price = r.price; currency = r.currency || 'BRL'; }
+    const checkoutUrl = m.buyUrl || (!t && r?.checkoutUrl) || null;
+    const text = `Oi! Quero liberar o módulo “${m.title}”${course ? ` do curso “${course}”` : ''}${price ? ` (${money(price, currency)})` : ''}. Como faço o pagamento?`;
+    out.set(m.id, {
+      price, currency, paid: t ? tierPaid : null, tierMin: t ? t.min : null, checkoutUrl,
+      whatsappUrl: waNumber.length >= 10 ? `https://wa.me/${waNumber}?text=${encodeURIComponent(text)}` : null,
+    });
+  }
+  return out;
+}
+
 membersAreaRouter.get('/:slug/me', memberAuth, asyncHandler(async (req: MemberReq, res) => { res.json({ member: memberView(req.member!) }); }));
 
 membersAreaRouter.post('/:slug/password', memberAuth, asyncHandler(async (req: MemberReq, res) => {
@@ -221,11 +276,13 @@ membersAreaRouter.get('/:slug/catalog', memberAuth, asyncHandler(async (req: Mem
   }));
   const last = prog.sort((a, b) => +new Date(b.openedAt) - +new Date(a.openedAt))
     .find((p) => lessons.some((l) => l.id === p.lessonId && !lockOf.get(l.moduleId)?.locked));
+  const lockedIds = modules.filter((m) => lockOf.get(m.id)?.locked).map((m) => m.id);
+  const buyOf = lockedIds.length ? await buyInfo(accountId, req.member!, modules.filter((m) => lockedIds.includes(m.id)), courses) : new Map<string, BuyInfo>();
   const out = await Promise.all(courses.map(async (c) => {
     const mods = await Promise.all(modules.filter((m) => m.courseId === c.id).map(async (m) => {
       const ls = lessons.filter((l) => l.moduleId === m.id).map((l) => ({ id: l.id, title: l.title, hasFile: l.hasFile, done: done.has(l.id) }));
       const lk = lockOf.get(m.id)!;
-      return { id: m.id, title: m.title, bonus: m.isBonus, coverUrl: await coverUrl(m.coverKey, req), locked: lk.locked, unlockAt: lk.unlockAt, lessons: ls, done: ls.filter((l) => l.done).length, total: ls.length };
+      return { id: m.id, title: m.title, bonus: m.isBonus, coverUrl: await coverUrl(m.coverKey, req), locked: lk.locked, unlockAt: lk.unlockAt, buy: lk.locked ? (buyOf.get(m.id) ?? null) : null, lessons: ls, done: ls.filter((l) => l.done).length, total: ls.length };
     }));
     const total = mods.reduce((s, m) => s + m.total, 0);
     const dn = mods.reduce((s, m) => s + m.done, 0);

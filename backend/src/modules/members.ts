@@ -522,7 +522,7 @@ membersRouter.get('/courses/:id', asyncHandler(async (req, res) => {
   res.json({
     course: { ...c, coverKey: undefined, previewKey: undefined, coverUrl: await coverUrl(c.coverKey, req), previewUrl: await coverUrl(c.previewKey, req), members },
     modules: await Promise.all(modules.map(async (m) => ({
-      id: m.id, title: m.title, sort: m.sort, coverUrl: await coverUrl(m.coverKey, req), locked: m.locked, unlockAfterDays: m.unlockAfterDays, isBonus: m.isBonus,
+      id: m.id, title: m.title, sort: m.sort, coverUrl: await coverUrl(m.coverKey, req), locked: m.locked, unlockAfterDays: m.unlockAfterDays, isBonus: m.isBonus, buyPrice: m.buyPrice != null ? Number(m.buyPrice) : null, buyUrl: m.buyUrl ?? null,
       unlockRules: rules.filter((r) => r.moduleId === m.id).map(({ moduleId: _m, ...r }) => r),
       lessons: lessons.filter((l) => l.moduleId === m.id).map((l) => ({ id: l.id, title: l.title, description: l.description, fileName: l.fileName, fileSize: l.fileSize, hasFile: !!l.fileKey, sort: l.sort })),
     }))),
@@ -636,6 +636,8 @@ membersRouter.patch('/modules/:id', asyncHandler(async (req, res) => {
     locked: z.boolean().optional(),
     unlockAfterDays: z.number().int().min(1, 'Mínimo de 1 dia').max(3650).nullable().optional(),
     isBonus: z.boolean().optional(),
+    buyPrice: z.number().min(0).max(1_000_000).nullable().optional(),
+    buyUrl: z.string().trim().max(500).url('Link de compra inválido').refine((u) => /^https:\/\//i.test(u), 'Use um link https://').or(z.literal('')).nullable().optional(),
   }).safeParse(req.body ?? {});
   if (!p.success) throw new AppError(422, p.error.issues[0]?.message ?? 'Dados inválidos');
   const patch: Partial<typeof schema.memberModules.$inferInsert> = {};
@@ -644,6 +646,8 @@ membersRouter.patch('/modules/:id', asyncHandler(async (req, res) => {
   if (p.data.unlockAfterDays !== undefined) patch.unlockAfterDays = p.data.unlockAfterDays;
   if (patch.locked === false) patch.unlockAfterDays = null;
   if (p.data.isBonus !== undefined) patch.isBonus = p.data.isBonus;
+  if (p.data.buyPrice !== undefined) patch.buyPrice = p.data.buyPrice && p.data.buyPrice > 0 ? p.data.buyPrice.toFixed(2) : null;
+  if (p.data.buyUrl !== undefined) patch.buyUrl = p.data.buyUrl || null;
   if (Object.keys(patch).length) await db.update(schema.memberModules).set(patch).where(eq(schema.memberModules.id, m.id));
   res.json({ ok: true });
 }));

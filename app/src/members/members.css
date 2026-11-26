@@ -293,3 +293,26 @@
 .mbr-group-t{font-size:18px;margin:30px 0 12px;display:flex;align-items:center;gap:10px}
 .mbr-group-t::after{content:"";flex:1;height:1px;background:var(--mb-line)}
 .mbr-side-group{margin:14px 8px 2px;padding-top:12px;border-top:1px solid var(--mb-line);font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--mb-accent)}
+
+/* comprar módulo bloqueado */
+.mbr-lock-buy{font-style:normal;font-size:12px;font-weight:600;color:var(--mb-accent);margin-top:2px}
+.mbr-btn.sm{height:34px;padding:0 14px;font-size:13px;margin-left:auto}
+.mbr-sheet-bg{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;animation:mbrFade .15s ease}
+.mbr-sheet{position:relative;width:min(440px,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--mb-s1);border:1px solid var(--mb-line);border-radius:18px;padding:22px;display:grid;gap:10px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+.mbr-sheet h2{margin:0;font-size:21px}
+.mbr-sheet p{margin:0}
+.mbr-sheet-x{position:absolute;top:10px;right:10px;width:34px;height:34px;border-radius:50%;border:0;background:var(--mb-s2);color:var(--mb-text);display:grid;place-items:center;cursor:pointer}
+.mbr-sheet-cover{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:12px}
+.mbr-sheet-ic{width:64px;height:64px;border-radius:50%;background:var(--mb-s2);display:grid;place-items:center;margin:4px auto;color:var(--mb-accent)}
+.mbr-sheet-price{display:grid;gap:2px;padding:12px;border-radius:12px;background:var(--mb-s2)}
+.mbr-sheet-price span{color:var(--mb-muted);font-size:13px}
+.mbr-sheet-price b{font-size:28px;color:var(--mb-accent)}
+.mbr-sheet-price small{color:var(--mb-muted);font-size:12.5px}
+.mbr-sheet-actions{display:grid;gap:8px;margin-top:4px}
+.mbr-sheet-actions .mbr-btn{width:100%;text-decoration:none}
+.mbr-faint{color:var(--mb-faint);font-size:12px}
+@keyframes mbrFade{from{opacity:0}to{opacity:1}}
+@media (max-width:560px){.mbr-sheet-bg{align-items:flex-end;padding:0}.mbr-sheet{border-radius:18px 18px 0 0;width:100%}}
+
+.mbr-mod-hd{flex-wrap:wrap;align-items:center}
+@media (max-width:560px){.mbr-mod-hd .mbr-btn.sm{margin-left:0;width:100%}}

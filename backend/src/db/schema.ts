@@ -1375,6 +1375,9 @@ export const memberModules = pgTable('member_modules', {
   /** bloqueado para os alunos; com unlockAfterDays, libera sozinho N dias depois do acesso de cada aluno */
   locked: boolean('locked').notNull().default(false),
   unlockAfterDays: integer('unlock_after_days'),
+  /** bloqueado: preço e link de compra mostrados ao aluno (sem link, ele compra pelo WhatsApp) */
+  buyPrice: numeric('buy_price', { precision: 12, scale: 2 }),
+  buyUrl: text('buy_url'),
   /** bônus: fica numa fileira própria, depois dos módulos do curso */
   isBonus: boolean('is_bonus').notNull().default(false),
   sort: integer('sort').notNull().default(0),

@@ -16,7 +16,7 @@ interface CourseRow {
 }
 interface Settings { slug: string; url: string; title: string; subtitle: string; color: string; bannerUrl: string | null; storage: 'r2' | 'local' | null }
 interface LessonT { id: string; title: string; description: string | null; fileName: string | null; fileSize: number | null; hasFile: boolean; sort: number }
-interface ModuleT { id: string; title: string; sort: number; coverUrl: string | null; locked: boolean; unlockAfterDays: number | null; isBonus?: boolean; unlockRules?: { id: string; productId: string; productName: string }[]; lessons: LessonT[] }
+interface ModuleT { id: string; title: string; sort: number; coverUrl: string | null; locked: boolean; unlockAfterDays: number | null; isBonus?: boolean; buyPrice?: number | null; buyUrl?: string | null; unlockRules?: { id: string; productId: string; productName: string }[]; lessons: LessonT[] }
 interface CourseFull { course: CourseRow & { members: number }; modules: ModuleT[] }
 interface Person {
   id: string; name: string | null; email: string | null; phone: string | null; createdAt: string; lastLoginAt: string | null; hasPassword: boolean;
@@ -623,11 +623,14 @@ function LockModal({ m, onClose, onDone, onReload }: { m: ModuleT; onClose: () =
   }
   const [mode, setMode] = useState<'open' | 'locked' | 'drip'>(!m.locked ? 'open' : m.unlockAfterDays ? 'drip' : 'locked');
   const [days, setDays] = useState(m.unlockAfterDays ?? 7);
+  const [price, setPrice] = useState(m.buyPrice != null ? String(m.buyPrice) : '');
+  const [link, setLink] = useState(m.buyUrl ?? '');
   const [busy, setBusy] = useState(false);
   async function save() {
     setBusy(true);
     try {
-      await api.patch(`/members/modules/${m.id}`, mode === 'open' ? { locked: false } : { locked: true, unlockAfterDays: mode === 'drip' ? Math.max(1, Math.round(days)) : null });
+      const buy = { buyPrice: price.trim() ? Number(price.replace(',', '.')) : null, buyUrl: link.trim() || null };
+      await api.patch(`/members/modules/${m.id}`, mode === 'open' ? { locked: false, ...buy } : { locked: true, unlockAfterDays: mode === 'drip' ? Math.max(1, Math.round(days)) : null, ...buy });
       toast(mode === 'open' ? 'Módulo liberado para os alunos' : mode === 'drip' ? `Módulo libera ${days} dia(s) após a compra` : 'Módulo bloqueado');
       await onDone();
     } catch (e) { toast((e as Error).message); setBusy(false); }
@@ -649,6 +652,16 @@ function LockModal({ m, onClose, onDone, onReload }: { m: ModuleT; onClose: () =
         {opt('drip', 'Liberar depois de alguns dias', 'Cada aluno ganha o módulo alguns dias depois da compra dele.')}
         {mode === 'drip' && <div className="mbx-days"><input className="input" type="number" min={1} max={3650} value={days} onChange={(e) => setDays(Number(e.target.value))} data-testid="mbx-lock-days" /><span>dia(s) depois da compra</span></div>}
       </div>
+      {mode !== 'open' && (
+        <div className="mbx-rules" data-testid="mbx-buy">
+          <b>Como o aluno compra este módulo</b>
+          <small className="faint">Na área de membros, quem clicar no módulo bloqueado vê o preço e os botões de compra. Sem link, ele fala com você pelo WhatsApp com uma mensagem pronta. Em faixas por valor pago, ele vê quanto falta.</small>
+          <div className="mbx-buy-row">
+            <label><span>Preço (R$)</span><input className="input" inputMode="decimal" placeholder="Opcional" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^\d.,]/g, ''))} data-testid="mbx-buy-price" /></label>
+            <label className="grow"><span>Link de compra (checkout)</span><input className="input" type="url" placeholder="https://… (opcional)" value={link} onChange={(e) => setLink(e.target.value)} data-testid="mbx-buy-url" /></label>
+          </div>
+        </div>
+      )}
       <div className="mbx-rules" data-testid="mbx-rules">
         <b>Liberar quando houver venda aprovada</b>
         <small className="faint">Assim que a venda de um destes produtos for aprovada, o módulo libera para o comprador, mesmo que esteja bloqueado para os outros. Se ele ainda não tiver o curso, ganha o acesso também. Bom para upsell e order bump.</small>
