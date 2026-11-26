@@ -544,6 +544,7 @@ function ModuleCard({ m, index, count, canEdit, storage, onReload, onMove, onMov
   const [newLesson, setNewLesson] = useState('');
   const [coverUp, setCoverUp] = useState<number | null>(null);
   const [lockOpen, setLockOpen] = useState(false);
+  const [priceOpen, setPriceOpen] = useState(false);
   const coverRef = useRef<HTMLInputElement>(null);
   useEffect(() => setTitle(m.title), [m.title]);
   async function rename() {
@@ -576,6 +577,7 @@ function ModuleCard({ m, index, count, canEdit, storage, onReload, onMove, onMov
         </div>
         {canEdit && <div className="mbx-row-acts">
           <button type="button" className={cx('btn sm', m.isBonus ? 'mbx-bonusbtn on' : 'ghost')} onClick={() => void toggleBonus()} data-testid="mbx-bonus" title={m.isBonus ? 'Este módulo aparece na fileira de Bônus. Clique para voltar ao curso.' : 'Mostrar este módulo na fileira de Bônus, separada do curso'}><Icon name="gift" size={13} />{m.isBonus ? 'É bônus' : 'Bônus'}</button>
+          <button type="button" className={cx('btn sm', m.buyPrice ? 'mbx-pricebtn on' : 'ghost')} onClick={() => setPriceOpen(true)} data-testid="mbx-price" title="Valor que o aluno vê para liberar este módulo quando ele estiver bloqueado para ele"><Icon name="cart" size={13} />{m.buyPrice ? Number(m.buyPrice).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'Preço'}</button>
           <button type="button" className={cx('btn sm', m.locked ? 'mbx-lockbtn on' : 'ghost')} onClick={() => setLockOpen(true)} data-testid="mbx-lock"><Icon name="lock" size={13} />{m.locked ? 'Bloqueado' : 'Bloquear'}</button>
           <button type="button" className="btn icon sm ghost" disabled={index === 0} onClick={() => onMove(-1)} aria-label="Subir módulo"><Icon name="chevronUp" size={14} /></button>
           <button type="button" className="btn icon sm ghost" disabled={index === count - 1} onClick={() => onMove(1)} aria-label="Descer módulo"><Icon name="chevron" size={14} /></button>
@@ -590,6 +592,7 @@ function ModuleCard({ m, index, count, canEdit, storage, onReload, onMove, onMov
         {!m.lessons.length && <div className="faint mbx-none">Nenhuma aula neste módulo.</div>}
       </div>
       {lockOpen && <LockModal m={m} onClose={() => setLockOpen(false)} onReload={onReload} onDone={async () => { setLockOpen(false); await onReload(); }} />}
+      {priceOpen && <PriceModal m={m} onClose={() => setPriceOpen(false)} onDone={async () => { setPriceOpen(false); await onReload(); }} />}
       {canEdit && (
         <div className="mbx-addlesson">
           <input className="input" placeholder="Nome da nova aula" value={newLesson} onChange={(e) => setNewLesson(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addLesson(); }} data-testid="mbx-new-lesson" />
@@ -601,6 +604,38 @@ function ModuleCard({ m, index, count, canEdit, storage, onReload, onMove, onMov
 }
 
 /** Bloquear ou liberar um módulo para os alunos (na hora, ou N dias depois da compra de cada um). */
+/** Valor (e link de compra) que o aluno vê ao clicar no módulo bloqueado para ele, seja qual for o motivo do bloqueio. */
+function PriceModal({ m, onClose, onDone }: { m: ModuleT; onClose: () => void; onDone: () => Promise<void> }) {
+  const [price, setPrice] = useState(m.buyPrice != null ? String(m.buyPrice).replace('.', ',') : '');
+  const [link, setLink] = useState(m.buyUrl ?? '');
+  const [busy, setBusy] = useState(false);
+  const n = price.trim() ? Number(price.replace(/\./g, '').replace(',', '.')) : null;
+  const bad = (n != null && !(n > 0)) || (!!link.trim() && !/^https:\/\/\S+$/i.test(link.trim()));
+  async function save() {
+    setBusy(true);
+    try {
+      await api.patch(`/members/modules/${m.id}`, { buyPrice: n, buyUrl: link.trim() || null });
+      toast(n ? `Valor para liberar: ${n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : 'Valor tirado do módulo');
+      await onDone();
+    } catch (e) { toast((e as Error).message); setBusy(false); }
+  }
+  return (
+    <Modal title={`Valor para liberar “${m.title}”`} icon="cart" width={480} onClose={onClose} footer={<>
+      <button type="button" className="btn" onClick={onClose}>Cancelar</button>
+      <button type="button" className="btn primary" disabled={busy || bad} onClick={() => void save()} data-testid="mbx-price-save">{busy ? 'Salvando…' : 'Salvar'}</button>
+    </>}>
+      <div className="grid" style={{ gap: 12 }} data-testid="mbx-buy">
+        <small className="faint">Quando este módulo estiver bloqueado para um aluno (bloqueado aqui, por um fluxo ou por uma faixa de valor), ele vê este valor ao clicar no módulo, com os botões de compra. Em faixas por valor pago, ele vê quanto falta.</small>
+        <label className="grid" style={{ gap: 4 }}><span className="label">Valor (R$)</span>
+          <input className="input" inputMode="decimal" autoFocus placeholder="Ex.: 27,90" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^\d.,]/g, ''))} data-testid="mbx-buy-price" /></label>
+        <label className="grid" style={{ gap: 4 }}><span className="label">Link de compra (opcional)</span>
+          <input className="input" type="url" placeholder="https://… checkout do módulo" value={link} onChange={(e) => setLink(e.target.value)} data-testid="mbx-buy-url" /></label>
+        <small className="faint">Sem link, o aluno fala com você pelo WhatsApp com uma mensagem pronta (com o valor).</small>
+      </div>
+    </Modal>
+  );
+}
+
 function LockModal({ m, onClose, onDone, onReload }: { m: ModuleT; onClose: () => void; onDone: () => Promise<void>; onReload: () => Promise<void> }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [prod, setProd] = useState('');
@@ -623,14 +658,11 @@ function LockModal({ m, onClose, onDone, onReload }: { m: ModuleT; onClose: () =
   }
   const [mode, setMode] = useState<'open' | 'locked' | 'drip'>(!m.locked ? 'open' : m.unlockAfterDays ? 'drip' : 'locked');
   const [days, setDays] = useState(m.unlockAfterDays ?? 7);
-  const [price, setPrice] = useState(m.buyPrice != null ? String(m.buyPrice) : '');
-  const [link, setLink] = useState(m.buyUrl ?? '');
   const [busy, setBusy] = useState(false);
   async function save() {
     setBusy(true);
     try {
-      const buy = { buyPrice: price.trim() ? Number(price.replace(',', '.')) : null, buyUrl: link.trim() || null };
-      await api.patch(`/members/modules/${m.id}`, mode === 'open' ? { locked: false, ...buy } : { locked: true, unlockAfterDays: mode === 'drip' ? Math.max(1, Math.round(days)) : null, ...buy });
+      await api.patch(`/members/modules/${m.id}`, mode === 'open' ? { locked: false } : { locked: true, unlockAfterDays: mode === 'drip' ? Math.max(1, Math.round(days)) : null });
       toast(mode === 'open' ? 'Módulo liberado para os alunos' : mode === 'drip' ? `Módulo libera ${days} dia(s) após a compra` : 'Módulo bloqueado');
       await onDone();
     } catch (e) { toast((e as Error).message); setBusy(false); }
@@ -652,16 +684,6 @@ function LockModal({ m, onClose, onDone, onReload }: { m: ModuleT; onClose: () =
         {opt('drip', 'Liberar depois de alguns dias', 'Cada aluno ganha o módulo alguns dias depois da compra dele.')}
         {mode === 'drip' && <div className="mbx-days"><input className="input" type="number" min={1} max={3650} value={days} onChange={(e) => setDays(Number(e.target.value))} data-testid="mbx-lock-days" /><span>dia(s) depois da compra</span></div>}
       </div>
-      {mode !== 'open' && (
-        <div className="mbx-rules" data-testid="mbx-buy">
-          <b>Como o aluno compra este módulo</b>
-          <small className="faint">Na área de membros, quem clicar no módulo bloqueado vê o preço e os botões de compra. Sem link, ele fala com você pelo WhatsApp com uma mensagem pronta. Em faixas por valor pago, ele vê quanto falta.</small>
-          <div className="mbx-buy-row">
-            <label><span>Preço (R$)</span><input className="input" inputMode="decimal" placeholder="Opcional" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^\d.,]/g, ''))} data-testid="mbx-buy-price" /></label>
-            <label className="grow"><span>Link de compra (checkout)</span><input className="input" type="url" placeholder="https://… (opcional)" value={link} onChange={(e) => setLink(e.target.value)} data-testid="mbx-buy-url" /></label>
-          </div>
-        </div>
-      )}
       <div className="mbx-rules" data-testid="mbx-rules">
         <b>Liberar quando houver venda aprovada</b>
         <small className="faint">Assim que a venda de um destes produtos for aprovada, o módulo libera para o comprador, mesmo que esteja bloqueado para os outros. Se ele ainda não tiver o curso, ganha o acesso também. Bom para upsell e order bump.</small>
