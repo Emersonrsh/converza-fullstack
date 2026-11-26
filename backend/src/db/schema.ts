@@ -585,6 +585,10 @@ export const products = pgTable('products', {
   maxPrice: numeric('max_price', { precision: 12, scale: 2 }),
   // link de pagamento/checkout usado pelo bloco "Pagamento" dos fluxos
   checkoutUrl: text('checkout_url'),
+  /** endereço próprio da área de membros deste produto (converza.pro/m/<slug>), único entre contas e produtos */
+  membersSlug: text('members_slug').unique(),
+  /** cursos que aparecem nessa área (vazio = os cursos ligados a este produto) */
+  membersCourseIds: uuid('members_course_ids').array().notNull().default(sql`'{}'::uuid[]`),
   // custo unitário (usado no cálculo de lucro do dashboard)
   cost: numeric('cost', { precision: 12, scale: 2 }).notNull().default('0'),
 }, (t) => ({

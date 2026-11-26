@@ -100,12 +100,12 @@ export async function issueMemberLink(memberId: string, slug: string, courseId?:
  * Manda o link de acesso pelo WhatsApp (na última conversa do contato, dentro da janela da Meta) e por e-mail.
  * Devolve por onde saiu.
  */
-export async function sendMemberAccess(accountId: string, memberId: string, opts: { courseTitles?: string[]; moduleTitles?: string[]; reason: 'sale' | 'resend' | 'forgot' }): Promise<{ whatsapp: boolean; email: boolean; error?: string }> {
+export async function sendMemberAccess(accountId: string, memberId: string, opts: { courseTitles?: string[]; moduleTitles?: string[]; reason: 'sale' | 'resend' | 'forgot'; courseId?: string | null }): Promise<{ whatsapp: boolean; email: boolean; error?: string }> {
   const [m] = await db.select().from(schema.memberUsers).where(and(eq(schema.memberUsers.id, memberId), eq(schema.memberUsers.accountId, accountId))).limit(1);
   if (!m) return { whatsapp: false, email: false, error: 'Membro não encontrado' };
   const slug = await ensureSlug(accountId);
   const look = await membersLook(accountId);
-  const link = await issueMemberLink(memberId, slug);
+  const link = await issueMemberLink(memberId, slug, opts.courseId ?? null);
   const first = (m.name ?? '').trim().split(/\s+/)[0] || '';
   const courses = opts.courseTitles?.length ? opts.courseTitles.map((t) => `“${t}”`).join(', ') : '';
   const mods = opts.moduleTitles?.length ? opts.moduleTitles.map((t) => `“${t}”`).join(', ') : '';
@@ -168,7 +168,7 @@ export async function grantFromSale(saleId: string): Promise<void> {
     const mods = await unlockByRules(sale.accountId, member.id, rules, sale.id);
     if (waiting) for (const t of await releasePending(member.id, saleWhere, sale.id)) if (!mods.includes(t)) mods.push(t);
     if (fresh.length || mods.length) {
-      const r = await sendMemberAccess(sale.accountId, member.id, { courseTitles: fresh, moduleTitles: mods, reason: 'sale' });
+      const r = await sendMemberAccess(sale.accountId, member.id, { courseTitles: fresh, moduleTitles: mods, reason: 'sale', courseId: courses[0]?.id ?? null });
       if (!r.whatsapp && !r.email) console.warn(`[membros] acesso liberado para ${member.id}, mas o aviso não saiu: ${r.error ?? 'sem WhatsApp nem e-mail'}`);
     }
   } catch (err) { console.error('[membros] liberar acesso pela venda:', (err as Error).message); }
@@ -275,6 +275,32 @@ async function unlockByRules(accountId: string, memberId: string, rules: Rule[],
  * Bloco de fluxo "Área de membros": libera ou tira cursos (e módulos) do contato da conversa.
  * Liberar devolve um link de entrada direta (vale 7 dias, uma vez) para o fluxo mandar na conversa.
  */
+/** Área de membros por endereço: a da conta ou a de um produto (só com os cursos dele). */
+export interface MembersArea { accountId: string; name: string; slug: string; suspended: boolean; product: { id: string; name: string; courseIds: string[] } | null }
+export async function resolveMembersSlug(slug: string): Promise<MembersArea | null> {
+  const s = String(slug ?? '').toLowerCase();
+  if (!/^[a-z0-9-]{3,40}$/.test(s)) return null;
+  const [a] = await db.select({ id: schema.accounts.id, name: schema.accounts.name, suspendedAt: schema.accounts.suspendedAt }).from(schema.accounts).where(eq(schema.accounts.membersSlug, s)).limit(1);
+  if (a) return { accountId: a.id, name: a.name, slug: s, suspended: !!a.suspendedAt, product: null };
+  const [p] = await db.select({ id: schema.products.id, name: schema.products.name, accountId: schema.products.accountId, courseIds: schema.products.membersCourseIds,
+    accName: schema.accounts.name, suspendedAt: schema.accounts.suspendedAt })
+    .from(schema.products).innerJoin(schema.accounts, eq(schema.accounts.id, schema.products.accountId)).where(eq(schema.products.membersSlug, s)).limit(1);
+  if (!p) return null;
+  let courseIds = (p.courseIds ?? []).filter(isUuid);
+  if (!courseIds.length) courseIds = (await db.select({ id: schema.memberCourses.id }).from(schema.memberCourses)
+    .where(and(eq(schema.memberCourses.accountId, p.accountId), eq(schema.memberCourses.productId, p.id)))).map((c) => c.id);
+  return { accountId: p.accountId, name: p.accName, slug: s, suspended: !!p.suspendedAt, product: { id: p.id, name: p.name, courseIds } };
+}
+
+/** Endereço da área onde um curso aparece: o do produto que mostra esse curso, senão o da conta. */
+export async function areaSlugForCourse(accountId: string, courseId: string | null): Promise<string | null> {
+  if (!courseId || !isUuid(courseId)) return null;
+  const r = await db.execute(sql`select p.members_slug as slug from products p left join member_courses c on c.id = ${courseId} and c.product_id = p.id
+    where p.account_id = ${accountId} and p.members_slug is not null and (${courseId} = any(p.members_course_ids) or (cardinality(p.members_course_ids) = 0 and c.id is not null))
+    order by p.name limit 1`);
+  return ((r.rows[0] as { slug?: string } | undefined)?.slug) ?? null;
+}
+
 /** Quanto o contato já pagou (vendas aprovadas), de um produto ou de todos. */
 export async function paidByContact(accountId: string, contactId: string | null, productId: string | null): Promise<number> {
   if (!contactId) return 0;
@@ -354,13 +380,16 @@ export async function flowMembersAccess(accountId: string, contactId: string, p:
     // módulos marcados não ficam mais pendentes
     for (const m of on) await db.delete(schema.memberPendingUnlocks).where(and(eq(schema.memberPendingUnlocks.memberId, member.id), eq(schema.memberPendingUnlocks.moduleId, m.id)));
   }
-  const link = await issueMemberLink(member.id, slug, courses[0]?.id ?? mods[0]?.courseId ?? null);
+  const firstCourse = courses[0]?.id ?? mods[0]?.courseId ?? null;
+  const link = await issueMemberLink(member.id, slug, firstCourse);
+  const productSlug = await areaSlugForCourse(accountId, firstCourse);
+  const areaUrl = productSlug ? `${appBase()}/m/${productSlug}` : area;
   const all = courses.map((x) => x.title);
   for (const r of mods) if (!courses.some((x) => x.id === r.courseId)) {
     const [t] = await db.select({ title: schema.memberCourses.title }).from(schema.memberCourses).where(eq(schema.memberCourses.id, r.courseId)).limit(1);
     if (t && !all.includes(t.title)) all.push(t.title);
   }
-  return { ok: true, link, area, courses: all, modules: liberated };
+  return { ok: true, link, area: areaUrl, courses: all, modules: liberated };
 }
 
 export async function upsertMember(accountId: string, d: { email: string | null; phone: string | null; name: string | null; contactId: string | null }) {
@@ -448,6 +477,8 @@ membersRouter.put('/settings', asyncHandler(async (req, res) => {
   if (d.slug) {
     const reserved = ['admin', 'api', 'app', 'login', 'entrar', 'converza', 'suporte'];
     if (reserved.includes(d.slug)) throw new AppError(422, 'Esse endereço é reservado. Escolha outro.');
+    const [taken] = await db.select({ id: schema.products.id }).from(schema.products).where(eq(schema.products.membersSlug, d.slug)).limit(1);
+    if (taken) throw new AppError(409, 'Esse endereço já é usado por um produto. Escolha outro.');
     try { await db.update(schema.accounts).set({ membersSlug: d.slug }).where(eq(schema.accounts.id, req.accountId!)); }
     catch { throw new AppError(409, 'Esse endereço já é usado por outra empresa. Escolha outro.'); }
   }

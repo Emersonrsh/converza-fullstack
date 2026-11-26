@@ -3283,3 +3283,16 @@ html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:10
 .mbx-buy-row{display:flex;gap:10px;flex-wrap:wrap}
 .mbx-buy-row label{display:grid;gap:4px;font-size:12.5px;font-weight:600;width:120px}
 .mbx-buy-row label.grow{flex:1;min-width:200px}
+
+.pm-area{border:1px solid var(--border);border-radius:12px;padding:12px;display:grid;gap:6px}
+.pm-area-hd{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
+.pm-area-hd span{display:grid;gap:2px}
+.pm-area-hd small{color:var(--muted);font-size:12.5px}
+.pm-slug{display:flex;align-items:center;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface-2)}
+.pm-slug span{padding:0 4px 0 12px;color:var(--muted);font-size:13px;white-space:nowrap}
+.pm-slug .input{border:0;border-radius:0;flex:1;min-width:0}
+.pm-courses{display:grid;gap:4px;max-height:180px;overflow:auto}
+.pm-course{display:flex;gap:8px;align-items:center;font-size:13.5px;cursor:pointer}
+.pm-course small{color:var(--muted)}
+.pm-area-link{display:flex;align-items:center;gap:8px;font-size:13px}
+.pm-area-link a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

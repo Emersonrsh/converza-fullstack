@@ -21,12 +21,12 @@ const fmt = (v: number, currency = 'BRL') => {
   try { return v.toLocaleString('pt-BR', { style: 'currency', currency }); } catch { return `${currency} ${v.toFixed(2)}`; }
 };
 
-interface Draft { name: string; currency: string; min: string; max: string; price: string; cost: string; checkoutUrl: string }
-const emptyDraft: Draft = { name: '', currency: 'BRL', min: '', max: '', price: '', cost: '', checkoutUrl: '' };
+interface Draft { name: string; currency: string; min: string; max: string; price: string; cost: string; checkoutUrl: string; slug: string; courseIds: string[] }
+const emptyDraft: Draft = { name: '', currency: 'BRL', min: '', max: '', price: '', cost: '', checkoutUrl: '', slug: '', courseIds: [] };
 const toDraft = (p: Product): Draft => ({
   name: p.name, currency: p.currency || 'BRL',
   min: p.minPrice != null ? priceText(p.minPrice) : '', max: p.maxPrice != null ? priceText(p.maxPrice) : '',
-  price: Number(p.price) > 0 ? priceText(p.price) : '', cost: Number(p.cost ?? 0) ? priceText(p.cost ?? 0) : '', checkoutUrl: p.checkoutUrl ?? '',
+  price: Number(p.price) > 0 ? priceText(p.price) : '', cost: Number(p.cost ?? 0) ? priceText(p.cost ?? 0) : '', checkoutUrl: p.checkoutUrl ?? '', slug: p.membersSlug ?? '', courseIds: p.membersCourseIds ?? [],
 });
 
 /** Erros do formulário por campo (o mesmo que o servidor confere). */
@@ -41,7 +41,54 @@ function problems(d: Draft): Partial<Record<keyof Draft, string>> {
   else if (!e.min && !e.max && (price < min || price > max)) e.price = 'O valor padrão precisa ficar entre o mínimo e o máximo';
   if (d.cost.trim() && Number.isNaN(parsePrice(d.cost))) e.cost = 'Custo inválido (ex.: 20,00)';
   if (!validUrl(d.checkoutUrl)) e.checkoutUrl = 'O link precisa começar com https://';
+  if (d.slug && !/^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/.test(d.slug)) e.slug = 'De 3 a 40 letras minúsculas, números ou hífens';
   return e;
+}
+
+const slugify = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/g, '');
+const appHost = () => window.location.origin.replace(/^https?:\/\//, '');
+
+/** Endereço próprio da área de membros do produto e os cursos que aparecem nela. */
+function MembersAreaField({ d, set, err, saved }: { d: Draft; set: (p: Partial<Draft>) => void; err: React.ReactNode; saved: string | null }) {
+  const [courses, setCourses] = useState<{ id: string; title: string; productId: string | null; published: boolean }[] | null>(null);
+  const [on, setOn] = useState(!!d.slug);
+  useEffect(() => { api.get<{ courses: { id: string; title: string; productId: string | null; published: boolean }[] }>('/members/courses').then((r) => setCourses(r.courses)).catch(() => setCourses([])); }, []);
+  const url = `${window.location.origin}/m/${saved ?? d.slug}`;
+  return (
+    <div className="pm-area" data-testid="pm-area">
+      <label className="pm-area-hd">
+        <input type="checkbox" checked={on} onChange={(e) => { setOn(e.target.checked); set(e.target.checked ? { slug: d.slug || slugify(d.name) } : { slug: '' }); }} data-testid="pm-area-on" />
+        <span><b>Área de membros própria</b><small>Um endereço só deste produto, com o nome dele e só os cursos escolhidos.</small></span>
+      </label>
+      {on && (
+        <>
+          <div className="pm-slug">
+            <span>{appHost()}/m/</span>
+            <input className="input" value={d.slug} maxLength={40} placeholder="natal-lucrativo" onChange={(e) => set({ slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })} data-testid="pm-slug" />
+          </div>
+          {err}
+          <div className="label" style={{ marginTop: 8 }}>Cursos nesta área</div>
+          {!courses ? <Spinner /> : !courses.length ? <div className="cf-hint">Nenhum curso criado ainda na Converza Members.</div> : (
+            <div className="pm-courses">
+              {courses.map((c) => (
+                <label key={c.id} className="pm-course" data-testid="pm-course">
+                  <input type="checkbox" checked={d.courseIds.includes(c.id)} onChange={(e) => set({ courseIds: e.target.checked ? [...d.courseIds, c.id] : d.courseIds.filter((x) => x !== c.id) })} />
+                  <span>{c.title}{!c.published && <small> · rascunho</small>}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="cf-hint">Sem nenhum marcado, aparecem os cursos ligados a este produto. Os links de acesso dos cursos daqui já levam para este endereço.</div>
+          {saved && saved === d.slug && (
+            <div className="pm-area-link">
+              <a href={url} target="_blank" rel="noreferrer" data-testid="pm-area-link">{url.replace(/^https?:\/\//, '')}</a>
+              <button type="button" className="btn sm ghost" onClick={() => { void navigator.clipboard?.writeText(url); toast('Link copiado'); }}><Icon name="copy" size={13} />Copiar</button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 function ProductModal({ product, onClose, onSaved }: { product: Product | null; onClose: () => void; onSaved: () => Promise<void> }) {
@@ -58,6 +105,7 @@ function ProductModal({ product, onClose, onSaved }: { product: Product | null; 
     const body = {
       name: d.name.trim(), currency: d.currency, minPrice: parsePrice(d.min), maxPrice: parsePrice(d.max), price: parsePrice(d.price),
       cost: d.cost.trim() ? parsePrice(d.cost) : 0, checkoutUrl: d.checkoutUrl.trim(),
+      membersSlug: d.slug, membersCourseIds: d.courseIds,
     };
     setBusy(true);
     try {
@@ -118,6 +166,7 @@ function ProductModal({ product, onClose, onSaved }: { product: Product | null; 
             {show('checkoutUrl')}
           </div>
         </div>
+        <MembersAreaField d={d} set={set} err={show('slug')} saved={product?.membersSlug ?? null} />
         <div className="cf-hint" style={{ marginTop: -4 }}>
           A faixa confere o valor das vendas: no bloco <b>Registrar venda</b> um valor fora dela vira o valor padrão, a IA pode recusar
           comprovante fora da faixa e uma venda de webhook sem produto reconhecido é ligada ao produto cuja faixa cobre o valor.

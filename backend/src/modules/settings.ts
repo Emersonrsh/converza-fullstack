@@ -207,7 +207,24 @@ const productBody = z.object({
   maxPrice: money.nullable().optional(),
   cost: money.optional(),
   checkoutUrl,
+  /** endereço próprio da área de membros (converza.pro/m/<slug>); vazio = sem área própria */
+  membersSlug: z.string().trim().toLowerCase().refine((v) => v === '' || /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/.test(v), 'Endereço da área: de 3 a 40 letras, números ou hífens').optional(),
+  membersCourseIds: z.array(z.string().uuid()).max(50).optional(),
 });
+
+/** O endereço da área do produto não pode ser reservado nem já usado (por uma conta ou outro produto). */
+async function checkMembersSlug(slug: string, productId: string | null) {
+  if (['admin', 'api', 'app', 'login', 'entrar', 'converza', 'suporte'].includes(slug)) throw new AppError(422, 'Esse endereço é reservado. Escolha outro.');
+  const [acc] = await db.select({ id: schema.accounts.id }).from(schema.accounts).where(eq(schema.accounts.membersSlug, slug)).limit(1);
+  const [prod] = await db.select({ id: schema.products.id }).from(schema.products).where(eq(schema.products.membersSlug, slug)).limit(1);
+  if (acc || (prod && prod.id !== productId)) throw new AppError(409, 'Esse endereço já está em uso. Escolha outro.');
+}
+async function ownCourseIds(accountId: string, ids: string[] | undefined) {
+  if (!ids?.length) return [];
+  const rows = await db.select({ id: schema.memberCourses.id }).from(schema.memberCourses)
+    .where(and(eq(schema.memberCourses.accountId, accountId), sql`${schema.memberCourses.id} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`));
+  return ids.filter((i) => rows.some((r) => r.id === i));
+}
 
 /** Regras da faixa: padrão maior que zero e dentro da faixa; mínimo até o máximo. */
 function checkPrices(p: { price: number; minPrice: number | null; maxPrice: number | null }) {
@@ -224,7 +241,9 @@ settingsRouter.post('/products', asyncHandler(async (req, res) => {
   const data = productBody.parse(req.body);
   const prices = { price: data.price, minPrice: data.minPrice ?? null, maxPrice: data.maxPrice ?? null };
   checkPrices(prices);
+  if (data.membersSlug) await checkMembersSlug(data.membersSlug, null);
   const [row] = await db.insert(schema.products).values({
+    membersSlug: data.membersSlug || null, membersCourseIds: await ownCourseIds(req.accountId!, data.membersCourseIds),
     accountId: req.accountId!, name: data.name, currency: data.currency ?? 'BRL',
     price: data.price.toFixed(2), minPrice: fix(prices.minPrice), maxPrice: fix(prices.maxPrice),
     cost: (data.cost ?? 0).toFixed(2), checkoutUrl: data.checkoutUrl || null,
@@ -245,12 +264,15 @@ settingsRouter.patch('/products/:id', asyncHandler(async (req, res) => {
     maxPrice: data.maxPrice !== undefined ? data.maxPrice : num(cur.maxPrice),
   };
   if (data.price !== undefined || data.minPrice !== undefined || data.maxPrice !== undefined) checkPrices(prices);
+  if (data.membersSlug) await checkMembersSlug(data.membersSlug, cur.id);
   const [row] = await db.update(schema.products).set({
     ...(data.name ? { name: data.name } : {}),
     ...(data.currency ? { currency: data.currency } : {}),
     price: prices.price.toFixed(2), minPrice: fix(prices.minPrice), maxPrice: fix(prices.maxPrice),
     ...(data.cost !== undefined ? { cost: data.cost.toFixed(2) } : {}),
     ...(data.checkoutUrl !== undefined ? { checkoutUrl: data.checkoutUrl || null } : {}),
+    ...(data.membersSlug !== undefined ? { membersSlug: data.membersSlug || null } : {}),
+    ...(data.membersCourseIds !== undefined ? { membersCourseIds: await ownCourseIds(req.accountId!, data.membersCourseIds) } : {}),
   }).where(and(eq(schema.products.id, req.params.id), eq(schema.products.accountId, req.accountId!))).returning();
   res.json({ product: row });
 }));

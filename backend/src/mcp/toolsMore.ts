@@ -78,11 +78,13 @@ const MEMBERS: ToolDef[] = [
       product_id: str('Produto a editar (vazio = criar)', { format: 'uuid' }), name: str('Nome'), currency: str('Moeda ISO 4217 (ex.: BRL)'),
       price: { type: 'number', description: 'Valor padrão (fallback)' }, min_price: { type: ['number', 'null'], description: 'Preço mínimo' },
       max_price: { type: ['number', 'null'], description: 'Preço máximo' }, cost: { type: 'number', description: 'Custo por venda' }, checkout_url: str('Link de pagamento (https)'),
+      members_slug: str('Endereço próprio da área de membros (converza.pro/m/<isto>); vazio tira'), members_course_ids: { type: 'array', items: { type: 'string' }, description: 'Cursos nessa área (vazio = os ligados ao produto)' },
     }),
     args: z.object({
       product_id: z.string().uuid().optional(), name: z.string().trim().min(1).max(160).optional(), currency: z.string().trim().length(3).optional(),
       price: z.number().positive().optional(), min_price: z.number().nonnegative().nullable().optional(), max_price: z.number().nonnegative().nullable().optional(),
       cost: z.number().nonnegative().optional(), checkout_url: z.string().max(2000).optional(),
+      members_slug: z.string().trim().toLowerCase().max(40).optional(), members_course_ids: z.array(z.string().uuid()).max(50).optional(),
     }),
     async run(ctx, a) {
       const body: Record<string, unknown> = {};
@@ -93,7 +95,9 @@ const MEMBERS: ToolDef[] = [
       if (a.max_price !== undefined) body.maxPrice = a.max_price;
       if (a.cost !== undefined) body.cost = a.cost;
       if (a.checkout_url !== undefined) body.checkoutUrl = a.checkout_url;
-      const view = (p: any) => ({ product_id: p.id, name: p.name, currency: p.currency, price: Number(p.price), min_price: p.minPrice == null ? null : Number(p.minPrice), max_price: p.maxPrice == null ? null : Number(p.maxPrice) });
+      if (a.members_slug !== undefined) body.membersSlug = a.members_slug;
+      if (a.members_course_ids !== undefined) body.membersCourseIds = a.members_course_ids;
+      const view = (p: any) => ({ product_id: p.id, members_area: p.membersSlug ? `/m/${p.membersSlug}` : null, name: p.name, currency: p.currency, price: Number(p.price), min_price: p.minPrice == null ? null : Number(p.minPrice), max_price: p.maxPrice == null ? null : Number(p.maxPrice) });
       if (!a.product_id) {
         if (!a.name || a.price === undefined) throw new ToolError('Para criar, informe name e price.');
         const r = await callRoute<{ product: any }>(settingsRouter, ctx, 'POST', '/products', { body });

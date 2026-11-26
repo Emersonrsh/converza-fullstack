@@ -16,7 +16,7 @@ import { config } from '../config';
 import { asyncHandler, AppError, isUuid } from '../utils/http';
 import { readObject } from '../storage/objects';
 import { assertUnderLimits, clientIp, countAttempt, clearAttempts } from '../auth/throttle';
-import { coverUrl, membersLook, normEmail, normPhone, sendMemberAccess } from './members';
+import { coverUrl, membersLook, normEmail, normPhone, resolveMembersSlug, sendMemberAccess } from './members';
 
 export const membersAreaRouter = Router();
 
@@ -24,14 +24,12 @@ const SECRET = `${config.jwtSecret}:members-area`;
 /** hash de uma senha qualquer: login com e-mail desconhecido leva o mesmo tempo */
 const DUMMY = bcrypt.hashSync('converza-members-dummy', 10);
 
-interface MemberReq extends Request { member?: typeof schema.memberUsers.$inferSelect; area?: { accountId: string; slug: string } }
+interface MemberReq extends Request { member?: typeof schema.memberUsers.$inferSelect; area?: { accountId: string; slug: string; courseIds: string[] | null } }
 
 async function areaOf(slug: string) {
-  const s = String(slug ?? '').toLowerCase();
-  if (!/^[a-z0-9-]{3,40}$/.test(s)) throw new AppError(404, 'Área de membros não encontrada');
-  const [a] = await db.select({ id: schema.accounts.id, name: schema.accounts.name, suspendedAt: schema.accounts.suspendedAt }).from(schema.accounts).where(eq(schema.accounts.membersSlug, s)).limit(1);
+  const a = await resolveMembersSlug(slug);
   if (!a) throw new AppError(404, 'Área de membros não encontrada');
-  return { accountId: a.id, name: a.name, slug: s, suspended: !!a.suspendedAt };
+  return a;
 }
 
 const sign = (m: { id: string; accountId: string; passwordChangedAt: Date | null }) =>
@@ -49,7 +47,7 @@ const memberAuth = asyncHandler(async (req: MemberReq, _res: Response, next: Nex
   // senha trocada depois do login derruba as outras sessões
   if (!m || (m.passwordChangedAt ? new Date(m.passwordChangedAt).getTime() : 0) !== (p.pv ?? 0)) throw new AppError(401, 'Entre de novo na área de membros', { code: 'member_auth' });
   req.member = m;
-  req.area = { accountId: area.accountId, slug: area.slug };
+  req.area = { accountId: area.accountId, slug: area.slug, courseIds: area.product ? area.product.courseIds : null };
   next();
 });
 
@@ -89,6 +87,13 @@ const memberView = (m: typeof schema.memberUsers.$inferSelect) => ({ id: m.id, n
 membersAreaRouter.get('/:slug/info', asyncHandler(async (req, res) => {
   const area = await areaOf(req.params.slug);
   const look = await membersLook(area.accountId);
+  if (area.product) {
+    // área do produto: título do produto e a capa do primeiro curso dela
+    const [c] = area.product.courseIds.length ? await db.select({ coverKey: schema.memberCourses.coverKey, description: schema.memberCourses.description }).from(schema.memberCourses)
+      .where(and(eq(schema.memberCourses.id, area.product.courseIds[0]), eq(schema.memberCourses.accountId, area.accountId))).limit(1) : [];
+    res.json({ title: area.product.name, subtitle: c?.description?.trim() || look.subtitle, color: look.color, company: area.name, bannerUrl: await coverUrl(c?.coverKey ?? look.bannerKey, req), product: true });
+    return;
+  }
   res.json({ title: look.title, subtitle: look.subtitle, color: look.color, company: area.name, bannerUrl: await coverUrl(look.bannerKey, req) });
 }));
 
@@ -181,7 +186,7 @@ membersAreaRouter.post('/:slug/forgot', asyncHandler(async (req, res) => {
   await countAttempt(limits);
   const m = await findByLogin(area.accountId, login);
   // resposta igual exista ou não, para não revelar quem é membro
-  if (m) await sendMemberAccess(area.accountId, m.id, { reason: 'forgot' }).catch(() => {});
+  if (m) await sendMemberAccess(area.accountId, m.id, { reason: 'forgot', courseId: area.product?.courseIds[0] ?? null }).catch(() => {});
   res.json({ ok: true });
 }));
 
@@ -260,7 +265,9 @@ membersAreaRouter.get('/:slug/catalog', memberAuth, asyncHandler(async (req: Mem
   const courses = (await db.execute(sql`
     select c.id, c.title, c.description, c.cover_key as "coverKey", a.created_at as since from member_courses c
     join member_access a on a.course_id = c.id and a.member_id = ${mid} and a.revoked_at is null
-    where c.account_id = ${accountId} and c.published order by c.sort, c.created_at`)).rows as { id: string; title: string; description: string | null; coverKey: string | null; since: string }[];
+    where c.account_id = ${accountId} and c.published
+      ${req.area?.courseIds ? (req.area.courseIds.length ? sql`and c.id in (${sql.join(req.area.courseIds.map((i) => sql`${i}`), sql`, `)})` : sql`and false`) : sql``}
+    order by c.sort, c.created_at`)).rows as { id: string; title: string; description: string | null; coverKey: string | null; since: string }[];
   const ids = courses.map((c) => c.id);
   const modules = ids.length ? await db.select().from(schema.memberModules).where(sql`${schema.memberModules.courseId} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`).orderBy(asc(schema.memberModules.isBonus), asc(schema.memberModules.sort), asc(schema.memberModules.createdAt)) : [];
   const lessons = ids.length ? await db.select({ id: schema.memberLessons.id, moduleId: schema.memberLessons.moduleId, title: schema.memberLessons.title, hasFile: sql<boolean>`${schema.memberLessons.fileKey} is not null` })

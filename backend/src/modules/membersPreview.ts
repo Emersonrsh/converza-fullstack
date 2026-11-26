@@ -5,6 +5,7 @@
  * aponta para a API: robôs de prévia (WhatsApp, Facebook, Telegram…) recebem uma página com título, descrição
  * e a capa do curso; pessoas são mandadas na hora para a área de membros no app (o token não é usado aqui).
  */
+import { areaSlugForCourse, resolveMembersSlug } from './members';
 import { Router, type Request } from 'express';
 import { createHash } from 'node:crypto';
 import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
@@ -26,8 +27,11 @@ export interface PreviewInfo { accountId: string; title: string; description: st
 /** Curso do link: o do parâmetro c; sem ele, o mais recente liberado para o dono do token; sem isso, a área. */
 export async function previewInfo(slug: string, courseId?: string | null, token?: string | null): Promise<PreviewInfo | null> {
   if (!SLUG.test(slug)) return null;
-  const [acc] = await db.select({ id: schema.accounts.id }).from(schema.accounts).where(eq(schema.accounts.membersSlug, slug)).limit(1);
-  if (!acc) return null;
+  const ar = await resolveMembersSlug(slug);
+  if (!ar) return null;
+  const acc = { id: ar.accountId };
+  // área de um produto: sem curso no link, mostra o primeiro curso dela
+  if (!courseId && !token && ar.product?.courseIds.length) courseId = ar.product.courseIds[0];
   let course: { id: string; title: string; description: string | null; coverKey: string | null; previewKey: string | null } | undefined;
   const pick = { id: schema.memberCourses.id, title: schema.memberCourses.title, description: schema.memberCourses.description, coverKey: schema.memberCourses.coverKey, previewKey: schema.memberCourses.previewKey };
   if (courseId && isUuid(courseId)) {
@@ -131,9 +135,12 @@ membersPreviewRouter.get('/:slug', (req, res, next) => { serve(req, res, false).
 /** Área de membros do link curto (o código é o próprio token). */
 export async function shortLinkSlug(code: string): Promise<string | null> {
   if (!/^[A-Za-z0-9]{10,20}$/.test(code)) return null;
-  const r = await db.execute(sql`select a.members_slug as slug from member_tokens t join member_users u on u.id = t.member_id
+  const r = await db.execute(sql`select a.members_slug as slug, a.id as "accountId", t.course_id as "courseId" from member_tokens t join member_users u on u.id = t.member_id
     join accounts a on a.id = u.account_id where t.token_hash = ${createHash('sha256').update(code).digest('hex')} and t.expires_at > now() limit 1`);
-  return ((r.rows[0] as { slug?: string } | undefined)?.slug) ?? null;
+  const row = r.rows[0] as { slug?: string; accountId?: string; courseId?: string | null } | undefined;
+  if (!row?.slug) return null;
+  // o link cai na área do produto que mostra o curso dele (se houver)
+  return (row.accountId && row.courseId ? await areaSlugForCourse(row.accountId, row.courseId) : null) ?? row.slug;
 }
 
 /** converza.pro/e/<código>: o robô do WhatsApp lê a prévia com a capa; a pessoa vai para a área de membros. */

@@ -44,6 +44,8 @@ export interface Product {
   currency?: string;
   minPrice?: string | null; maxPrice?: string | null;
   cost?: string; checkoutUrl: string | null;
+  /** endereço próprio da área de membros (converza.pro/m/<slug>) e os cursos que aparecem nela */
+  membersSlug?: string | null; membersCourseIds?: string[];
 }
 export interface Agent {
   id: string; name: string; model: string; enabled: boolean; systemPrompt: string; createdAt: string;
