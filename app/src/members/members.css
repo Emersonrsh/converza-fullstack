@@ -316,3 +316,11 @@
 
 .mbr-mod-hd{flex-wrap:wrap;align-items:center}
 @media (max-width:560px){.mbr-mod-hd .mbr-btn.sm{margin-left:0;width:100%}}
+
+/* aula em link */
+.mbr-embed{width:100%;aspect-ratio:16/9;max-height:calc(100vh - 230px);margin:0 auto;background:#000;border-radius:12px;overflow:hidden}
+.mbr-stage.full .mbr-embed{max-height:none;height:100%;aspect-ratio:auto;border-radius:0}
+.mbr-embed iframe{width:100%;height:100%;border:0;display:block}
+.mbr-linkcard{gap:12px}
+.mbr-linkcard .mbr-btn{text-decoration:none}
+.mbr-linkcard small{color:var(--mb-faint);font-size:12.5px}

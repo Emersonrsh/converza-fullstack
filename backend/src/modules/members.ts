@@ -555,7 +555,7 @@ membersRouter.get('/courses/:id', asyncHandler(async (req, res) => {
     modules: await Promise.all(modules.map(async (m) => ({
       id: m.id, title: m.title, sort: m.sort, coverUrl: await coverUrl(m.coverKey, req), locked: m.locked, unlockAfterDays: m.unlockAfterDays, isBonus: m.isBonus, buyPrice: m.buyPrice != null ? Number(m.buyPrice) : null, buyUrl: m.buyUrl ?? null,
       unlockRules: rules.filter((r) => r.moduleId === m.id).map(({ moduleId: _m, ...r }) => r),
-      lessons: lessons.filter((l) => l.moduleId === m.id).map((l) => ({ id: l.id, title: l.title, description: l.description, fileName: l.fileName, fileSize: l.fileSize, hasFile: !!l.fileKey, sort: l.sort })),
+      lessons: lessons.filter((l) => l.moduleId === m.id).map((l) => ({ id: l.id, title: l.title, description: l.description, fileName: l.fileName, fileSize: l.fileSize, hasFile: !!l.fileKey, linkUrl: l.linkUrl ?? null, sort: l.sort })),
     }))),
   });
 }));
@@ -716,13 +716,24 @@ membersRouter.post('/modules/:id/lessons', asyncHandler(async (req, res) => {
 membersRouter.patch('/lessons/:id', asyncHandler(async (req, res) => {
   managerOnly(req);
   const l = await ownLesson(req, req.params.id);
-  const p = z.object({ title: z.string().trim().min(1).max(160).optional(), description: z.string().trim().max(2000).nullish() }).safeParse(req.body ?? {});
-  if (!p.success) throw new AppError(422, 'Dados inválidos');
+  const p = z.object({
+    title: z.string().trim().min(1).max(160).optional(), description: z.string().trim().max(2000).nullish(),
+    /** link da aula (https); vazio tira o link */
+    linkUrl: z.string().trim().max(2000).refine((u) => u === '' || /^https:\/\/[^\s]+\.[^\s]+$/i.test(u), 'Use um link que comece com https://').nullish(),
+  }).safeParse(req.body ?? {});
+  if (!p.success) throw new AppError(422, p.error.issues[0]?.message ?? 'Dados inválidos');
   const patch: Partial<typeof schema.memberLessons.$inferInsert> = {};
   if (p.data.title !== undefined) patch.title = p.data.title;
   if (p.data.description !== undefined) patch.description = p.data.description ?? null;
+  let dropFile: string | null = null;
+  if (p.data.linkUrl !== undefined) {
+    patch.linkUrl = p.data.linkUrl || null;
+    // a aula é link OU PDF: pôr um link tira o PDF
+    if (patch.linkUrl && l.fileKey) { dropFile = l.fileKey; patch.fileKey = null; patch.fileName = null; patch.fileSize = null; }
+  }
   if (Object.keys(patch).length) await db.update(schema.memberLessons).set(patch).where(eq(schema.memberLessons.id, l.id));
-  res.json({ ok: true });
+  if (dropFile) await deleteObject(dropFile);
+  res.json({ ok: true, linkUrl: patch.linkUrl ?? l.linkUrl ?? null });
 }));
 
 membersRouter.delete('/lessons/:id', asyncHandler(async (req, res) => {
@@ -746,7 +757,7 @@ membersRouter.post('/lessons/:id/file', asyncHandler(async (req, res) => {
   if (!/\.pdf$/i.test(name)) name += '.pdf';
   const key = `m/${req.accountId}/${l.courseId}/${randomUUID()}.pdf`;
   const size = await putObject(key, req, 'application/pdf', MAX_PDF);
-  await db.update(schema.memberLessons).set({ fileKey: key, fileName: name, fileSize: size }).where(eq(schema.memberLessons.id, l.id));
+  await db.update(schema.memberLessons).set({ linkUrl: null, fileKey: key, fileName: name, fileSize: size }).where(eq(schema.memberLessons.id, l.id));
   await deleteObject(l.fileKey);
   res.json({ lesson: { id: l.id, fileName: name, fileSize: size, hasFile: true } });
 }));

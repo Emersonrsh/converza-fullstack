@@ -15,7 +15,7 @@ interface CourseRow {
   published: boolean; modules: number; lessons: number; lessonsWithFile: number; members: number;
 }
 interface Settings { slug: string; url: string; title: string; subtitle: string; color: string; bannerUrl: string | null; storage: 'r2' | 'local' | null }
-interface LessonT { id: string; title: string; description: string | null; fileName: string | null; fileSize: number | null; hasFile: boolean; sort: number }
+interface LessonT { id: string; title: string; description: string | null; fileName: string | null; fileSize: number | null; hasFile: boolean; linkUrl?: string | null; sort: number }
 interface ModuleT { id: string; title: string; sort: number; coverUrl: string | null; locked: boolean; unlockAfterDays: number | null; isBonus?: boolean; buyPrice?: number | null; buyUrl?: string | null; unlockRules?: { id: string; productId: string; productName: string }[]; lessons: LessonT[] }
 interface CourseFull { course: CourseRow & { members: number }; modules: ModuleT[] }
 interface Person {
@@ -686,6 +686,7 @@ function LessonRow({ l, index, count, canEdit, storage, onReload, onMove, onDele
   l: LessonT; index: number; count: number; canEdit: boolean; storage: Settings['storage'] | undefined; onReload: () => Promise<void>; onMove: (dir: -1 | 1) => void; onDelete: () => void;
 }) {
   const [title, setTitle] = useState(l.title);
+  const [linkOpen, setLinkOpen] = useState(false);
   const [up, setUp] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   useEffect(() => setTitle(l.title), [l.title]);
@@ -712,15 +713,48 @@ function LessonRow({ l, index, count, canEdit, storage, onReload, onMove, onDele
       <input className="input bare" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => void rename()} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} disabled={!canEdit} />
       <input ref={fileRef} type="file" accept="application/pdf,.pdf" hidden onChange={(e) => { const x = e.target.files?.[0]; if (x) void send(x); e.target.value = ''; }} data-testid="mbx-pdf-input" />
       {up !== null ? <span className="mbx-up"><span className="mbx-mini"><i style={{ width: `${Math.round(up * 100)}%` }} /></span><small>{Math.round(up * 100)}%</small></span>
-        : l.hasFile ? <button type="button" className="mbx-file" onClick={() => void preview()} title="Abrir o PDF" data-testid="mbx-file"><Icon name="file" size={13} /><span>{l.fileName}</span><small>{mb(l.fileSize)}</small></button>
-          : <span className="mbx-nofile">sem PDF</span>}
+        : l.linkUrl ? <a className="mbx-file" href={l.linkUrl} target="_blank" rel="noreferrer" title={l.linkUrl} data-testid="mbx-link"><Icon name="link" size={13} /><span>{l.linkUrl.replace(/^https:\/\/(www\.)?/, '')}</span></a>
+          : l.hasFile ? <button type="button" className="mbx-file" onClick={() => void preview()} title="Abrir o PDF" data-testid="mbx-file"><Icon name="file" size={13} /><span>{l.fileName}</span><small>{mb(l.fileSize)}</small></button>
+            : <span className="mbx-nofile">sem conteúdo</span>}
       {canEdit && <div className="mbx-row-acts">
-        <button type="button" className="btn sm" disabled={up !== null || !storage} onClick={() => fileRef.current?.click()} data-testid="mbx-upload"><Icon name="upload" size={13} />{l.hasFile ? 'Trocar' : 'Enviar PDF'}</button>
+        <button type="button" className="btn sm" disabled={up !== null || !storage} onClick={() => { if (l.linkUrl && !confirm('Enviar um PDF tira o link desta aula. Continuar?')) return; fileRef.current?.click(); }} data-testid="mbx-upload"><Icon name="upload" size={13} />{l.hasFile ? 'Trocar PDF' : 'Enviar PDF'}</button>
+        <button type="button" className="btn sm" disabled={up !== null} onClick={() => setLinkOpen(true)} data-testid="mbx-link-btn"><Icon name="link" size={13} />{l.linkUrl ? 'Trocar link' : 'Link'}</button>
         <button type="button" className="btn icon sm ghost" disabled={index === 0} onClick={() => onMove(-1)} aria-label="Subir aula"><Icon name="chevronUp" size={13} /></button>
         <button type="button" className="btn icon sm ghost" disabled={index === count - 1} onClick={() => onMove(1)} aria-label="Descer aula"><Icon name="chevron" size={13} /></button>
         <button type="button" className="btn icon sm ghost danger" onClick={onDelete} aria-label="Excluir aula"><Icon name="trash" size={13} /></button>
       </div>}
+      {linkOpen && <LessonLinkModal l={l} onClose={() => setLinkOpen(false)} onSaved={async () => { setLinkOpen(false); await onReload(); }} />}
     </div>
+  );
+}
+
+/** Aula em link: vídeo do YouTube, Vimeo, Loom ou Panda, arquivo do Google Drive/Docs (aparecem dentro da aula) ou qualquer página (abre em outra aba). */
+function LessonLinkModal({ l, onClose, onSaved }: { l: LessonT; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [url, setUrl] = useState(l.linkUrl ?? '');
+  const [busy, setBusy] = useState(false);
+  const ok = /^https:\/\/[^\s]+\.[^\s]+$/i.test(url.trim());
+  const inside = ok && /(youtube\.com|youtu\.be|vimeo\.com|loom\.com|drive\.google\.com|docs\.google\.com|pandavideo\.com\.br)/i.test(url);
+  async function save(value: string) {
+    setBusy(true);
+    try { await api.patch(`/members/lessons/${l.id}`, { linkUrl: value }); toast(value ? 'Link salvo na aula' : 'Link tirado da aula'); await onSaved(); }
+    catch (e) { toast((e as Error).message); setBusy(false); }
+  }
+  return (
+    <Modal title={`Link da aula “${l.title}”`} icon="link" width={520} onClose={onClose} footer={<>
+      {l.linkUrl && <button type="button" className="btn ghost danger" disabled={busy} onClick={() => void save('')} data-testid="mbx-link-remove" style={{ marginRight: 'auto' }}>Tirar link</button>}
+      <button type="button" className="btn" onClick={onClose}>Cancelar</button>
+      <button type="button" className="btn primary" disabled={busy || !ok} onClick={() => void save(url.trim())} data-testid="mbx-link-save">{busy ? 'Salvando…' : 'Salvar'}</button>
+    </>}>
+      <div className="grid" style={{ gap: 10 }}>
+        <input className="input" type="url" autoFocus placeholder="https://www.youtube.com/watch?v=…" value={url} onChange={(e) => setUrl(e.target.value)} data-testid="mbx-link-url" />
+        <small className="faint">
+          {!url.trim() ? 'Vídeo do YouTube, Vimeo, Loom ou Panda Video e arquivo do Google Drive ou Docs aparecem dentro da aula. Outros links (Notion, Canva, um site) abrem em outra aba.'
+            : !ok ? 'Use um link que comece com https://'
+              : inside ? 'Este link aparece dentro da aula.' : 'Este link abre em outra aba, com um botão na aula.'}
+        </small>
+        {l.hasFile && !l.linkUrl && <small className="faint">A aula tem um PDF: salvar o link tira o PDF.</small>}
+      </div>
+    </Modal>
   );
 }
 

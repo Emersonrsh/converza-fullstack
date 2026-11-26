@@ -21,7 +21,7 @@ interface CourseT { id: string; title: string; description: string | null; cover
 interface Catalog { member: Member; courses: CourseT[]; continue: { lessonId: string; title: string; moduleTitle: string; courseId: string } | null }
 interface LessonFull {
   lesson: { id: string; title: string; description: string | null; fileName: string | null; fileSize: number | null; moduleTitle: string; courseTitle: string; courseId: string; done: boolean };
-  hasPdf: boolean; position: number | null; count: number; prevId: string | null; nextId: string | null;
+  hasPdf: boolean; link?: { url: string; embed: string | null } | null; position: number | null; count: number; prevId: string | null; nextId: string | null;
 }
 
 const tokenKey = (slug: string) => `cz.member.${slug}`;
@@ -482,6 +482,10 @@ function LessonPage({ slug, api, cat, onChange }: { slug: string; api: Api; cat:
             </div>
           )}
           {loading ? <div className="mbr-reader mbr-reader-wait"><div className="mbr-reader-msg"><span className="mbr-spin" /><p>Abrindo a aula…</p></div></div>
+            : d.link
+              ? d.link.embed
+                ? <div className="mbr-embed" data-testid="mbr-embed"><iframe src={d.link.embed} title={d.lesson.title} allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" /></div>
+                : <div className="mbr-reader mbr-reader-wait"><div className="mbr-reader-msg mbr-linkcard" data-testid="mbr-linkcard"><Icon name="link" size={28} /><p>O conteúdo desta aula fica em outra página.</p><a className="mbr-btn primary" href={d.link.url} target="_blank" rel="noopener noreferrer" data-testid="mbr-link-open"><Icon name="external" size={15} />Abrir conteúdo</a><small>{new URL(d.link.url).hostname.replace(/^www\./, '')} · depois volte aqui e marque como concluída</small></div></div>
             : d.hasPdf
               ? <PdfReader url={`${API_BASE}/m/${slug}/lessons/${d.lesson.id}/pdf`} token={api.token} storeKey={`cz.member.pos.${d.lesson.id}`} onEnd={setAtEnd} full={fs.full} onToggleFull={fs.toggle} />
               : <div className="mbr-reader mbr-reader-wait"><div className="mbr-reader-msg"><Icon name="file" size={28} /><p>O material desta aula ainda não foi publicado.</p>{fs.full && <button type="button" className="mbr-btn sm" onClick={fs.toggle}>Sair da tela cheia</button>}</div></div>}

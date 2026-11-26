@@ -270,7 +270,7 @@ membersAreaRouter.get('/:slug/catalog', memberAuth, asyncHandler(async (req: Mem
     order by c.sort, c.created_at`)).rows as { id: string; title: string; description: string | null; coverKey: string | null; since: string }[];
   const ids = courses.map((c) => c.id);
   const modules = ids.length ? await db.select().from(schema.memberModules).where(sql`${schema.memberModules.courseId} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`).orderBy(asc(schema.memberModules.isBonus), asc(schema.memberModules.sort), asc(schema.memberModules.createdAt)) : [];
-  const lessons = ids.length ? await db.select({ id: schema.memberLessons.id, moduleId: schema.memberLessons.moduleId, title: schema.memberLessons.title, hasFile: sql<boolean>`${schema.memberLessons.fileKey} is not null` })
+  const lessons = ids.length ? await db.select({ id: schema.memberLessons.id, moduleId: schema.memberLessons.moduleId, title: schema.memberLessons.title, hasFile: sql<boolean>`(${schema.memberLessons.fileKey} is not null or ${schema.memberLessons.linkUrl} is not null)` })
     .from(schema.memberLessons).where(sql`${schema.memberLessons.courseId} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`).orderBy(asc(schema.memberLessons.sort), asc(schema.memberLessons.createdAt)) : [];
   const prog = await db.select().from(schema.memberProgress).where(eq(schema.memberProgress.memberId, mid));
   const done = new Set(prog.filter((p) => p.completedAt).map((p) => p.lessonId));
@@ -303,6 +303,27 @@ membersAreaRouter.get('/:slug/catalog', memberAuth, asyncHandler(async (req: Mem
     continue: lastLesson && lastMod ? { lessonId: lastLesson.id, title: lastLesson.title, moduleTitle: lastMod.title, courseId: lastMod.courseId } : null,
   });
 }));
+
+/**
+ * Link que dá para mostrar dentro da aula (YouTube, Vimeo, Loom, Google Drive/Docs, Panda Video);
+ * o resto abre em outra aba.
+ */
+export function embedUrl(raw: string): string | null {
+  let u: URL;
+  try { u = new URL(raw); } catch { return null; }
+  if (u.protocol !== 'https:') return null;
+  const host = u.hostname.replace(/^www\.|^m\./, '');
+  const yt = host === 'youtu.be' ? u.pathname.slice(1) : host === 'youtube.com' ? (u.searchParams.get('v') ?? u.pathname.match(/^\/(?:shorts|embed|live)\/([\w-]{6,})/)?.[1] ?? null) : null;
+  if (yt && /^[\w-]{6,20}$/.test(yt)) return `https://www.youtube-nocookie.com/embed/${yt}?rel=0`;
+  const vimeo = host === 'vimeo.com' ? u.pathname.match(/^\/(\d{5,})/)?.[1] : host === 'player.vimeo.com' ? u.pathname.match(/^\/video\/(\d{5,})/)?.[1] : null;
+  if (vimeo) return `https://player.vimeo.com/video/${vimeo}`;
+  const loom = host === 'loom.com' ? u.pathname.match(/^\/(?:share|embed)\/([0-9a-f]{20,})/)?.[1] : null;
+  if (loom) return `https://www.loom.com/embed/${loom}`;
+  if (host === 'drive.google.com') { const id = u.pathname.match(/\/file\/d\/([\w-]{10,})/)?.[1] ?? u.searchParams.get('id'); if (id && /^[\w-]+$/.test(id)) return `https://drive.google.com/file/d/${id}/preview`; }
+  if (host === 'docs.google.com') { const m = u.pathname.match(/^\/(document|presentation|spreadsheets)\/d\/([\w-]{10,})/); if (m) return `https://docs.google.com/${m[1]}/d/${m[2]}/${m[1] === 'presentation' ? 'embed' : 'preview'}`; }
+  if (/(^|\.)pandavideo\.com\.br$/.test(host) && u.pathname.startsWith('/embed')) return u.toString();
+  return null;
+}
 
 async function lessonFor(req: MemberReq, id: string) {
   if (!isUuid(id)) throw new AppError(404, 'Aula não encontrada');
@@ -341,7 +362,8 @@ membersAreaRouter.get('/:slug/lessons/:id', memberAuth, asyncHandler(async (req:
   const [p] = await db.select().from(schema.memberProgress).where(and(eq(schema.memberProgress.memberId, req.member!.id), eq(schema.memberProgress.lessonId, l.id))).limit(1);
   res.json({
     lesson: { id: l.id, title: l.title, description: l.description, fileName: l.file_name, fileSize: l.file_size, moduleTitle: l.module_title, courseTitle: l.course_title, courseId: l.course_id, done: !!p?.completedAt },
-    hasPdf: !!l.file_key,
+    hasPdf: !!l.file_key && !l.link_url,
+    link: l.link_url ? { url: l.link_url as string, embed: embedUrl(l.link_url as string) } : null,
     position: i >= 0 ? i + 1 : null,
     count: seq.length,
     prevId: i > 0 ? seq[i - 1].id : null,

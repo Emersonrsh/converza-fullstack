@@ -1397,6 +1397,8 @@ export const memberLessons = pgTable('member_lessons', {
   fileKey: text('file_key'),
   fileName: text('file_name'),
   fileSize: integer('file_size'),
+  /** aula em link (vídeo, Drive, página…) em vez de PDF */
+  linkUrl: text('link_url'),
   sort: integer('sort').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
