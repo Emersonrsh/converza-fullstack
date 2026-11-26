@@ -324,3 +324,5 @@
 .mbr-linkcard{gap:12px}
 .mbr-linkcard .mbr-btn{text-decoration:none}
 .mbr-linkcard small{color:var(--mb-faint);font-size:12.5px}
+
+.mbr-direct{display:inline-flex;align-items:center;gap:4px;color:var(--mb-accent);font-style:normal;font-weight:600}

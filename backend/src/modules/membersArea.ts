@@ -282,7 +282,7 @@ membersAreaRouter.get('/:slug/catalog', memberAuth, asyncHandler(async (req: Mem
     order by c.sort, c.created_at`)).rows as { id: string; title: string; description: string | null; coverKey: string | null; since: string }[];
   const ids = courses.map((c) => c.id);
   const modules = ids.length ? await db.select().from(schema.memberModules).where(sql`${schema.memberModules.courseId} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`).orderBy(asc(schema.memberModules.isBonus), asc(schema.memberModules.sort), asc(schema.memberModules.createdAt)) : [];
-  const lessons = ids.length ? await db.select({ id: schema.memberLessons.id, moduleId: schema.memberLessons.moduleId, title: schema.memberLessons.title, hasFile: sql<boolean>`(${schema.memberLessons.fileKey} is not null or ${schema.memberLessons.linkUrl} is not null)` })
+  const lessons = ids.length ? await db.select({ id: schema.memberLessons.id, moduleId: schema.memberLessons.moduleId, title: schema.memberLessons.title, hasFile: sql<boolean>`(${schema.memberLessons.fileKey} is not null or ${schema.memberLessons.linkUrl} is not null)`, linkUrl: schema.memberLessons.linkUrl })
     .from(schema.memberLessons).where(sql`${schema.memberLessons.courseId} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`).orderBy(asc(schema.memberLessons.sort), asc(schema.memberLessons.createdAt)) : [];
   const prog = await db.select().from(schema.memberProgress).where(eq(schema.memberProgress.memberId, mid));
   const done = new Set(prog.filter((p) => p.completedAt).map((p) => p.lessonId));
@@ -299,8 +299,9 @@ membersAreaRouter.get('/:slug/catalog', memberAuth, asyncHandler(async (req: Mem
   const buyOf = lockedIds.length ? await buyInfo(accountId, req.member!, modules.filter((m) => lockedIds.includes(m.id)), courses) : new Map<string, BuyInfo>();
   const out = await Promise.all(courses.map(async (c) => {
     const mods = await Promise.all(modules.filter((m) => m.courseId === c.id).map(async (m) => {
-      const ls = lessons.filter((l) => l.moduleId === m.id).map((l) => ({ id: l.id, title: l.title, hasFile: l.hasFile, done: done.has(l.id) }));
       const lk = lockOf.get(m.id)!;
+      // o link da aula só vai para quem tem o módulo liberado
+      const ls = lessons.filter((l) => l.moduleId === m.id).map((l) => ({ id: l.id, title: l.title, hasFile: l.hasFile, done: done.has(l.id), ...(l.linkUrl && !lk.locked ? { linkUrl: l.linkUrl } : {}) }));
       return { id: m.id, title: m.title, bonus: m.isBonus, coverUrl: await coverUrl(m.coverKey, req), locked: lk.locked, unlockAt: lk.unlockAt, buy: lk.locked ? (buyOf.get(m.id) ?? null) : null, lessons: ls, done: ls.filter((l) => l.done).length, total: ls.length };
     }));
     const total = mods.reduce((s, m) => s + m.total, 0);

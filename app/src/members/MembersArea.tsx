@@ -14,7 +14,7 @@ import './members.css';
 
 interface Info { title: string; subtitle: string; color: string; company: string; bannerUrl: string | null }
 interface Member { id: string; name: string | null; email: string | null; phone: string | null; hasPassword: boolean }
-interface LessonLite { id: string; title: string; hasFile: boolean; done: boolean }
+interface LessonLite { id: string; title: string; hasFile: boolean; done: boolean; linkUrl?: string }
 interface BuyT { price: number | null; currency: string; paid: number | null; tierMin: number | null; checkoutUrl: string | null; whatsappUrl: string | null }
 interface ModuleT { id: string; title: string; bonus?: boolean; coverUrl: string | null; locked: boolean; unlockAt: string | null; buy?: BuyT | null; lessons: LessonLite[]; done: number; total: number }
 interface CourseT { id: string; title: string; description: string | null; coverUrl: string | null; modules: ModuleT[]; done: number; total: number }
@@ -212,9 +212,9 @@ function Signed({ slug, info, api }: { slug: string; info: Info; api: Api }) {
     <>
       <TopBar slug={slug} member={cat.member} onLogout={() => api.setToken(null)} />
       <Routes>
-        <Route path="curso/:courseId" element={<CoursePage slug={slug} cat={cat} />} />
+        <Route path="curso/:courseId" element={<CoursePage slug={slug} cat={cat} api={api} onChange={load} />} />
         <Route path="aula/:lessonId" element={<LessonPage slug={slug} api={api} cat={cat} onChange={load} />} />
-        <Route path="*" element={<Home slug={slug} info={info} cat={cat} />} />
+        <Route path="*" element={<Home slug={slug} info={info} cat={cat} api={api} onChange={load} />} />
       </Routes>
       <footer className="mbr-foot"><Brand small /><span>{info.company} · área de membros</span></footer>
     </>
@@ -242,6 +242,14 @@ function TopBar({ slug, member, onLogout }: { slug: string; member: Member; onLo
 
 const pct = (d: number, t: number) => (t ? Math.round((d / t) * 100) : 0);
 const dayMonth = (s: string) => new Date(s).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+/** Módulo cujo conteúdo é só um link: o clique abre o link direto (e conta a aula como concluída). */
+const directLink = (m: ModuleT) => (!m.locked && m.lessons.length === 1 && m.lessons[0].linkUrl ? m.lessons[0] : null);
+function openDirect(slug: string, api: Api | null, l: LessonLite, onDone?: () => void) {
+  window.open(l.linkUrl, '_blank', 'noopener,noreferrer');
+  if (api && !l.done) void api.call('POST', `/lessons/${l.id}/complete`, { done: true }).then(() => onDone?.()).catch(() => undefined);
+  void slug;
+}
+
 const canBuy = (m: ModuleT) => !!m.buy && (!!m.buy.checkoutUrl || !!m.buy.whatsappUrl);
 const brl = (v: number, cur = 'BRL') => v.toLocaleString('pt-BR', { style: 'currency', currency: cur || 'BRL' });
 
@@ -285,7 +293,7 @@ const lockText = (m: ModuleT) => (m.unlockAt ? `Libera em ${dayMonth(m.unlockAt)
 /** aulas que o aluno pode abrir agora (fora dos módulos bloqueados) */
 const openLessons = (c: CourseT) => c.modules.filter((m) => !m.locked).flatMap((m) => m.lessons);
 
-function Home({ slug, info, cat }: { slug: string; info: Info; cat: Catalog }) {
+function Home({ slug, info, cat, api, onChange }: { slug: string; info: Info; cat: Catalog; api: Api; onChange: () => void }) {
   const nav = useNavigate();
   const first = cat.courses[0];
   const firstLesson = first ? (openLessons(first).find((l) => !l.done) ?? openLessons(first)[0]) : undefined;
@@ -297,6 +305,7 @@ function Home({ slug, info, cat }: { slug: string; info: Info; cat: Catalog }) {
               <button type="button" key={m.id} className={`mbr-poster${m.locked ? ' locked' : ''}`} data-testid="mbr-module"
                 onClick={() => {
                   if (m.locked) { if (canBuy(m)) setBuy({ m, course: c.title }); else setNotice(`“${m.title}” está bloqueado${m.unlockAt ? ` e libera em ${dayMonth(m.unlockAt)}` : ' por enquanto'}.`); return; }
+                  const dl = directLink(m); if (dl) { openDirect(slug, api, dl, onChange); return; }
                   const l = m.lessons.find((x) => !x.done) ?? m.lessons[0]; if (l) nav(`/m/${slug}/aula/${l.id}`); else nav(`/m/${slug}/curso/${c.id}`);
                 }}>
                 {m.coverUrl ? <img src={m.coverUrl} alt="" loading="lazy" /> : <span className="mbr-poster-fill" style={{ '--h': `${((i + (m.bonus ? 5 : 0)) * 47) % 360}` } as CSSProperties}><span>{m.title}</span></span>}
@@ -305,7 +314,7 @@ function Home({ slug, info, cat }: { slug: string; info: Info; cat: Catalog }) {
                   {m.bonus ? <small>Bônus</small> : !/^\s*m[óo]dulo\b/i.test(m.title) && <small>Módulo {i + 1}</small>}
                   <b>{m.title}</b>
                   <span className="mbr-bar"><i style={{ width: `${pct(m.done, m.total)}%` }} /></span>
-                  <em>{m.total ? (m.done ? `${m.done} de ${m.total} aulas` : `${m.total} aula(s)`) : 'Em breve'}</em>
+                  <em>{directLink(m) ? <span className="mbr-direct" data-testid="mbr-direct"><Icon name="external" size={12} />Abrir link</span> : m.total ? (m.done ? `${m.done} de ${m.total} aulas` : `${m.total} aula(s)`) : 'Em breve'}</em>
                 </span>
               </button>
   );
@@ -377,7 +386,7 @@ function Rail({ children }: { children: ReactNode }) {
   );
 }
 
-function CoursePage({ slug, cat }: { slug: string; cat: Catalog }) {
+function CoursePage({ slug, cat, api, onChange }: { slug: string; cat: Catalog; api: Api; onChange: () => void }) {
   const { courseId } = useParams();
   const c = cat.courses.find((x) => x.id === courseId);
   const nav = useNavigate();
@@ -403,7 +412,8 @@ function CoursePage({ slug, cat }: { slug: string; cat: Catalog }) {
           {m.locked ? m.lessons.map((l, j) => (
             <div key={l.id} className="mbr-lesson off"><span className="mbr-lesson-n">{j + 1}</span><span>{l.title}</span><Icon name="lock" size={14} /></div>
           )) : m.lessons.length ? m.lessons.map((l, j) => (
-            <Link key={l.id} to={`/m/${slug}/aula/${l.id}`} className={`mbr-lesson${l.done ? ' done' : ''}`} data-testid="mbr-lesson-link">
+            <Link key={l.id} to={`/m/${slug}/aula/${l.id}`} className={`mbr-lesson${l.done ? ' done' : ''}`} data-testid="mbr-lesson-link"
+              onClick={(e) => { const dl = directLink(m); if (dl) { e.preventDefault(); openDirect(slug, api, dl, onChange); } }}>
               <span className="mbr-lesson-n">{l.done ? <Icon name="check" size={14} /> : j + 1}</span>
               <span>{l.title}</span>
               {!l.hasFile && <em>em breve</em>}
