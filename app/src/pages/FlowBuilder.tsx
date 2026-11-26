@@ -10,6 +10,7 @@ import {
 import { api } from '../api';
 import { Icon } from '../icons';
 import { Spinner, toast, cx } from '../components/ui';
+import { useAuth } from '../auth';
 import {
   BLOCKS, TOOLS, defaultData, emptyLookups, outputsFor, rid, upgradeNode, variablesOf, type BlockType, type Lookups, type Output,
 } from '../flows/blocks';
@@ -38,8 +39,22 @@ const NODE_W = 260;
 const COL_GAP = 110;
 const DND_TYPE = 'application/converza-block';
 
-/** Área de transferência entre fluxos (mesma aba). */
-let clipboard: Snap | null = null;
+/**
+ * Área de transferência de blocos: vale entre fluxos, abas e recarregamentos (fica no navegador, por conta,
+ * porque arquivos, produtos e setores dos blocos são da conta).
+ */
+interface Clip { snap: Snap; flowId: string; accountId: string; at: number }
+const CLIP_KEY = 'converza.flowClipboard';
+const CLIP_TTL = 7 * 24 * 3600_000;
+function readClip(accountId: string | null): Clip | null {
+  try {
+    const c = JSON.parse(localStorage.getItem(CLIP_KEY) ?? 'null') as Clip | null;
+    if (!c?.snap?.nodes?.length || c.accountId !== accountId || Date.now() - c.at > CLIP_TTL) return null;
+    return c;
+  } catch { return null; }
+}
+function writeClip(c: Clip) { try { localStorage.setItem(CLIP_KEY, JSON.stringify(c)); } catch { /* navegador sem espaço: fica só nesta aba */ } memClip = c; }
+let memClip: Clip | null = null;
 
 const errMsg = (e: unknown) => (e as Error)?.message ?? 'Algo deu errado';
 const pickMeta = (f: Flow): Meta => ({
@@ -127,6 +142,7 @@ function Builder({ flowId }: { flowId: string }) {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const rf = useReactFlow<BlockFlowNode, Edge>();
+  const { accountId } = useAuth();
   const stageRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -525,16 +541,18 @@ function Builder({ flowId }: { flowId: string }) {
     setNodes((ns) => (ns.some((n) => n.selected) ? ns.map((n) => (n.selected ? { ...n, selected: false } : n)) : ns));
   }, []);
 
-  const pasteSnap = useCallback((snap: Snap, offset: number) => {
+  const pasteSnap = useCallback((snap: Snap, offset: number, at?: XYPosition) => {
     if (!snap.nodes.length) return;
     snapshot();
     const map = new Map<string, string>();
+    // colar em outro lugar (outro fluxo): o grupo vai para o meio da tela, mantendo o desenho entre os blocos
+    const minX = Math.min(...snap.nodes.map((n) => n.position.x)), minY = Math.min(...snap.nodes.map((n) => n.position.y));
     const fresh = snap.nodes.map((n) => {
       const id = rid(n.type ?? 'blk');
       map.set(n.id, id);
       return {
         id, type: n.type, deletable: true, selected: true,
-        position: { x: n.position.x + offset, y: n.position.y + offset },
+        position: at ? { x: at.x + n.position.x - minX, y: at.y + n.position.y - minY } : { x: n.position.x + offset, y: n.position.y + offset },
         data: JSON.parse(JSON.stringify(n.data)),
       } as BlockFlowNode;
     });
@@ -543,6 +561,7 @@ function Builder({ flowId }: { flowId: string }) {
     }));
     setNodes((ns) => [...ns.map((n) => (n.selected ? { ...n, selected: false } : n)), ...fresh]);
     setEdges((es) => [...es, ...freshEdges]);
+    return fresh.map((n) => n.id);
   }, [snapshot]);
 
   const selectionSnap = useCallback((): Snap | null => {
@@ -555,14 +574,35 @@ function Builder({ flowId }: { flowId: string }) {
     };
   }, []);
 
+  const [clipCount, setClipCount] = useState(() => readClip(accountId)?.snap.nodes.length ?? 0);
+  const [clipFromOther, setClipFromOther] = useState(() => { const c = readClip(accountId); return !!c && c.flowId !== flowId; });
+  useEffect(() => {
+    const sync = () => { const c = readClip(accountId) ?? (memClip?.accountId === accountId ? memClip : null); setClipCount(c?.snap.nodes.length ?? 0); setClipFromOther(!!c && c.flowId !== flowId); };
+    sync();
+    window.addEventListener('storage', sync); window.addEventListener('focus', sync);
+    return () => { window.removeEventListener('storage', sync); window.removeEventListener('focus', sync); };
+  }, [accountId, flowId]);
+
   const copySelection = useCallback(() => {
     const snap = selectionSnap();
     if (!snap) return;
-    clipboard = JSON.parse(JSON.stringify(snap));
-    toast(snap.nodes.length === 1 ? 'Bloco copiado — Ctrl+V para colar' : `${snap.nodes.length} blocos copiados — Ctrl+V para colar`);
-  }, [selectionSnap]);
+    writeClip({ snap: JSON.parse(JSON.stringify({ nodes: snap.nodes.map(({ id, type, position, data }) => ({ id, type, position, data })), edges: snap.edges.map(({ id, source, target, sourceHandle }) => ({ id, source, target, sourceHandle })) })), flowId, accountId: accountId ?? '', at: Date.now() });
+    setClipCount(snap.nodes.length); setClipFromOther(false);
+    toast(`${snap.nodes.length === 1 ? 'Bloco copiado' : `${snap.nodes.length} blocos copiados`}: Ctrl+V cola aqui ou em outro fluxo`);
+  }, [selectionSnap, flowId, accountId]);
 
-  const paste = useCallback(() => { if (clipboard) pasteSnap(clipboard, 48); }, [pasteSnap]);
+  const paste = useCallback(() => {
+    const c = readClip(accountId) ?? (memClip?.accountId === accountId ? memClip : null);
+    if (!c) { toast('Nada copiado ainda: selecione blocos e aperte Ctrl+C'); return; }
+    if (c.flowId === flowId) { pasteSnap(c.snap, 48); return; }
+    // à direita do que já existe, para não cair em cima de outro bloco; a câmera vai até lá
+    const cur = nodesRef.current;
+    const right = cur.length ? Math.max(...cur.map((n) => n.position.x + (n.measured?.width ?? NODE_W))) : 0;
+    const top = cur.length ? Math.min(...cur.map((n) => n.position.y)) : 0;
+    const at = { x: right + COL_GAP, y: top };
+    const ids = pasteSnap(c.snap, 0, at) ?? [];
+    setTimeout(() => void rf.fitView({ nodes: ids.map((id) => ({ id })), padding: 0.35, duration: 350, maxZoom: 1 }), 80);
+  }, [pasteSnap, accountId, flowId, rf]);
   const duplicateNode = useCallback((id: string) => {
     const n = nodesRef.current.find((x) => x.id === id);
     if (!n || n.type === 'trigger') return;
@@ -887,14 +927,20 @@ function Builder({ flowId }: { flowId: string }) {
             </EdgeHoverContext.Provider>
           </BuilderContext.Provider>
 
-          {selectedCount > 1 && (
+          {selectedCount > 0 ? (
             <div className="fb-float bc fb-selbar" data-testid="sel-bar">
-              <span><b>{selectedCount}</b> blocos selecionados</span>
-              <button type="button" className="btn sm" onClick={duplicateSelection} data-testid="sel-dup"><Icon name="copy" size={14} />Duplicar</button>
+              <span><b>{selectedCount}</b> {selectedCount === 1 ? 'bloco selecionado' : 'blocos selecionados'}</span>
+              <button type="button" className="btn sm" onClick={copySelection} title="Ctrl+C: depois cole aqui ou em outro fluxo com Ctrl+V" data-testid="sel-copy"><Icon name="copy" size={14} />Copiar</button>
+              <button type="button" className="btn sm" onClick={duplicateSelection} title="Ctrl+D" data-testid="sel-dup"><Icon name="plus" size={14} />Duplicar</button>
               <button type="button" className="btn sm danger" onClick={deleteSelected} data-testid="sel-del"><Icon name="trash" size={14} />Excluir</button>
               <button type="button" className="btn sm ghost" onClick={deselect} title="Esc">Cancelar</button>
             </div>
-          )}
+          ) : clipFromOther && clipCount > 0 ? (
+            <div className="fb-float bc fb-selbar" data-testid="clip-bar">
+              <span><b>{clipCount}</b> {clipCount === 1 ? 'bloco copiado' : 'blocos copiados'} de outro fluxo</span>
+              <button type="button" className="btn sm primary" onClick={paste} title="Ctrl+V" data-testid="clip-paste"><Icon name="copy" size={14} />Colar aqui</button>
+            </div>
+          ) : null}
           <div className="fb-float tl">
             <button type="button" className={cx('fb-chip', errorCount ? 'warn' : issues.length ? 'warn' : 'ok')} onClick={() => setIssuesOpen((v) => !v)} data-testid="issues-chip">
               <Icon name={issues.length ? 'alert' : 'check'} size={14} />
