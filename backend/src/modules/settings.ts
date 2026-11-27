@@ -5,7 +5,8 @@ import { db, schema } from '../db';
 import { asyncHandler, AppError, isUuid } from '../utils/http';
 import { notSupport } from '../auth/middleware';
 import { emailConfigured } from '../email/mailer';
-import { emitToAccount } from '../realtime/io';
+import { disconnectUser, emitToAccount } from '../realtime/io';
+import { revokeKeysOf } from './apiKeys';
 import { validTimezone } from '../utils/hours';
 import { renameTagDeep } from '../utils/tagRename';
 
@@ -67,6 +68,8 @@ settingsRouter.post('/leave', asyncHandler(async (req, res) => {
   }
   await db.delete(schema.memberships)
     .where(and(eq(schema.memberships.accountId, req.accountId!), eq(schema.memberships.userId, req.user!.id)));
+  await revokeKeysOf(req.accountId!, req.user!.id);
+  await disconnectUser(req.accountId!, req.user!.id).catch(() => undefined);
   await db.update(schema.conversations).set({ assignedUserId: null })
     .where(and(eq(schema.conversations.accountId, req.accountId!), eq(schema.conversations.assignedUserId, req.user!.id), ne(schema.conversations.status, 'resolved')));
   emitToAccount(req.accountId!, 'team:changed', {});

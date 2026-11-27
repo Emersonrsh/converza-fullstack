@@ -13,6 +13,7 @@ import { emitToAccount } from '../realtime/io';
 import { hasTokens } from '../modules/tokens';
 import { systemNote } from '../modules/conversationStore';
 import { startFlowForContact, startFlowManually } from '../flows/runner';
+import { normalizeGraph } from '../flows/types';
 import { enqueueAgentJob, type AgentJobData } from '../queue';
 import { toOggOpus } from '../utils/audio';
 import { signedMediaPath } from '../utils/mediaSign';
@@ -348,6 +349,16 @@ async function runAutomation(ctx: Ctx, auto: AgentAutomation | null, texts: stri
         eq(schema.flowRuns.contactId, contact.id), eq(schema.flowRuns.status, 'waiting_input'), eq(schema.flowRuns.currentNodeId, auto.nodeId))).limit(1);
       if (here) {
         await systemNote(accountId, conv.id, `🤖 ${agent.name} quis levar o cliente para uma etapa do fluxo “${f.name}”, mas ele já está esperando nela.${why}`);
+        return { outcome: 'replied', detail: null, ...base };
+      }
+      // etapa que o fluxo só alcança depois do pagamento (entrega do material, por exemplo): a IA nunca pula
+      // a cobrança. Conferido aqui de novo, com o fluxo atual, mesmo que a etapa tenha sido oferecida antes.
+      const [fg] = await db.select({ graph: schema.flows.graph }).from(schema.flows)
+        .where(and(eq(schema.flows.id, auto.flowId), eq(schema.flows.accountId, accountId))).limit(1);
+      const { gatedNodes, paidForFlow } = await import('./smartAgent');
+      const graph = fg ? normalizeGraph(fg.graph) as unknown as Parameters<typeof gatedNodes>[0] : null;
+      if (graph && gatedNodes(graph).has(auto.nodeId) && !(await paidForFlow(accountId, contact.id, auto.flowId, graph))) {
+        await systemNote(accountId, conv.id, `🤖 ${agent.name} quis levar o cliente para uma etapa do fluxo “${f.name}” que só vem depois do pagamento, mas não há venda aprovada deste cliente. A etapa não foi feita.${why}`);
         return { outcome: 'replied', detail: null, ...base };
       }
       // etapa exata: começa nesse bloco (aproveita o que o cliente já respondeu nesse fluxo); se o bloco espera

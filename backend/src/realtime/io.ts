@@ -45,6 +45,13 @@ export function initIO(server: HttpServer): IOServer {
   return io;
 }
 
+/** Desconecta os sockets de uma pessoa nesta conta (quando ela sai da equipe, para de receber as mensagens na hora). */
+export async function disconnectUser(accountId: string, userId: string): Promise<void> {
+  if (!io) return;
+  const sockets = await io.in(`account:${accountId}`).fetchSockets();
+  for (const s of sockets) if (s.data?.userId === userId) s.disconnect(true);
+}
+
 /** Emite um evento para todos os sockets de uma conta. */
 export function emitToAccount(accountId: string, event: string, payload: unknown) {
   io?.to(`account:${accountId}`).emit(event, payload);

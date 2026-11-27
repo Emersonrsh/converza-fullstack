@@ -75,10 +75,10 @@ authRouter.post('/register', asyncHandler(async (req, res) => {
   const [existing] = await db.select().from(schema.users).where(sql`lower(${schema.users.email}) = ${email}`).limit(1);
   if (existing) throw new AppError(409, 'E-mail já cadastrado');
 
-  // veio pelo link do convite mandado para este mesmo e-mail: o e-mail já está provado
-  const [invite] = inviteToken ? await db.select().from(schema.platformInvites).where(eq(schema.platformInvites.token, inviteToken)).limit(1) : [];
-  const provenByInvite = !!invite && invite.status === 'pending' && invite.email.toLowerCase() === email;
-  const verified = provenByInvite || !verificationRequired();
+  // O convite NÃO prova a posse do e-mail: quem convidou recebe o mesmo link (para copiar e mandar),
+  // então com ele qualquer um criaria a conta de outra pessoa já "confirmada". A confirmação é sempre
+  // pelo link que chega na caixa de entrada; o convite só vale para a indicação.
+  const verified = !verificationRequired();
 
   const passwordHash = await bcrypt.hash(password, 10);
 

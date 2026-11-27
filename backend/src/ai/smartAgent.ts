@@ -67,15 +67,65 @@ function nodeLabel(n: { type: string; data?: Dict }): string {
 }
 
 /** Etapas para onde vale levar o cliente: começo, saídas da IA que interpreta respostas, entrega, Pix e espera do comprovante. */
-export function flowSteps(graph: Graph): { nodeId: string; label: string }[] {
+/** Saídas que só acontecem com o pagamento: comprovante aceito pela IA e "Pago" dos blocos de cobrança. */
+const isPaymentEdge = (graph: Graph, e: { source: string; sourceHandle?: string | null }) => {
+  const src = graph.nodes.find((n) => n.id === e.source);
+  if (!src) return false;
+  if (src.type === 'ai' && e.sourceHandle === 'receipt') return true;
+  return ['payment', 'card', 'xpag'].includes(src.type) && e.sourceHandle === 'paid';
+};
+
+/**
+ * Blocos que o fluxo só alcança depois de um pagamento: partindo do gatilho sem passar por nenhuma saída
+ * de pagamento, não se chega neles. A IA não pode levar o cliente direto para um desses sem venda aprovada.
+ */
+export function gatedNodes(graph: Graph): Set<string> {
+  const starts = [...new Set(['trigger', ...(graph.nodes ?? []).filter((n) => n.type === 'trigger').map((n) => n.id)])];
+  const free = new Set<string>(starts);
+  const queue = [...starts];
+  while (queue.length) {
+    const id = queue.shift()!;
+    for (const e of graph.edges ?? []) {
+      if (e.source !== id || free.has(e.target) || isPaymentEdge(graph, e)) continue;
+      free.add(e.target);
+      queue.push(e.target);
+    }
+  }
+  return new Set((graph.nodes ?? []).map((n) => n.id).filter((id) => !free.has(id)));
+}
+
+/**
+ * O contato pagou a oferta deste fluxo? Só vale venda APROVADA (pendente não conta), de um produto que o
+ * fluxo usa ou feita depois que o contato entrou neste fluxo pela última vez.
+ */
+export async function paidForFlow(accountId: string, contactId: string, flowId: string, graph?: Graph): Promise<boolean> {
+  let g = graph;
+  if (!g) {
+    const [f] = await db.select({ graph: schema.flows.graph }).from(schema.flows).where(and(eq(schema.flows.id, flowId), eq(schema.flows.accountId, accountId))).limit(1);
+    if (!f) return false;
+    g = normalizeGraph(f.graph) as unknown as Graph;
+  }
+  const products = [...flowRefs(g).products];
+  const [run] = await db.select({ at: schema.flowRuns.startedAt }).from(schema.flowRuns)
+    .where(and(eq(schema.flowRuns.accountId, accountId), eq(schema.flowRuns.flowId, flowId), eq(schema.flowRuns.contactId, contactId)))
+    .orderBy(desc(schema.flowRuns.startedAt)).limit(1);
+  const byProduct = products.length ? sql`product_id in (${sql.join(products.map((p) => sql`${p}::uuid`), sql`, `)})` : sql`false`;
+  const byTime = run ? sql`created_at >= ${run.at}` : sql`false`;
+  const r = await db.execute(sql`select 1 from sales where account_id = ${accountId} and contact_id = ${contactId} and status = 'approved'
+    and (${byProduct} or ${byTime}) limit 1`);
+  return r.rows.length > 0;
+}
+
+export function flowSteps(graph: Graph): { nodeId: string; label: string; gated: boolean }[] {
   const nodes = new Map(graph.nodes.map((n) => [n.id, n]));
-  const out: { nodeId: string; label: string }[] = [];
+  const gated = gatedNodes(graph);
+  const out: { nodeId: string; label: string; gated: boolean }[] = [];
   const seen = new Set<string>();
   const add = (id: string | undefined, label: string) => {
     if (!id || seen.has(id) || !nodes.has(id) || out.length >= MAX_STEPS_PER_FLOW) return;
     const n = nodes.get(id)!;
     if (['trigger', 'sale', 'pixel', 'department', 'ai_agent', 'goto_flow', 'condition', 'distributor', 'delay', 'set_var', 'http', 'kanban'].includes(n.type)) return;
-    seen.add(id); out.push({ nodeId: id, label });
+    seen.add(id); out.push({ nodeId: id, label, gated: gated.has(id) });
   };
   const start = graph.edges.find((e) => e.source === 'trigger');
   if (start) add(start.target, `começo do fluxo: ${nodeLabel(nodes.get(start.target) ?? { type: '' })}`);
@@ -192,7 +242,7 @@ export async function compileSmart(accountId: string, connectionId?: string | nu
     if (text) blocks.push(`OFERTA DO FLUXO “${f.name}” (o que o fluxo fala para o cliente)\n${text}`);
     for (const s of flowSteps(g)) {
       if (automations.length >= MAX_STEPS) break;
-      automations.push({ key: `auto_${automations.length + 1}`, trigger: "intent", when: `${s.label} — fluxo “${f.name}”`, action: 'flow', flowId: f.id, nodeId: s.nodeId, stepLabel: s.label });
+      automations.push({ key: `auto_${automations.length + 1}`, trigger: "intent", when: `${s.label} — fluxo “${f.name}”`, action: 'flow', flowId: f.id, nodeId: s.nodeId, stepLabel: s.label, gated: s.gated });
     }
   }
   const value: Compiled = { knowledge: blocks.join('\n\n').slice(0, 24_000), automations, flows: flowMap, offers: flows.length, steps: automations.length };
@@ -238,7 +288,18 @@ export async function smartPersona(accountId: string, a: Partial<Agent>, contact
   // tirar o acesso só existe para quem recebeu cursos pelos fluxos antes de pagar
   const [delivered] = contactId && !(await contactPaid(accountId, contactId)) ? (await db.execute(sql`select 1 from member_access a join member_users u on u.id = a.member_id
     where u.account_id = ${accountId} and u.contact_id = ${contactId} and a.revoked_at is null and a.source = 'flow' limit 1`)).rows : [];
-  const automations = [...sys, ...c.automations, ...(delivered ? [revoke] : [])];
+  // etapas que o fluxo só alcança depois do pagamento: só aparecem para quem tem venda aprovada desse fluxo
+  const steps: AgentAutomation[] = [];
+  const paidCache = new Map<string, boolean>();
+  for (const s of c.automations) {
+    if (s.gated) {
+      if (!contactId || !s.flowId) continue;
+      if (!paidCache.has(s.flowId)) paidCache.set(s.flowId, await paidForFlow(accountId, contactId, s.flowId));
+      if (!paidCache.get(s.flowId)) continue;
+    }
+    steps.push(s);
+  }
+  const automations = [...sys, ...steps, ...(delivered ? [revoke] : [])];
   const names = Object.fromEntries(Object.entries(c.flows).map(([id, f]) => [id, f.name]));
   const extra = clean(a.systemPrompt);
   const persona: AgentPersona = {

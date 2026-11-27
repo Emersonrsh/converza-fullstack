@@ -47,6 +47,8 @@ export interface AgentAutomation {
   nodeId?: string | null;
   /** nome da etapa (Automatização inteligente: a IA escolhe a etapa pelo nome) */
   stepLabel?: string | null;
+  /** etapa que o fluxo só alcança depois do pagamento (só vale com venda aprovada do contato) */
+  gated?: boolean;
 }
 
 export const SYSTEM_TRIGGERS: AutomationTrigger[] = ['invalid_media', 'reply_limit', 'finish', 'handoff'];

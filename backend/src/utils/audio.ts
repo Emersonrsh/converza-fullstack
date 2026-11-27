@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { childEnv } from './childEnv';
 
 /** O servidor não tem o ffmpeg instalado (o Dockerfile do Converza já instala). */
 export class FfmpegMissingError extends Error {}
@@ -10,7 +11,7 @@ export class FfmpegMissingError extends Error {}
 /** Roda o ffmpeg e devolve o que ele escreveu no stderr (onde ficam duração e progresso). */
 function ffmpeg(args: string[], timeoutMs: number, verb = 'converter'): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    const p = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ['-hide_banner', ...args], { stdio: ['ignore', 'ignore', 'pipe'] });
+    const p = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ['-hide_banner', ...args], { stdio: ['ignore', 'ignore', 'pipe'], env: childEnv() });
     let err = '';
     const timer = setTimeout(() => { p.kill('SIGKILL'); reject(new Error('A conversão do áudio demorou demais')); }, timeoutMs);
     p.stderr.on('data', (c: Buffer) => { err += c.toString(); if (err.length > 200_000) err = err.slice(-100_000); });
@@ -36,7 +37,7 @@ async function convert(input: Buffer, outArgs: string[], ext: string, timeoutMs:
   const dst = `${base}.${ext}`;
   await fs.writeFile(src, input);
   try {
-    await ffmpeg(['-loglevel', 'error', '-y', '-i', src, '-vn', ...outArgs, dst], timeoutMs);
+    await ffmpeg(['-loglevel', 'error', '-y', '-protocol_whitelist', 'file', '-i', src, '-vn', ...outArgs, dst], timeoutMs);
     const out = await fs.readFile(dst);
     if (!out.length) throw new Error('A conversão do áudio gerou um arquivo vazio');
     return out;
@@ -87,7 +88,7 @@ export async function voiceNoteMeta(input: Buffer, timeoutMs = 60_000): Promise<
   await fs.writeFile(src, input);
   try {
     const pcm = await new Promise<Buffer>((resolve, reject) => {
-      const p = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-i', src, '-vn', '-ac', '1', '-ar', '8000', '-f', 's16le', '-'], { stdio: ['ignore', 'pipe', 'ignore'] });
+      const p = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-protocol_whitelist', 'file', '-i', src, '-vn', '-ac', '1', '-ar', '8000', '-f', 's16le', '-'], { stdio: ['ignore', 'pipe', 'ignore'], env: childEnv() });
       const parts: Buffer[] = [];
       const timer = setTimeout(() => { p.kill('SIGKILL'); reject(new Error('timeout')); }, timeoutMs);
       p.stdout.on('data', (c: Buffer) => parts.push(c));

@@ -14,6 +14,14 @@ export const apiKeysRouter = Router();
 
 const MAX_KEYS = 20;
 
+/** Revoga as chaves que a pessoa criou nesta conta (ao sair da equipe ou deixar de ser administradora). */
+export async function revokeKeysOf(accountId: string, userId: string): Promise<number> {
+  const rows = await db.update(schema.apiKeys).set({ revokedAt: new Date() })
+    .where(and(eq(schema.apiKeys.accountId, accountId), eq(schema.apiKeys.createdBy, userId), isNull(schema.apiKeys.revokedAt)))
+    .returning({ id: schema.apiKeys.id });
+  return rows.length;
+}
+
 function managerOnly(req: Request) {
   if (req.role === 'agent') throw new AppError(403, 'Só o dono e os administradores mexem nas chaves de API.');
 }

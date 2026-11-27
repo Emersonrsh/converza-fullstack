@@ -392,8 +392,9 @@ export async function trimVideo(input: Buffer, start: number, end: number): Prom
   const src = path.join(dir, 'in.mp4'); const dst = path.join(dir, 'out.mp4');
   try {
     await writeFile(src, input);
+    const env = (await import('../utils/childEnv')).childEnv();
     await new Promise<void>((resolve, reject) => {
-      const p = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ['-hide_banner', '-y', '-ss', String(start), '-to', String(end), '-i', src, '-c', 'copy', '-movflags', '+faststart', dst], { stdio: ['ignore', 'ignore', 'pipe'] });
+      const p = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ['-hide_banner', '-y', '-ss', String(start), '-to', String(end), '-protocol_whitelist', 'file', '-i', src, '-c', 'copy', '-movflags', '+faststart', dst], { stdio: ['ignore', 'ignore', 'pipe'], env } );
       let errTxt = '';
       p.stderr.on('data', (d) => { errTxt = (errTxt + String(d)).slice(-600); });
       const t = setTimeout(() => p.kill('SIGKILL'), 180_000);

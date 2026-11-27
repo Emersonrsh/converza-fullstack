@@ -31,3 +31,36 @@ test('agência com o mesmo app em vários números: todas as entradas continuam 
   assert.equal(r.keep.length, 2);
   assert.equal(r.dropped.length, 0);
 });
+
+test('mudança com o número de outra empresa dentro da entrada do atacante é descartada', () => {
+  const forged = { id: 'eve-waba', changes: [{ field: 'messages', value: { metadata: { phone_number_id: 'vitima-phone' } } }] };
+  const r = authorizedEntries([forged], { globalOk: false, okSecrets: new Set(['eve-secret']), conns });
+  assert.equal(r.keep.length, 0);
+  assert.equal(r.dropped.length, 1);
+});
+
+test('account_update com o WABA da vítima não passa só porque a entrada cita o número do atacante', () => {
+  const forged = { id: 'vitima-waba', changes: [
+    { field: 'messages', value: { metadata: { phone_number_id: 'eve-phone' } } },
+    { field: 'account_update', value: {} },
+  ] };
+  const r = authorizedEntries([forged], { globalOk: false, okSecrets: new Set(['eve-secret']), conns });
+  const kept = r.keep.flatMap((e) => (e.changes ?? []).map((c) => c.field));
+  assert.deepEqual(kept, ['messages']);
+  assert.ok(r.dropped.some((e) => (e.changes ?? []).some((c) => c.field === 'account_update')));
+});
+
+test('account_update da própria WABA continua valendo com a chave da conexão', () => {
+  const own = { id: 'eve-waba', changes: [{ field: 'account_update', value: {} }] };
+  const r = authorizedEntries([own], { globalOk: false, okSecrets: new Set(['eve-secret']), conns });
+  assert.equal(r.keep.length, 1);
+});
+
+test('entrada mista: só as mudanças da conexão que assinou ficam', () => {
+  const mixed = { id: 'eve-waba', changes: [
+    { field: 'messages', value: { metadata: { phone_number_id: 'eve-phone' } } },
+    { field: 'messages', value: { metadata: { phone_number_id: 'vitima-phone' } } },
+  ] };
+  const r = authorizedEntries([mixed], { globalOk: false, okSecrets: new Set(['eve-secret']), conns });
+  assert.deepEqual(r.keep[0].changes?.map((c) => c.value?.metadata?.phone_number_id), ['eve-phone']);
+});

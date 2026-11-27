@@ -14,6 +14,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import sharp from 'sharp';
 import { toOggOpus } from './audio';
+import { childEnv } from './childEnv';
 
 export interface Compressed {
   data: Buffer; mime: string; fileName: string;
@@ -55,7 +56,7 @@ async function compressImage(data: Buffer, mime: string, fileName: string): Prom
 let gsMissingWarned = false;
 function ghostscript(args: string[], timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    const p = spawn(process.env.GS_PATH || 'gs', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    const p = spawn(process.env.GS_PATH || 'gs', args, { stdio: ['ignore', 'ignore', 'pipe'], env: childEnv() });
     let err = '';
     const timer = setTimeout(() => { p.kill('SIGKILL'); reject(new Error('a compressão do PDF demorou demais')); }, timeoutMs);
     p.stderr.on('data', (c: Buffer) => { err = (err + c.toString()).slice(-4000); });
@@ -65,6 +66,8 @@ function ghostscript(args: string[], timeoutMs: number): Promise<void> {
 }
 
 async function compressPdf(data: Buffer, fileName: string): Promise<Omit<Compressed, 'before' | 'after' | 'compressed'>> {
+  // o tipo vem de quem mandou o arquivo: só entrega ao Ghostscript o que é mesmo um PDF
+  if (!data.subarray(0, 1024).includes(Buffer.from('%PDF-'))) throw new Error('o arquivo não é um PDF');
   const base = join(tmpdir(), `cvz-pdf-${randomUUID()}`);
   const src = `${base}.in.pdf`; const dst = `${base}.out.pdf`;
   await fs.writeFile(src, data);

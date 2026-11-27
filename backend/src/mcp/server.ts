@@ -129,6 +129,14 @@ async function rateLimited(keyId: string): Promise<boolean> {
   }
 }
 
+/** Quem criou a chave ainda é dono ou administrador da conta? */
+export async function creatorStillManager(accountId: string, userId: string | null): Promise<boolean> {
+  if (!userId) return false;
+  const [m] = await db.select({ role: schema.memberships.role }).from(schema.memberships)
+    .where(and(eq(schema.memberships.accountId, accountId), eq(schema.memberships.userId, userId))).limit(1);
+  return m?.role === 'owner' || m?.role === 'admin';
+}
+
 const sendRpcError = (res: Response, status: number, message: string, code = -32001) =>
   res.status(status).json(err(null, code, message));
 
@@ -149,6 +157,13 @@ async function handleHttp(req: Request, res: Response) {
   if (!row) {
     res.setHeader('WWW-Authenticate', 'Bearer realm="converza", error="invalid_token"');
     return sendRpcError(res, 401, 'Chave de API inválida ou revogada.');
+  }
+  // a chave age em nome de quem a criou: se essa pessoa saiu da equipe ou deixou de ser dona/administradora,
+  // a chave morre junto (antes continuava valendo como administradora depois do desligamento)
+  if (!(await creatorStillManager(row.k.accountId, row.k.createdBy))) {
+    void db.update(schema.apiKeys).set({ revokedAt: new Date() }).where(and(eq(schema.apiKeys.id, row.k.id), isNull(schema.apiKeys.revokedAt))).catch(() => {});
+    res.setHeader('WWW-Authenticate', 'Bearer realm="converza", error="invalid_token"');
+    return sendRpcError(res, 401, 'Chave de API revogada: quem criou esta chave não é mais dono ou administrador da empresa. Crie uma chave nova.');
   }
   if (row.status !== 'active') {
     return sendRpcError(res, 403, 'A assinatura desta conta não está ativa — as ferramentas MCP voltam quando a assinatura estiver em dia.');

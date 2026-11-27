@@ -14,17 +14,13 @@ import { ToolError, type ToolCtx } from './tools';
 
 export interface RouteOut<T = any> { status: number; body: T }
 
-/** Usuário em nome de quem a chave age: quem criou a chave; senão, o dono da conta. */
+/** Usuário em nome de quem a chave age: sempre quem a criou, e só enquanto for dono ou administrador da conta. */
 async function actingUser(ctx: ToolCtx): Promise<{ id: string; email: string; verified: boolean }> {
   const [k] = await db.select({ createdBy: schema.apiKeys.createdBy }).from(schema.apiKeys).where(eq(schema.apiKeys.id, ctx.keyId)).limit(1);
-  let uid = k?.createdBy ?? null;
-  if (!uid) {
-    const [m] = await db.select({ userId: schema.memberships.userId }).from(schema.memberships)
-      .where(and(eq(schema.memberships.accountId, ctx.accountId), inArray(schema.memberships.role, ['owner', 'admin'])))
-      .orderBy(asc(schema.memberships.createdAt)).limit(1);
-    uid = m?.userId ?? null;
-  }
-  if (!uid) throw new ToolError('A conta não tem um administrador para esta chave agir em nome dele.');
+  const uid = k?.createdBy ?? null;
+  const [m] = uid ? await db.select({ role: schema.memberships.role }).from(schema.memberships)
+    .where(and(eq(schema.memberships.accountId, ctx.accountId), eq(schema.memberships.userId, uid), inArray(schema.memberships.role, ['owner', 'admin']))).limit(1) : [];
+  if (!uid || !m) throw new ToolError('Quem criou esta chave não é mais dono ou administrador da empresa. Crie uma chave nova.');
   const [u] = await db.select({ id: schema.users.id, email: schema.users.email }).from(schema.users).where(eq(schema.users.id, uid)).limit(1);
   if (!u) throw new ToolError('O usuário que criou esta chave não existe mais. Crie uma chave nova.');
   return { id: u.id, email: u.email, verified: true };

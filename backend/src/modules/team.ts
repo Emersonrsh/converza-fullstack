@@ -7,7 +7,8 @@ import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { asyncHandler, AppError, isUuid } from '../utils/http';
 import { emailConfigured } from '../email/mailer';
-import { emitToAccount } from '../realtime/io';
+import { disconnectUser, emitToAccount } from '../realtime/io';
+import { revokeKeysOf } from './apiKeys';
 import {
   ROLE_LABEL, inviteExpiry, inviteStatus, newToken, normEmail, sendTeamInviteEmail, teamInviteLink,
 } from './invites';
@@ -139,6 +140,8 @@ teamRouter.patch('/:membershipId', asyncHandler(async (req, res) => {
   if (p.data.departmentId !== undefined) patch.departmentId = await ownDepartment(accountId, p.data.departmentId);
   if (!Object.keys(patch).length) return res.json({ membership: m });
   const [row] = await db.update(schema.memberships).set(patch).where(eq(schema.memberships.id, m.id)).returning();
+  // deixou de ser administradora: as chaves de API que ela criou (que agem como administradora) caem
+  if (patch.role === 'agent') await revokeKeysOf(accountId, m.userId);
   emitToAccount(accountId, 'team:changed', {});
   res.json({ membership: row });
 }));
@@ -153,6 +156,9 @@ teamRouter.delete('/:membershipId', asyncHandler(async (req, res) => {
   if (m.userId === req.user!.id) throw new AppError(409, 'Para sair, use “Sair da Empresa” em Configurações › Empresa.');
   if (m.role === 'admin' && req.role !== 'owner' && !req.support) throw new AppError(403, 'Só o dono remove administradores.');
   await db.delete(schema.memberships).where(and(eq(schema.memberships.id, m.id), ne(schema.memberships.role, 'owner')));
+  // quem sai perde também as chaves de API que criou e a conexão em tempo real
+  await revokeKeysOf(req.accountId!, m.userId);
+  await disconnectUser(req.accountId!, m.userId).catch(() => undefined);
   // conversas que estavam com a pessoa voltam para a fila
   await db.update(schema.conversations).set({ assignedUserId: null })
     .where(and(eq(schema.conversations.accountId, req.accountId!), eq(schema.conversations.assignedUserId, m.userId), ne(schema.conversations.status, 'resolved')));
